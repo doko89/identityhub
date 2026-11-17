@@ -329,6 +329,14 @@ func runServe(args []string) error {
 	}
 	defer db.Close()
 
+	// Auto-migrate on boot: a forgotten `migrate up` must never strand
+	// the server on an old schema. Migrations are additive and backward
+	// compatible; a failure fails the boot loudly instead of serving
+	// half-migrated.
+	if err := postgres.MigrateUp(ctx, cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+
 	svc, err := wireServices(ctx, db, cfg, log)
 	if err != nil {
 		return err
@@ -473,6 +481,12 @@ func runWorker(args []string) error {
 		return err
 	}
 	defer db.Close()
+
+	// Auto-migrate like serve: the worker needs the same schema, and a
+	// forgotten `migrate up` must fail the boot loudly, not half-run.
+	if err := postgres.MigrateUp(ctx, cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("migrate up: %w", err)
+	}
 
 	svc, err := wireServices(ctx, db, cfg, log)
 	if err != nil {

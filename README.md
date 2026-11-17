@@ -24,8 +24,7 @@ docker run -d --name identityhub-pg \
 # 3. Frontend build (embeds into the Go binary via go:embed)
 cd web && npm install && npm run build && cd ..
 
-# 4. Migrate + bootstrap the first admin
-go run ./cmd/identityhub migrate up
+# 4. Bootstrap the first admin (serve/worker migrate automatically on boot)
 go run ./cmd/identityhub create-admin --username root --email root@example.com
 
 # 5. Run
@@ -299,4 +298,18 @@ PLAYWRIGHT_BASE_URL=http://localhost:8080 \
 
 Single binary: `npm run build` in `web/`, then `go build ./cmd/identityhub`.
 Configure only via env (see `.env.example`); TLS terminates at the reverse
-proxy. `migrate up` runs separately before first `serve`.
+proxy. `serve` and `worker` migrate automatically on boot (fail-fast
+on error); `migrate up|down|status` remains for manual control.
+
+## Docker (local integration testing)
+
+```sh
+cp .env.example .env   # then set ENC_KEY (openssl rand -base64 32)
+docker compose up -d --build
+docker compose exec -e IDENTITYHUB_ADMIN_PASSWORD='...' app ./identityhub create-admin --username root --email root@example.com
+```
+
+App: `http://localhost:18080` (HTTP), `ldap://localhost:1389`
+(`uid=<user>,ou=users,dc=identityhub`), RADIUS `localhost:11812`.
+Migrations run automatically on boot; data persists in `idp-pgdata`.
+Tear down with `docker compose down` (`-v` also drops the database).

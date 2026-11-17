@@ -1,0 +1,38 @@
+# Lightweight local test stack: Postgres + app (HTTP :8080, LDAP
+# :1389, RADIUS :1812/udp). Secrets come from .env (ENC_KEY required);
+# the settings below override it for container networking + testing.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: identityhub
+    volumes:
+      - idp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "18080:8080" # host 18080 (8080 often runs a local serve)
+      - "1389:1389"
+      - "11812:1812/udp" # host 11812 (1812 often runs a local serve)
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/identityhub?sslmode=disable
+      APP_BASE_URL: http://localhost:18080
+      LDAP_MODE: ldap
+      LDAP_ALLOWED_CIDRS: 127.0.0.1/32,172.16.0.0/12
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  idp-pgdata:
