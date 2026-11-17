@@ -5,8 +5,8 @@ login via LDAP/local, SSO via OIDC/SAML, legacy via LDAP/RADIUS, plus MFA,
 an app dashboard, and branding. See [PRD.md](PRD.md),
 [TECH_SPEC.md](docs/TECH_SPEC.md), [DESIGN.md](docs/DESIGN.md).
 
-Status: M3 SAML IdP (metadata, signed assertions, SSO/SLO) over M2 OIDC + M1 login.
-Legacy protocols and MFA land in M4–M7.
+Status: M4 legacy providers (in-process LDAP + RADIUS PAP) over M3 SAML + M2 OIDC + M1 login.
+MFA, dashboard, and hardening land in M5–M7.
 
 ## Quickstart
 
@@ -29,7 +29,7 @@ go run ./cmd/identityhub migrate up
 go run ./cmd/identityhub create-admin --username root --email root@example.com
 
 # 5. Run
-go run ./cmd/identityhub serve     # HTTP API + web/ (LDAP/RADIUS from M4)
+go run ./cmd/identityhub serve     # HTTP API + web/ + LDAP/RADIUS providers
 go run ./cmd/identityhub worker    # sync/email/cleanup jobs
 ```
 
@@ -124,6 +124,41 @@ session kill, ForceAuthn/IsPassive, and rejection paths. Admin UI/API
 for SP registration arrives with the app-catalog milestone; the
 `domain.SAMLSPStore` port and Postgres repository are already in place.
 
+## LDAP + RADIUS (M4)
+
+In-process legacy providers calling the same `usecase/auth` as HTTP
+login (local argon2id, directory bind with JIT, fail-closed audit).
+Both deny users who must use MFA — admins always (TECH_SPEC §8, no
+exceptions) — since a legacy bind cannot prompt for a second factor;
+per-app MFA policy for regular users arrives with the app catalog.
+
+```sh
+# LDAP (vjeantet/ldapserver): modes ldap/ldaps/starttls via LDAP_MODE
+# (listener disabled when unset). Bind DN:
+#   uid=<username>,ou=users,dc=identityhub
+# Plaintext refuses to boot without LDAP_ALLOWED_CIDRS, enforced in
+# OnNewConnection before any LDAP bytes are parsed. Search serves
+# ou=users (inetOrgPerson: uid/cn/sn/mail/memberOf) and ou=groups
+# (groupOfNames: cn/member) to bound connections only.
+ldapsearch -H ldap://localhost:1389 -x \
+  -D uid=ara,ou=users,dc=identityhub -w '...' \
+  -b ou=users,dc=identityhub '(uid=ara)' mail memberOf
+
+# RADIUS (layeh/radius): PAP on UDP RADIUS_PORT (default 1812).
+# NAS devices register in radius_clients with nas_identifier = source
+# IP; unknown NAS and wrong-secret packets are dropped unverified.
+# Credential failures get Access-Reject (+ Reply-Message reason);
+# system failures are dropped so the NAS retries.
+```
+
+End-to-end coverage with real clients against ephemeral listeners:
+`internal/delivery/{ldap,radius}/*_integration_test.go
+-tags=integration` (bind/search/whitelist/StartTLS/LDAPS, PAP
+accept/reject/MFA-deny/NAS-drop, audit rows). NAS/client
+registration UI/API arrives with the app-catalog milestone; the
+`domain.RADIUSClientStore` port and Postgres repository (secrets
+sealed with ENC_KEY via AES-256-GCM) are already in place.
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
@@ -132,6 +167,7 @@ for SP registration arrives with the app-catalog milestone; the
 - `internal/usecase/{auth,user,audit,oidcflow,samlflow}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent + SAML assertion decisions
 - `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, embedded SPA
+- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
 - `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash)
 - `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
