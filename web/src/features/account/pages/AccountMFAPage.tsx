@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
+import { Separator } from "@/shared/ui/separator";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Spinner } from "@/shared/ui/spinner";
 
 type Status = {
   has_totp: boolean;
@@ -126,169 +134,182 @@ export function AccountMFAPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", padding: "24px 16px", maxWidth: 640, margin: "0 auto" }}>
-      <p style={{ fontSize: 13 }}>
-        <Link to="/" style={{ color: "var(--primary)" }}>
-          ← Back to dashboard
+    <main className="mx-auto w-full max-w-xl px-4 py-6">
+      <p className="text-sm">
+        <Link to="/account" className="text-primary hover:underline">
+          ← Back to account
         </Link>
       </p>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Two-step verification</h1>
-      {status === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading…</p>
-      )}
-      {status !== null && !status.has_totp && codes === null && (
-        <>
-          <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-            Two-step verification is off. Turn it on to protect your account with an authenticator
-            app.
-          </p>
-          {enroll === null ? (
-            <button type="button" style={buttonStyle} disabled={busy} onClick={() => void startEnroll()}>
-              {busy ? "Starting…" : "Set up authenticator"}
-            </button>
-          ) : (
-            <>
-              <p style={{ fontSize: 14 }}>Scan this code, then enter the 6-digit code it shows.</p>
-              <img
-                src={enroll.qr_png}
-                alt="TOTP enrollment QR code"
-                width={200}
-                height={200}
-                style={{ display: "block", margin: "0 0 12px", border: "1px solid var(--border)" }}
-              />
-              <p style={{ fontSize: 12, color: "var(--muted-foreground)", wordBreak: "break-all" }}>
-                Can&apos;t scan? Enter this secret manually: <code>{enroll.secret}</code>
-              </p>
-              <form onSubmit={(e) => void finishEnroll(e)}>
-                <label style={{ display: "block", fontSize: 14, marginBottom: 16, maxWidth: 280 }}>
-                  6-digit code
-                  <input
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    autoComplete="one-time-code"
-                    inputMode="numeric"
-                    style={inputStyle}
-                    required
-                  />
-                </label>
-                <div style={{ maxWidth: 280 }}>
-                  <button type="submit" style={buttonStyle} disabled={busy}>
-                    {busy ? "Confirming…" : "Confirm"}
-                  </button>
-                </div>
-              </form>
-            </>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Two-step verification</CardTitle>
+          {status !== null && !status.has_totp && codes === null && (
+            <CardDescription>
+              Two-step verification is off. Turn it on to protect your account with an
+              authenticator app.
+            </CardDescription>
           )}
-        </>
-      )}
-      {status !== null && status.has_totp && (
-        <>
-          <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-            Two-step verification is on. Unused recovery codes: {status.remaining_recovery_codes}.
-          </p>
-          {mode === "idle" ? (
-            <div style={{ display: "flex", gap: 8, maxWidth: 460 }}>
-              <button type="button" style={secondaryStyle} onClick={() => setMode("regenerate")}>
-                New recovery codes
-              </button>
-              <button type="button" style={secondaryStyle} onClick={() => setMode("disable")}>
-                Turn off
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={(e) => void submitFactor(e)} style={{ maxWidth: 280 }}>
-              <p style={{ fontSize: 14 }}>
-                {mode === "disable"
-                  ? "Enter a current code to turn two-step verification off."
-                  : "Enter a current code to rotate your recovery codes."}
-              </p>
-              <label style={{ display: "block", fontSize: 14, marginBottom: 16 }}>
-                Current code
-                <input
-                  value={factor}
-                  onChange={(e) => setFactor(e.target.value)}
-                  autoComplete="one-time-code"
-                  style={inputStyle}
-                  required
-                />
-              </label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  style={secondaryStyle}
-                  onClick={() => {
-                    setMode("idle");
-                    setFactor("");
-                  }}
-                >
-                  Cancel
-                </button>
-                <button type="submit" style={buttonStyle} disabled={busy}>
-                  {busy ? "Working…" : "Confirm"}
-                </button>
+          {status !== null && status.has_totp && (
+            <CardDescription>
+              Two-step verification is on. Unused recovery codes:{" "}
+              {status.remaining_recovery_codes}.
+            </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            {status === null && notice === null && (
+              <div className="flex flex-col gap-3" aria-label="Loading">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-48" />
               </div>
-            </form>
-          )}
-        </>
-      )}
-      {codes !== null && (
-        <section style={{ marginTop: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600 }}>Recovery codes</h2>
-          <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-            Save these somewhere safe. Each works once, and they are never shown again.
-          </p>
-          <ul style={{ fontSize: 13, fontFamily: "monospace" }}>
-            {codes.map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-          <button type="button" style={secondaryStyle} onClick={() => setCodes(null)}>
-            I saved my codes
-          </button>
-        </section>
-      )}
-      {notice !== null && (
-        <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-          {notice}
-        </p>
-      )}
+            )}
+            {status !== null && !status.has_totp && codes === null && enroll === null && (
+              <div>
+                <Button type="button" disabled={busy} onClick={() => void startEnroll()}>
+                  {busy ? <Spinner data-icon="inline-start" /> : null}
+                  {busy ? "Starting…" : "Set up authenticator"}
+                </Button>
+              </div>
+            )}
+            {status !== null && !status.has_totp && codes === null && enroll !== null && (
+              <>
+                <p className="text-sm">Scan this code, then enter the 6-digit code it shows.</p>
+                <img
+                  src={enroll.qr_png}
+                  alt="TOTP enrollment QR code"
+                  width={200}
+                  height={200}
+                  className="mb-3 block border"
+                />
+                <p className="text-xs break-all text-muted-foreground">
+                  Can&apos;t scan? Enter this secret manually: <code>{enroll.secret}</code>
+                </p>
+                <form onSubmit={(e) => void finishEnroll(e)}>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="mfa-confirm">6-digit code</FieldLabel>
+                      <CodeInput
+                        id="mfa-confirm"
+                        value={confirm}
+                        onChange={setConfirm}
+                        disabled={busy}
+                      />
+                    </Field>
+                    <div>
+                      <Button type="submit" disabled={busy}>
+                        {busy ? <Spinner data-icon="inline-start" /> : null}
+                        {busy ? "Confirming…" : "Confirm"}
+                      </Button>
+                    </div>
+                  </FieldGroup>
+                </form>
+              </>
+            )}
+            {status !== null && status.has_totp && mode === "idle" && (
+              <div className="flex max-w-md gap-2">
+                <Button type="button" variant="outline" onClick={() => setMode("regenerate")}>
+                  New recovery codes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setMode("disable")}>
+                  Turn off
+                </Button>
+              </div>
+            )}
+            {status !== null && status.has_totp && mode !== "idle" && (
+              <form onSubmit={(e) => void submitFactor(e)} className="max-w-xs">
+                <FieldGroup>
+                  <p className="text-sm">
+                    {mode === "disable"
+                      ? "Enter a current code to turn two-step verification off."
+                      : "Enter a current code to rotate your recovery codes."}
+                  </p>
+                  <Field>
+                    <FieldLabel htmlFor="mfa-factor">Current code</FieldLabel>
+                    <CodeInput
+                      id="mfa-factor"
+                      value={factor}
+                      onChange={setFactor}
+                      disabled={busy}
+                    />
+                  </Field>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setMode("idle");
+                        setFactor("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={busy}>
+                      {busy ? <Spinner data-icon="inline-start" /> : null}
+                      {busy ? "Working…" : "Confirm"}
+                    </Button>
+                  </div>
+                </FieldGroup>
+              </form>
+            )}
+            {codes !== null && (
+              <>
+                <Separator />
+                <div>
+                  <h2 className="text-base font-semibold">Recovery codes</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Save these somewhere safe. Each works once, and they are never shown again.
+                  </p>
+                  <ul className="mt-2 font-mono text-sm">
+                    {codes.map((c) => (
+                      <li key={c}>{c}</li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => setCodes(null)}
+                  >
+                    I saved my codes
+                  </Button>
+                </div>
+              </>
+            )}
+            {notice !== null && (
+              <Alert variant="destructive">
+                <AlertTitle>Something went wrong</AlertTitle>
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
+            )}
+          </FieldGroup>
+        </CardContent>
+      </Card>
     </main>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  boxSizing: "border-box",
-  marginTop: 4,
-  padding: "8px 12px",
-  border: "1px solid var(--input)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--background)",
-  color: "var(--foreground)",
-  fontSize: 14,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  border: "none",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--primary)",
-  color: "var(--primary-foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const secondaryStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "10px 12px",
-  border: "1px solid var(--border)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "transparent",
-  color: "var(--foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
+function CodeInput({
+  id,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <InputOTP id={id} maxLength={6} value={value} onChange={onChange} disabled={disabled} required>
+      <InputOTPGroup>
+        <InputOTPSlot index={0} />
+        <InputOTPSlot index={1} />
+        <InputOTPSlot index={2} />
+        <InputOTPSlot index={3} />
+        <InputOTPSlot index={4} />
+        <InputOTPSlot index={5} />
+      </InputOTPGroup>
+    </InputOTP>
+  );
+}
