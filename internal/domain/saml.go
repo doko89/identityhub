@@ -68,6 +68,15 @@ type SAMLRequestStore interface {
 	Delete(ctx context.Context, challenge string) error
 }
 
+// SAML error-response statuses (saml-core §3.2.2.2) for WriteAuthnError.
+// Plain URIs so delivery never imports crewjam/saml.
+const (
+	SAMLStatusRequester     = "urn:oasis:names:tc:SAML:2.0:status:Requester"
+	SAMLStatusResponder     = "urn:oasis:names:tc:SAML:2.0:status:Responder"
+	SAMLStatusNoPassive     = "urn:oasis:names:tc:SAML:2.0:status:NoPassive"
+	SAMLStatusRequestDenied = "urn:oasis:names:tc:SAML:2.0:status:RequestDenied"
+)
+
 // SAMLLogoutRequest is the crewjam-free view of a LogoutRequest.
 type SAMLLogoutRequest struct {
 	RequestID  string

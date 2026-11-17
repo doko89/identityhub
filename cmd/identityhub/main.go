@@ -24,12 +24,14 @@ import (
 	"github.com/identityhub/identityhub/internal/adapter/mailer"
 	"github.com/identityhub/identityhub/internal/adapter/oidc"
 	"github.com/identityhub/identityhub/internal/adapter/postgres"
+	adaptersaml "github.com/identityhub/identityhub/internal/adapter/saml"
 	"github.com/identityhub/identityhub/internal/config"
 	deliveryhttp "github.com/identityhub/identityhub/internal/delivery/http"
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
+	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 	"github.com/identityhub/identityhub/internal/worker"
 )
@@ -80,16 +82,20 @@ func setup(ctx context.Context) (config.Config, *slog.Logger, *postgres.DB, erro
 // services is the wired M1 dependency graph. main.go is the only
 // concrete wiring site (TECH_SPEC §4).
 type services struct {
-	auth        *usecaseauth.Service
-	users       *usecaseuser.Service
-	audits      *usecaseaudit.Service
-	groups      *postgres.GroupRepository
-	registry    *postgres.SessionRegistryRepository
-	dir         domain.Directory // nil when LDAP_URL is unset
-	oidc        domain.OIDCProvider
-	oidcFlow    *usecaseoidcflow.Service
-	challenges  *postgres.OIDCChallengeRepository
-	oidcClients *postgres.OIDCClientRepository
+	auth         *usecaseauth.Service
+	users        *usecaseuser.Service
+	audits       *usecaseaudit.Service
+	groups       *postgres.GroupRepository
+	registry     *postgres.SessionRegistryRepository
+	dir          domain.Directory // nil when LDAP_URL is unset
+	oidc         domain.OIDCProvider
+	oidcFlow     *usecaseoidcflow.Service
+	challenges   *postgres.OIDCChallengeRepository
+	oidcClients  *postgres.OIDCClientRepository
+	saml         domain.SAMLProvider
+	samlFlow     *usecasesamlflow.Service
+	samlRequests *postgres.SAMLRequestRepository
+	samlSPs      *postgres.SAMLSPRepository
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -162,10 +168,26 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if err != nil {
 		return nil, fmt.Errorf("wire oidc: %w", err)
 	}
+	samlSPs := postgres.NewSAMLSPRepository(db)
+	samlRequests := postgres.NewSAMLRequestRepository(db)
+	samlFlow, err := usecasesamlflow.New(usecasesamlflow.Deps{
+		SPs: samlSPs, Groups: groups,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire samlflow: %w", err)
+	}
+	samlProvider, err := adaptersaml.New(ctx, db.Pool, samlSPs, adaptersaml.Config{
+		Issuer: cfg.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire saml: %w", err)
+	}
 	return &services{
 		auth: authSvc, users: userSvc, audits: audits, groups: groups,
 		registry: registry, dir: dir, oidc: oidcProvider, oidcFlow: oidcFlow,
 		challenges: challenges, oidcClients: oidcClients,
+		saml: samlProvider, samlFlow: samlFlow,
+		samlRequests: samlRequests, samlSPs: samlSPs,
 	}, nil
 }
 
@@ -208,6 +230,7 @@ func runServe(args []string) error {
 		Sessions: sessions, Registry: svc.registry, Auth: svc.auth, Users: svc.users,
 		Audits: svc.audits, Groups: svc.groups, Directory: svc.dir, Log: log,
 		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
+		SAML: svc.saml, SAMLFlow: svc.samlFlow, SAMLRequests: svc.samlRequests, SAMLSPs: svc.samlSPs,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 

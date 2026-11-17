@@ -16,6 +16,7 @@ import (
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
+	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 )
 
@@ -37,6 +38,12 @@ type Handlers struct {
 	oidcFlow    *usecaseoidcflow.Service
 	challenges  domain.OIDCConsentChallengeStore
 	oidcClients domain.OIDCClientStore
+	// SAML IdP wiring (TECH_SPEC §6.3). Nil in unit tests that do not
+	// cover the SAML endpoints; mountSAML skips registration then.
+	saml         domain.SAMLProvider
+	samlFlow     *usecasesamlflow.Service
+	samlRequests domain.SAMLRequestStore
+	samlSPs      domain.SAMLSPStore
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -57,6 +64,11 @@ type HandlerDeps struct {
 	OIDCFlow    *usecaseoidcflow.Service
 	Challenges  domain.OIDCConsentChallengeStore
 	OIDCClients domain.OIDCClientStore
+	// SAML is nil in tests that do not cover the SAML endpoints.
+	SAML         domain.SAMLProvider
+	SAMLFlow     *usecasesamlflow.Service
+	SAMLRequests domain.SAMLRequestStore
+	SAMLSPs      domain.SAMLSPStore
 }
 
 // NewHandlers builds the API handlers.
@@ -72,6 +84,7 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		audits: d.Audits, groups: d.Groups, dir: d.Directory,
 		limiter: d.Limiter, log: d.Log,
 		oidc: d.OIDC, oidcFlow: d.OIDCFlow, challenges: d.Challenges, oidcClients: d.OIDCClients,
+		saml: d.SAML, samlFlow: d.SAMLFlow, samlRequests: d.SAMLRequests, samlSPs: d.SAMLSPs,
 	}
 }
 

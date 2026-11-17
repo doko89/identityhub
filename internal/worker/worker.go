@@ -74,6 +74,11 @@ func (r *Runner) runOnce(ctx context.Context) {
 	} else if n > 0 {
 		r.log.Info("cleaned expired OIDC sessions", "count", n)
 	}
+	if n, err := CleanupExpiredSAML(ctx, r.pool); err != nil {
+		r.log.Error("cleanup expired SAML requests failed", "error", err)
+	} else if n > 0 {
+		r.log.Info("cleaned expired SAML requests", "count", n)
+	}
 }
 
 // CleanupExpiredSessions deletes scs rows past expiry. pgxstore never
@@ -108,4 +113,13 @@ func CleanupExpiredOIDC(ctx context.Context, pool *pgxpool.Pool) (int64, error) 
 		return n, err
 	}
 	return n + tag.RowsAffected(), nil
+}
+
+// CleanupExpiredSAML deletes stashed SSO requests past their TTL.
+func CleanupExpiredSAML(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `DELETE FROM saml_requests WHERE expires_at < now()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
