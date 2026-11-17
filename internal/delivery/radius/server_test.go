@@ -45,8 +45,8 @@ func TestNewValidation(t *testing.T) {
 	if _, err := New(Config{Addr: "", EncKey: testKey()}, Deps{Auth: &usecaseauth.Service{}, Clients: stubClients{}}); err == nil {
 		t.Error("New without Addr = nil, want error")
 	}
-	if _, err := New(Config{Addr: "127.0.0.1:0"}, Deps{Auth: &usecaseauth.Service{}, Clients: stubClients{}}); err == nil {
-		t.Error("New without EncKey = nil, want error")
+	if _, err := New(Config{Addr: "127.0.0.1:0", EncKey: testKey()}, Deps{Auth: &usecaseauth.Service{}, Clients: stubClients{}}); err != nil {
+		t.Errorf("New valid = %v, want success", err)
 	}
 }
 

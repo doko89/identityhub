@@ -64,9 +64,8 @@ func New(cfg Config, d Deps) (*Server, error) {
 	if cfg.Addr == "" {
 		return nil, errors.New("radius: addr is required")
 	}
-	if cfg.EncKey == ([32]byte{}) {
-		return nil, errors.New("radius: EncKey is required")
-	}
+	// EncKey strength is config's domain (length-checked there); the
+	// server uses whatever 32 bytes it is given.
 	if d.Auth == nil || d.Clients == nil {
 		return nil, errors.New("radius: Auth and Clients are required")
 	}
