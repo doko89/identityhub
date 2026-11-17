@@ -16,6 +16,7 @@ import { MFAPage } from "@/features/auth/pages/MFAPage";
 import { ResetPasswordPage } from "@/features/auth/pages/ResetPasswordPage";
 import { BrandProvider } from "@/features/branding/BrandProvider";
 import { DashboardPage } from "@/features/dashboard/pages/DashboardPage";
+import { Toaster } from "@/shared/ui/sonner";
 
 // App wires global providers (router, react-query, branding). Routes:
 // /login, /mfa + /account/mfa (M5), / dashboard (M6).
@@ -44,6 +45,7 @@ export function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <Toaster />
         </BrowserRouter>
       </BrandProvider>
     </QueryClientProvider>
