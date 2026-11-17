@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useBrand } from "@/features/branding/BrandProvider";
 
 // Login page (DESIGN §5.1 layout). Posts to POST /api/auth/login; on
 // success the browser continues to ?next= (the OIDC authorize request)
@@ -8,6 +9,12 @@ export function LoginPage() {
   const [searchParams] = useSearchParams();
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const brand = useBrand();
+  const orgName = brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
+  const background =
+    brand?.login_background_url !== undefined && brand.login_background_url !== ""
+      ? { backgroundImage: `url("${brand.login_background_url}")`, backgroundSize: "cover" }
+      : { background: "radial-gradient(60rem 30rem at 50% -10%, var(--accent), transparent)" };
 
   return (
     <main
@@ -17,7 +24,7 @@ export function LoginPage() {
         alignItems: "center",
         justifyContent: "center",
         padding: 16,
-        background: "radial-gradient(60rem 30rem at 50% -10%, var(--accent), transparent)",
+        ...background,
       }}
     >
       <div
@@ -30,7 +37,10 @@ export function LoginPage() {
           padding: 24,
         }}
       >
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>IdentityHub</h1>
+        {brand?.logo_url !== undefined && brand.logo_url !== "" && (
+          <img src={brand.logo_url} alt="" style={{ height: 28, marginBottom: 8 }} />
+        )}
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>{orgName}</h1>
         <p style={{ fontSize: 14, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
           Sign in
         </p>
@@ -101,7 +111,7 @@ export function LoginPage() {
           </p>
         )}
         <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginBottom: 0 }}>
-          © IdentityHub
+          © {orgName}
         </p>
       </div>
     </main>

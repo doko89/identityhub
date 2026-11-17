@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 // The Go binary serves web/dist in production; `vite dev` proxies /api to
 // a local `identityhub serve` during development.
@@ -16,5 +16,9 @@ export default defineConfig({
       "/api": "http://localhost:8080",
       "/healthz": "http://localhost:8080",
     },
+  },
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });

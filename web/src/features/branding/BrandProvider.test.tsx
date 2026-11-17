@@ -1,0 +1,121 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import type { Branding } from "./api";
+import { applyBrand, applyTheme } from "./apply";
+import { BrandProvider, useBrand } from "./BrandProvider";
+
+const brand: Branding = {
+  org_name: "Acme",
+  logo_url: "",
+  favicon_url: "",
+  primary_color: "#123abc",
+  theme: "light",
+  login_background_url: "",
+  custom_css: "",
+};
+
+// jsdom ships no matchMedia; the provider only needs matches + listeners.
+function mockMatchMedia(dark: boolean): void {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: dark && query.includes("dark"),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }),
+  });
+}
+
+afterEach(() => {
+  document.documentElement.classList.remove("dark");
+  document.documentElement.style.removeProperty("--primary");
+  document.documentElement.style.removeProperty("--ring");
+  document.getElementById("ih-custom-css")?.remove();
+  document.title = "";
+  vi.unstubAllGlobals();
+});
+
+describe("applyTheme", () => {
+  it("forces dark and light explicitly", () => {
+    mockMatchMedia(false);
+    applyTheme("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    applyTheme("light");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("follows the OS on system and empty", () => {
+    mockMatchMedia(true);
+    applyTheme("system");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    mockMatchMedia(false);
+    applyTheme("");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+});
+
+describe("applyBrand", () => {
+  it("sets CSS variables, title and custom css", () => {
+    mockMatchMedia(false);
+    applyBrand({ ...brand, theme: "dark", custom_css: ".x{color:red}" });
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--primary")).toBe("#123abc");
+    expect(root.style.getPropertyValue("--ring")).toBe("#123abc");
+    expect(root.classList.contains("dark")).toBe(true);
+    expect(document.title).toBe("Acme");
+    expect(document.getElementById("ih-custom-css")?.textContent).toBe(".x{color:red}");
+  });
+
+  it("ignores malformed colors and clears stale css", () => {
+    mockMatchMedia(false);
+    applyBrand({ ...brand, custom_css: ".x{color:red}" });
+    expect(document.getElementById("ih-custom-css")).not.toBeNull();
+    applyBrand({ ...brand, primary_color: "red", custom_css: "" });
+    // A malformed color leaves the previous variable untouched.
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#123abc");
+    expect(document.getElementById("ih-custom-css")).toBeNull();
+  });
+});
+
+describe("BrandProvider", () => {
+  function shell(children: ReactNode): ReactNode {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  }
+
+  function ShowName(): ReactNode {
+    const b = useBrand();
+    return <span>{b !== null ? b.org_name : "loading"}</span>;
+  }
+
+  it("fetches once and exposes the brand", async () => {
+    mockMatchMedia(false);
+    const fetchMock = vi.fn(async () =>
+      Response.json({ branding: { ...brand, org_name: "Fetched Co" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByText } = render(shell(
+      <BrandProvider>
+        <ShowName />
+      </BrandProvider>,
+    ));
+    await waitFor(() => expect(getByText("Fetched Co")).toBeDefined());
+    expect(document.title).toBe("Fetched Co");
+    expect(fetchMock).toHaveBeenCalledWith("/api/branding");
+  });
+
+  it("keeps defaults when the endpoint fails", async () => {
+    mockMatchMedia(false);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("oops", { status: 500 })));
+    const { getByText } = render(shell(
+      <BrandProvider>
+        <ShowName />
+      </BrandProvider>,
+    ));
+    // The provider never throws: children render with a null brand.
+    expect(getByText("loading")).toBeDefined();
+  });
+});

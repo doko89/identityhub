@@ -30,6 +30,8 @@ web/dist-ssr/
 # Test artifacts
 coverage.out
 coverage.html
+web/playwright-report/
+web/test-results/
 
 # Local asset uploads (STORAGE_DIR default)
 var/
