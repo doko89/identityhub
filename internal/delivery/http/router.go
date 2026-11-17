@@ -65,6 +65,8 @@ func (h *Handlers) mount(r *chi.Mux) {
 	h.mountSAML(r)
 	r.With(h.requireUser).Get("/api/auth/me", h.handleMe)
 	r.With(h.requireUser).Post("/api/account/password/change", h.handleChangePassword)
+	h.mountMFA(r)
+	h.mountApps(r)
 
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(h.requireAdmin)
@@ -81,7 +83,49 @@ func (h *Handlers) mount(r *chi.Mux) {
 		r.Delete("/groups/{id}/members/{userID}", h.handleAdminRemoveMember)
 		r.Get("/audit", h.handleAdminListAudit)
 		r.Post("/ldap/test", h.handleAdminLDAPTest)
+		if h.mfa != nil {
+			r.Post("/users/{id}/mfa/reset", h.handleAdminMFAReset)
+		}
+		if h.apps != nil {
+			r.Get("/apps", h.handleAdminListApps)
+			r.Post("/apps", h.handleAdminCreateApp)
+			r.Get("/apps/{id}", h.handleAdminGetApp)
+			r.Patch("/apps/{id}", h.handleAdminUpdateApp)
+			r.Delete("/apps/{id}", h.handleAdminDeleteApp)
+			r.Get("/apps/{id}/bindings", h.handleAdminListBindings)
+			r.Post("/apps/{id}/bindings", h.handleAdminCreateBinding)
+			r.Delete("/apps/{id}/bindings/{bindingID}", h.handleAdminDeleteBinding)
+		}
 	})
+}
+
+// mountMFA registers the second-step and self-service factor routes.
+// Skipped when MFA is unwired (unit tests that predate M5).
+func (h *Handlers) mountMFA(r *chi.Mux) {
+	if h.mfa == nil {
+		return
+	}
+	r.Post("/api/auth/mfa/totp", h.handleVerifyTOTP)
+	r.With(h.requireUser).Get("/api/account/mfa/status", h.handleMFAStatus)
+	// Enroll accepts pending-setup sessions (first admin login) as well
+	// as full sessions, so it resolves its own subject.
+	r.Post("/api/account/mfa/enroll", h.handleMFAEnroll)
+	r.Post("/api/account/mfa/enroll/confirm", h.handleMFAEnrollConfirm)
+	r.With(h.requireUser).Post("/api/account/mfa/disable", h.handleMFADisable)
+	r.With(h.requireUser).Post("/api/account/mfa/recovery/regenerate", h.handleMFARegenerateRecovery)
+}
+
+// mountApps registers the dashboard, launch and upload routes. Skipped
+// piece-wise when the catalog or assets are unwired.
+func (h *Handlers) mountApps(r *chi.Mux) {
+	if h.apps != nil {
+		r.With(h.requireUser).Get("/api/my-apps", h.handleMyApps)
+		r.With(h.requireUser).Get("/api/apps/{slug}/launch", h.handleLaunch)
+	}
+	if h.assets != nil && h.storage != nil {
+		r.With(h.requireUser).Post("/api/uploads", h.handleUpload)
+		r.Get("/uploads/*", h.handleUploadServe)
+	}
 }
 
 // handleHealthz is the liveness probe: it answers without touching the

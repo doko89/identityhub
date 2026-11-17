@@ -691,6 +691,33 @@ func TestNotifySkippedWithoutMailerOrEmail(t *testing.T) {
 	}
 }
 
+func TestReAuth(t *testing.T) {
+	svc, _, aud, _, u := newTestService(t)
+	ctx := context.Background()
+	if err := svc.ReAuth(ctx, uuid.New(), "111111"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown user must be not-found, got %v", err)
+	}
+	ch, err := svc.EnrollStart(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.EnrollConfirm(ctx, u.ID, ch.Seed, "111111"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ReAuth(ctx, u.ID, "000000"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("bad factor must fail validation, got %v", err)
+	}
+	svc.clock.(*fakeClock).now = svc.clock.Now().Add(60 * time.Second)
+	if err := svc.ReAuth(ctx, u.ID, "111111"); err != nil {
+		t.Fatalf("fresh factor must pass: %v", err)
+	}
+	for _, e := range aud.entries {
+		if e.IP != "" {
+			t.Fatalf("reauth must not write login audits: %+v", e)
+		}
+	}
+}
+
 func TestHasTOTPStoreError(t *testing.T) {
 	svc, store, _, _, _ := newTestService(t)
 	store.err = errors.New("db down")

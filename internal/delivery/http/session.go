@@ -20,6 +20,10 @@ const (
 	SessionMFAVerifiedAt = "mfa_verified_at"
 	// SessionPendingMFAUserID holds the user id between step-up steps.
 	SessionPendingMFAUserID = "pending_mfa_user_id"
+	// SessionPendingMFASeed holds the sealed TOTP seed between enroll
+	// start and confirm. Sessions are server-side (Postgres), so the
+	// seed never touches the client.
+	SessionPendingMFASeed = "pending_mfa_seed"
 	// SessionAuthTime holds the RFC3339Nano time the password login
 	// completed. SAML ForceAuthn compares it against the stashed request's
 	// creation time to prove the login is fresh (saml-profiles §4.1.3.4).

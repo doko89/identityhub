@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,6 +21,7 @@ type Sessions interface {
 	RenewToken(ctx context.Context) error
 	Put(ctx context.Context, key string, val any)
 	GetString(ctx context.Context, key string) string
+	GetBytes(ctx context.Context, key string) []byte
 	Remove(ctx context.Context, key string)
 	Destroy(ctx context.Context) error
 }
@@ -69,8 +71,9 @@ func (h *Handlers) requireUser(next http.Handler) http.Handler {
 
 // requireAdmin answers 403 unless the session user is an ih_admin member.
 // Membership is checked on every request so revocation takes effect
-// immediately (TECH_SPEC §5). MFA enforcement for admins arrives with
-// the TOTP milestone (M5); until then membership alone gates access.
+// immediately (TECH_SPEC §5). Admins must also have passed a second
+// factor in this session (TECH_SPEC §8: no exceptions); the check is
+// skipped only when MFA is unwired (unit tests that predate M5).
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return h.requireUser(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		u := mustUser(req.Context())
@@ -84,8 +87,44 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator access required"})
 			return
 		}
+		if h.mfa != nil && h.sessions.GetString(req.Context(), SessionMFAVerifiedAt) == "" {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":        "multi-factor authentication is required for administrators",
+				"mfa_required": true,
+			})
+			return
+		}
 		next.ServeHTTP(w, req)
 	}))
+}
+
+// pendingUser loads the user behind a pending-MFA session (between
+// password login and the second step). It returns false when the session
+// carries no pending identity.
+func (h *Handlers) pendingUser(req *http.Request) (domain.User, bool) {
+	raw := h.sessions.GetString(req.Context(), SessionPendingMFAUserID)
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return domain.User{}, false
+	}
+	u, err := h.users.GetUser(req.Context(), id)
+	if err != nil || !u.IsActive {
+		return domain.User{}, false
+	}
+	return u, true
+}
+
+// mfaVerifiedAt returns when the session passed a second factor.
+func (h *Handlers) mfaVerifiedAt(req *http.Request) (time.Time, bool) {
+	raw := h.sessions.GetString(req.Context(), SessionMFAVerifiedAt)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return at, true
 }
 
 // writeError maps domain/usecase errors to status codes. Messages are

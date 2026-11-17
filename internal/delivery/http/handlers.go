@@ -14,8 +14,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
+	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecasemfa "github.com/identityhub/identityhub/internal/usecase/mfa"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
@@ -45,6 +48,14 @@ type Handlers struct {
 	samlFlow     *usecasesamlflow.Service
 	samlRequests domain.SAMLRequestStore
 	samlSPs      domain.SAMLSPStore
+	// MFA + app catalog + assets (TECH_SPEC §6.1, §6.7). Nil in unit
+	// tests that predate M5/M6; the MFA login step, the admin MFA gate
+	// and the new routes are skipped then.
+	mfa     *usecasemfa.Service
+	apps    *usecaseapp.Service
+	assets  *usecaseasset.Service
+	storage domain.FileStorage
+	sealer  domain.SeedSealer
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -70,6 +81,15 @@ type HandlerDeps struct {
 	SAMLFlow     *usecasesamlflow.Service
 	SAMLRequests domain.SAMLRequestStore
 	SAMLSPs      domain.SAMLSPStore
+	// MFA/Apps/Assets/Storage are nil in tests that do not cover the
+	// M5/M6 endpoints.
+	MFA     *usecasemfa.Service
+	Apps    *usecaseapp.Service
+	Assets  *usecaseasset.Service
+	Storage domain.FileStorage
+	// Sealer guards pending enroll seeds in the session; required
+	// whenever MFA is wired.
+	Sealer domain.SeedSealer
 }
 
 // NewHandlers builds the API handlers.
@@ -86,6 +106,8 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		limiter: d.Limiter, log: d.Log,
 		oidc: d.OIDC, oidcFlow: d.OIDCFlow, challenges: d.Challenges, oidcClients: d.OIDCClients,
 		saml: d.SAML, samlFlow: d.SAMLFlow, samlRequests: d.SAMLRequests, samlSPs: d.SAMLSPs,
+		mfa: d.MFA, apps: d.Apps, assets: d.Assets, storage: d.Storage,
+		sealer: d.Sealer,
 	}
 }
 
@@ -178,6 +200,29 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 	}
 	h.limiter.Reset("login:lock:" + strings.ToLower(username))
 
+	// Second step: admins always, enrolled users by opt-in (PRD §6.6).
+	// The password login already audited; the pending session carries
+	// no identity until the factor verifies.
+	if h.mfa != nil {
+		required, enrolled, err := h.mfa.RequiredForLogin(req.Context(), u.ID)
+		if err != nil {
+			h.writeError(w, req, err)
+			return
+		}
+		if required {
+			if err := h.sessions.RenewToken(req.Context()); err != nil {
+				h.writeError(w, req, err)
+				return
+			}
+			h.sessions.Put(req.Context(), SessionPendingMFAUserID, u.ID.String())
+			writeJSON(w, http.StatusOK, map[string]any{
+				"mfa_required": true, "setup_required": !enrolled,
+				"user": map[string]any{"id": u.ID.String(), "username": u.Username},
+			})
+			return
+		}
+	}
+
 	// Renew the session id to prevent fixation, then bind the identity.
 	if err := h.sessions.RenewToken(req.Context()); err != nil {
 		h.writeError(w, req, err)
@@ -199,7 +244,9 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 		h.writeError(w, req, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": userJSON(u, groupNames(groups), isAdmin)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mfa_required": false, "user": userJSON(u, groupNames(groups), isAdmin),
+	})
 }
 
 // auditRateLimited records a rate-limited login attempt so the audit log
@@ -246,11 +293,19 @@ type changePasswordRequest struct {
 	CurrentPassword    string `json:"current_password"`
 	NewPassword        string `json:"new_password"`
 	NewPasswordConfirm string `json:"new_password_confirm"`
+	// TOTPCurrent is the re-auth factor, required when the user has MFA
+	// and the session's last verification is older than mfaReAuthWindow.
+	TOTPCurrent string `json:"totp_code"`
 }
 
-// handleChangePassword changes the session user's own password. MFA
-// re-auth gating arrives with the TOTP milestone (M5); until then the
-// active session alone authorizes the change.
+// mfaReAuthWindow is how fresh the session's second-factor verification
+// must be to change the password without presenting a new code
+// (PRD §6.10: MFA re-auth required when MFA is active).
+const mfaReAuthWindow = 10 * time.Minute
+
+// handleChangePassword changes the session user's own password. Users
+// with MFA must have verified a factor within mfaReAuthWindow or present
+// a fresh code with the request.
 func (h *Handlers) handleChangePassword(w http.ResponseWriter, req *http.Request) {
 	var in changePasswordRequest
 	if !decodeJSON(w, req, &in) {
@@ -259,6 +314,9 @@ func (h *Handlers) handleChangePassword(w http.ResponseWriter, req *http.Request
 	u := mustUser(req.Context())
 	if !h.limiter.Allow("change:user:"+u.ID.String(), ChangePerUserLimit, ChangePerUserWindow) {
 		writeRateLimited(w)
+		return
+	}
+	if h.mfa != nil && !h.checkPasswordChangeMFA(w, req, u, in.TOTPCurrent) {
 		return
 	}
 	revoked, err := h.auth.ChangePassword(req.Context(), u.ID, in.CurrentPassword, in.NewPassword, in.NewPasswordConfirm, h.sessions.Token(req.Context()))

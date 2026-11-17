@@ -26,6 +26,17 @@ const (
 
 	ChangePerUserLimit  = 10
 	ChangePerUserWindow = time.Minute
+
+	// TOTP verify: 5/min/user plus the shared progressive lockout
+	// (TECH_SPEC §8). Enroll endpoints share the same budget: they
+	// accept codes too.
+	TOTPPerUserLimit  = 5
+	TOTPPerUserWindow = time.Minute
+
+	// Uploads are capped generously per user and hour; abuse past this
+	// is a support case, not a login flow.
+	UploadPerUserLimit  = 30
+	UploadPerUserWindow = time.Hour
 )
 
 type window struct {

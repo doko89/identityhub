@@ -25,13 +25,17 @@ import (
 	"github.com/identityhub/identityhub/internal/adapter/oidc"
 	"github.com/identityhub/identityhub/internal/adapter/postgres"
 	adaptersaml "github.com/identityhub/identityhub/internal/adapter/saml"
+	"github.com/identityhub/identityhub/internal/adapter/storage"
 	"github.com/identityhub/identityhub/internal/config"
 	deliveryhttp "github.com/identityhub/identityhub/internal/delivery/http"
 	deliveryldap "github.com/identityhub/identityhub/internal/delivery/ldap"
 	deliveryradius "github.com/identityhub/identityhub/internal/delivery/radius"
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
+	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecasemfa "github.com/identityhub/identityhub/internal/usecase/mfa"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
@@ -100,6 +104,11 @@ type services struct {
 	samlFlow      *usecasesamlflow.Service
 	samlRequests  *postgres.SAMLRequestRepository
 	samlSPs       *postgres.SAMLSPRepository
+	mfa           *usecasemfa.Service
+	apps          *usecaseapp.Service
+	assets        *usecaseasset.Service
+	files         domain.FileStorage
+	sealer        domain.SeedSealer
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -146,10 +155,50 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		log.Info("LDAP upstream not configured; directory login/sync disabled (set LDAP_URL to enable)")
 	}
 
+	mfaRepo := postgres.NewMFARepository(db)
+	appRepo := postgres.NewApplicationRepository(db)
+	bindingRepo := postgres.NewBindingRepository(db)
+	assetRepo := postgres.NewAssetRepository(db)
+
+	var files domain.FileStorage
+	switch cfg.Storage.Backend {
+	case "", config.StorageLocal:
+		local, err := storage.NewLocal(storageDir(cfg))
+		if err != nil {
+			return nil, fmt.Errorf("wire storage: %w", err)
+		}
+		files = local
+	case config.StorageS3:
+		return nil, fmt.Errorf("wire storage: STORAGE_BACKEND=s3 lands in M7 (local is the v1 backend)")
+	default:
+		return nil, fmt.Errorf("wire storage: unknown backend %q", cfg.Storage.Backend)
+	}
+	sealer := crypto.Sealer{Key: cfg.EncKey}
+
+	appSvc, err := usecaseapp.New(usecaseapp.Deps{
+		Apps: appRepo, Bindings: bindingRepo, Users: users, Groups: groups,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire app: %w", err)
+	}
+	mfaSvc, err := usecasemfa.New(usecasemfa.Deps{
+		Store: mfaRepo, Users: users, Groups: groups, Apps: appRepo,
+		TOTP: crypto.TOTP{}, Sealer: sealer, Audit: audits, Mailer: m,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire mfa: %w", err)
+	}
+	assetSvc, err := usecaseasset.New(usecaseasset.Deps{
+		Assets: assetRepo, Storage: files,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire asset: %w", err)
+	}
+
 	authSvc, err := usecaseauth.New(usecaseauth.Deps{
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
 		Sessions: registry, Audit: audits, Hasher: crypto.Hasher{},
-		Mailer: m, Directory: dir, BaseURL: cfg.BaseURL,
+		Mailer: m, Directory: dir, MFAPolicy: mfaSvc, BaseURL: cfg.BaseURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire auth: %w", err)
@@ -161,7 +210,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		return nil, fmt.Errorf("wire user: %w", err)
 	}
 	oidcFlow, err := usecaseoidcflow.New(usecaseoidcflow.Deps{
-		Clients: oidcClients, Groups: groups, Consents: consents,
+		Clients: oidcClients, Groups: groups, Consents: consents, Access: appSvc,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire oidcflow: %w", err)
@@ -175,7 +224,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	samlSPs := postgres.NewSAMLSPRepository(db)
 	samlRequests := postgres.NewSAMLRequestRepository(db)
 	samlFlow, err := usecasesamlflow.New(usecasesamlflow.Deps{
-		SPs: samlSPs, Groups: groups,
+		SPs: samlSPs, Groups: groups, Access: appSvc,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire samlflow: %w", err)
@@ -193,7 +242,17 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		challenges: challenges, oidcClients: oidcClients,
 		saml: samlProvider, samlFlow: samlFlow,
 		samlRequests: samlRequests, samlSPs: samlSPs,
+		mfa: mfaSvc, apps: appSvc, assets: assetSvc, files: files, sealer: sealer,
 	}, nil
+}
+
+// storageDir applies the local-backend default for programmatic configs
+// (Load always fills Dir itself).
+func storageDir(cfg config.Config) string {
+	if cfg.Storage.Dir != "" {
+		return cfg.Storage.Dir
+	}
+	return config.DefaultStorageDir
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
@@ -236,6 +295,7 @@ func runServe(args []string) error {
 		Audits: svc.audits, Groups: svc.groups, Directory: svc.dir, Log: log,
 		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
 		SAML: svc.saml, SAMLFlow: svc.samlFlow, SAMLRequests: svc.samlRequests, SAMLSPs: svc.samlSPs,
+		MFA: svc.mfa, Apps: svc.apps, Assets: svc.assets, Storage: svc.files, Sealer: svc.sealer,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 

@@ -329,6 +329,16 @@ func (s *Service) checkFactor(ctx context.Context, userID uuid.UUID, code string
 	return nil
 }
 
+// ReAuth verifies one factor for step-up flows that are audited by
+// their own action (password change, PRD §6.10): unlike Verify it
+// writes no login audit entry — the caller's action audit is the record.
+func (s *Service) ReAuth(ctx context.Context, userID uuid.UUID, code string) error {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return err
+	}
+	return s.checkFactor(ctx, userID, code)
+}
+
 // DisableSelf removes the user's own factors after re-auth with the old
 // factor (TECH_SPEC §6.1: changing factors requires the old one).
 func (s *Service) DisableSelf(ctx context.Context, userID uuid.UUID, code string) error {
