@@ -67,6 +67,9 @@ func (h *Handlers) mount(r *chi.Mux) {
 	r.With(h.requireUser).Post("/api/account/password/change", h.handleChangePassword)
 	h.mountMFA(r)
 	h.mountApps(r)
+	if h.branding != nil {
+		r.Get("/api/branding", h.handleGetBranding)
+	}
 
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(h.requireAdmin)
@@ -85,6 +88,9 @@ func (h *Handlers) mount(r *chi.Mux) {
 		r.Post("/ldap/test", h.handleAdminLDAPTest)
 		if h.mfa != nil {
 			r.Post("/users/{id}/mfa/reset", h.handleAdminMFAReset)
+		}
+		if h.branding != nil {
+			r.Patch("/branding", h.handleAdminUpdateBranding)
 		}
 		if h.apps != nil {
 			r.Get("/apps", h.handleAdminListApps)

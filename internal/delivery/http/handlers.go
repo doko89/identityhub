@@ -18,6 +18,7 @@ import (
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecasebranding "github.com/identityhub/identityhub/internal/usecase/branding"
 	usecasemfa "github.com/identityhub/identityhub/internal/usecase/mfa"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
@@ -56,6 +57,10 @@ type Handlers struct {
 	assets  *usecaseasset.Service
 	storage domain.FileStorage
 	sealer  domain.SeedSealer
+	// Branding serves GET /api/branding + the admin update (TECH_SPEC
+	// §7). Nil in unit tests that predate M7; the routes are skipped
+	// then.
+	branding *usecasebranding.Service
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -90,6 +95,8 @@ type HandlerDeps struct {
 	// Sealer guards pending enroll seeds in the session; required
 	// whenever MFA is wired.
 	Sealer domain.SeedSealer
+	// Branding is nil in tests that do not cover the theme endpoints.
+	Branding *usecasebranding.Service
 }
 
 // NewHandlers builds the API handlers.
@@ -107,7 +114,7 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		oidc: d.OIDC, oidcFlow: d.OIDCFlow, challenges: d.Challenges, oidcClients: d.OIDCClients,
 		saml: d.SAML, samlFlow: d.SAMLFlow, samlRequests: d.SAMLRequests, samlSPs: d.SAMLSPs,
 		mfa: d.MFA, apps: d.Apps, assets: d.Assets, storage: d.Storage,
-		sealer: d.Sealer,
+		sealer: d.Sealer, branding: d.Branding,
 	}
 }
 

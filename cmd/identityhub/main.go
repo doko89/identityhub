@@ -35,6 +35,7 @@ import (
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecasebranding "github.com/identityhub/identityhub/internal/usecase/branding"
 	usecasemfa "github.com/identityhub/identityhub/internal/usecase/mfa"
 	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecasesamlflow "github.com/identityhub/identityhub/internal/usecase/samlflow"
@@ -109,6 +110,7 @@ type services struct {
 	assets        *usecaseasset.Service
 	files         domain.FileStorage
 	sealer        domain.SeedSealer
+	branding      *usecasebranding.Service
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -194,6 +196,12 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if err != nil {
 		return nil, fmt.Errorf("wire asset: %w", err)
 	}
+	brandingSvc, err := usecasebranding.New(usecasebranding.Deps{
+		Store: postgres.NewBrandingRepository(db), Audit: audits,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire branding: %w", err)
+	}
 
 	authSvc, err := usecaseauth.New(usecaseauth.Deps{
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
@@ -243,6 +251,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		saml: samlProvider, samlFlow: samlFlow,
 		samlRequests: samlRequests, samlSPs: samlSPs,
 		mfa: mfaSvc, apps: appSvc, assets: assetSvc, files: files, sealer: sealer,
+		branding: brandingSvc,
 	}, nil
 }
 
@@ -296,6 +305,7 @@ func runServe(args []string) error {
 		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
 		SAML: svc.saml, SAMLFlow: svc.samlFlow, SAMLRequests: svc.samlRequests, SAMLSPs: svc.samlSPs,
 		MFA: svc.mfa, Apps: svc.apps, Assets: svc.assets, Storage: svc.files, Sealer: svc.sealer,
+		Branding: svc.branding,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 
