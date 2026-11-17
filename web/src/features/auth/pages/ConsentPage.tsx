@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Spinner } from "@/shared/ui/spinner";
 
 type ConsentInfo = {
   challenge: string;
@@ -80,65 +84,62 @@ export function ConsentPage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        background: "radial-gradient(60rem 30rem at 50% -10%, var(--accent), transparent)",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 440,
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          background: "var(--background)",
-          padding: 24,
-        }}
-      >
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Authorize app</h1>
-        {info === null && error === null && (
-          <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading request…</p>
-        )}
-        {error !== null && (
-          <p role="alert" style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-            {error}
-          </p>
-        )}
-        {info !== null && (
-          <>
-            <p style={{ fontSize: 14, color: "var(--muted-foreground)", margin: "0 0 12px" }}>
-              <strong style={{ color: "var(--foreground)" }}>{info.client_name}</strong> wants to
-              sign you in and access:
-            </p>
-            <ul style={{ fontSize: 14, paddingLeft: 20, margin: "0 0 16px" }}>
-              {info.scopes.map((scope) => (
-                <li key={scope} style={{ marginBottom: 4 }}>
-                  {scopeLabels[scope] ?? scope}{" "}
-                  <span style={{ color: "var(--muted-foreground)", fontSize: 12 }}>
-                    ({scope})
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p style={{ fontSize: 12, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
-              You will return to {redirectHost(info.redirect_uri)} after deciding.
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" style={denyStyle} disabled={busy} onClick={() => void decide(false)}>
-                Deny
-              </button>
-              <button type="button" style={allowStyle} disabled={busy} onClick={() => void decide(true)}>
-                {busy ? "Working…" : "Allow"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Authorize app</CardTitle>
+          {info === null && error === null && (
+            <CardDescription>Loading request…</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {error !== null && (
+            <Alert variant="destructive">
+              <AlertTitle>Authorization failed</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {info !== null && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">{info.client_name}</strong> wants to sign you
+                in and access:
+              </p>
+              <ul className="flex flex-col gap-1 pl-5 text-sm">
+                {info.scopes.map((scope) => (
+                  <li key={scope} className="list-disc">
+                    {scopeLabels[scope] ?? scope}{" "}
+                    <span className="text-xs text-muted-foreground">({scope})</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                You will return to {redirectHost(info.redirect_uri)} after deciding.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  disabled={busy}
+                  onClick={() => void decide(false)}
+                >
+                  Deny
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1"
+                  disabled={busy}
+                  onClick={() => void decide(true)}
+                >
+                  {busy ? <Spinner data-icon="inline-start" /> : null}
+                  {busy ? "Working…" : "Allow"}
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </main>
   );
 }
@@ -150,27 +151,3 @@ function redirectHost(redirectUri: string): string {
     return redirectUri;
   }
 }
-
-const allowStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "10px 12px",
-  border: "none",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--primary)",
-  color: "var(--primary-foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const denyStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "10px 12px",
-  border: "1px solid var(--border)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "transparent",
-  color: "var(--foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
