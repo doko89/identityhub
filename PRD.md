@@ -139,7 +139,7 @@ Each application has exactly one primary provider:
 - Forgot password: user enters email/username on the login page; the system emails a single-use token link (15-minute expiry, one active token per user); responses are always generic so account existence is not leaked; after reset, all other sessions are terminated.
 - Admin reset: admin sets a new password for local users; LDAP users are rejected explicitly (LDAP passwords live in the directory); every action is audited (acting admin, target user, time).
 - All three features are for `local`-source users only; LDAP users who try them get a clear message to contact their directory admin.
-- Password policy: minimum 12 characters; rejected if equal to the current or any of the last 10 passwords.
+- Password policy: minimum 8 characters with one uppercase letter and one symbol; rejected if equal to the current or any of the last 10 passwords.
 
 ## 7. Non-Functional Requirements
 

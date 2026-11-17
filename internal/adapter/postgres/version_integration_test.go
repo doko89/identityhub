@@ -4,17 +4,73 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/identityhub/identityhub/internal/domain"
 	"github.com/identityhub/identityhub/internal/worker"
 )
 
+// isolatedDB creates a scratch database for version assertions: other
+// integration packages bump the shared test database concurrently, so
+// exact deltas are only meaningful in isolation.
+func isolatedDB(t *testing.T) *DB {
+	t.Helper()
+	base := os.Getenv("TEST_DATABASE_URL")
+	if base == "" {
+		base = os.Getenv("DATABASE_URL")
+	}
+	if base == "" {
+		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	name := "ver_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	admin := *u
+	admin.Path = "/postgres"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Fatalf("admin connect: %v", err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s", name)); err != nil {
+		t.Fatalf("create db: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		conn, err := pgx.Connect(c, admin.String())
+		if err != nil {
+			return
+		}
+		defer conn.Close(c)
+		_, _ = conn.Exec(c, fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", name))
+	})
+	u.Path = "/" + name
+	if err := MigrateUp(ctx, u.String()); err != nil {
+		t.Fatalf("MigrateUp: %v", err)
+	}
+	db, err := Open(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(db.Close)
+	return db
+}
+
 func TestDirectoryVersionBumps(t *testing.T) {
-	db := testDB(t)
+	db := isolatedDB(t)
 	ctx := context.Background()
 	users := NewUserRepository(db)
 	groups := NewGroupRepository(db)

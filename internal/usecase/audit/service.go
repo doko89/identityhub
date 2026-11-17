@@ -26,6 +26,7 @@ const (
 	ActionMemberAdd          = "member_add"
 	ActionMemberRemove       = "member_remove"
 	ActionUserCreate         = "user_create"
+	ActionUserInvite         = "user_invite"
 	ActionUserDeactivate     = "user_deactivate"
 	ActionUserReactivate     = "user_reactivate"
 	ActionMFAEnroll          = "mfa_enroll"

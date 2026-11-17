@@ -80,6 +80,7 @@ func (h *Handlers) mount(r *chi.Mux) {
 		r.Get("/users/{id}", h.handleAdminGetUser)
 		r.Patch("/users/{id}", h.handleAdminUpdateUser)
 		r.Post("/users/{id}/password", h.handleAdminSetPassword)
+		r.Post("/users/{id}/invite", h.handleAdminInviteUser)
 		r.Get("/groups", h.handleAdminListGroups)
 		r.Post("/groups", h.handleAdminCreateGroup)
 		r.Get("/groups/{id}", h.handleAdminGetGroup)

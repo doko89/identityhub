@@ -24,7 +24,9 @@ type User struct {
 	Email       string
 	DisplayName string
 	// PasswordHash is nil for LDAP users; argon2id (bcrypt accepted only as
-	// a verification fallback) for local users.
+	// a verification fallback) for local users. A local user with no hash
+	// is invite-pending: it cannot authenticate until a password is set
+	// through the invite/reset flow.
 	PasswordHash []byte
 	Source       UserSource
 	ExternalDN   string
@@ -41,9 +43,6 @@ func (u User) Validate() error {
 	}
 	if u.Source != SourceLocal && u.Source != SourceLDAP {
 		return wrapValidation("source must be local or ldap")
-	}
-	if u.Source == SourceLocal && len(u.PasswordHash) == 0 {
-		return wrapValidation("local users require a password hash")
 	}
 	return nil
 }

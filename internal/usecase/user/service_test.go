@@ -597,7 +597,7 @@ func TestNewRequiresDeps(t *testing.T) {
 func TestCreateUser(t *testing.T) {
 	h := newHarness(t)
 	actor := uuid.New()
-	u, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Email: "ara@example.com", Password: "long-password-1"})
+	u, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Email: "ara@example.com", Password: "Long-password-1!"})
 	if err != nil {
 		t.Fatalf("CreateUser = %v", err)
 	}
@@ -615,24 +615,32 @@ func TestCreateUser(t *testing.T) {
 	if lu.Source != domain.SourceLDAP || len(lu.PasswordHash) != 0 {
 		t.Errorf("ldap user = %+v", lu)
 	}
+	// Invite-pending local user: no password yet.
+	pu, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "pending", Email: "pending@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser(pending) = %v", err)
+	}
+	if pu.Source != domain.SourceLocal || len(pu.PasswordHash) != 0 {
+		t.Errorf("pending user = %+v, want hashless local", pu)
+	}
 }
 
 func TestCreateUserFailures(t *testing.T) {
 	h := newHarness(t)
 	actor := uuid.New()
 	for name, in := range map[string]NewUser{
-		"empty username":   {Password: "long-password-1"},
+		"empty username":   {Password: "Long-password-1!"},
 		"short password":   {Username: "ara", Password: "short"},
-		"ldap with passwd": {Username: "d", Source: domain.SourceLDAP, Password: "long-password-1"},
+		"ldap with passwd": {Username: "d", Source: domain.SourceLDAP, Password: "Long-password-1!"},
 	} {
 		if _, err := h.svc.CreateUser(context.Background(), actor, in); err == nil {
 			t.Errorf("%s: CreateUser = nil, want error", name)
 		}
 	}
-	if _, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Password: "long-password-1"}); err != nil {
+	if _, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Password: "Long-password-1!"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Password: "long-password-1"}); !errors.Is(err, domain.ErrConflict) {
+	if _, err := h.svc.CreateUser(context.Background(), actor, NewUser{Username: "ara", Password: "Long-password-1!"}); !errors.Is(err, domain.ErrConflict) {
 		t.Errorf("duplicate = %v, want ErrConflict", err)
 	}
 }
@@ -644,7 +652,7 @@ func TestCreateUserHashFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateUser(context.Background(), uuid.New(), NewUser{Username: "ara", Password: "long-password-1"}); err == nil {
+	if _, err := svc.CreateUser(context.Background(), uuid.New(), NewUser{Username: "ara", Password: "Long-password-1!"}); err == nil {
 		t.Fatal("CreateUser = nil, want error")
 	}
 }

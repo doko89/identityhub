@@ -482,3 +482,21 @@ func (h *Handlers) handleAdminSetPassword(w http.ResponseWriter, req *http.Reque
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleAdminInviteUser emails a password-setup link to a provisioned
+// local user (HRIS invite flow). Unlike the public forgot-password
+// endpoint it carries no rate limit: the admin gate plus the audit
+// entry are the abuse control.
+func (h *Handlers) handleAdminInviteUser(w http.ResponseWriter, req *http.Request) {
+	actor := mustUser(req.Context())
+	targetID, err := uuid.Parse(req.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+	if err := h.auth.InviteUser(req.Context(), actor.ID, targetID, clientIP(req)); err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Invitation sent."})
+}

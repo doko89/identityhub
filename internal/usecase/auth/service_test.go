@@ -271,6 +271,11 @@ func (f *fakeHistory) Add(_ context.Context, userID uuid.UUID, hash []byte) erro
 	if f.err != nil {
 		return f.err
 	}
+	// Mirror the postgres NOT NULL constraint: archiving an empty
+	// previous hash (invite-pending accounts) must fail loudly.
+	if len(hash) == 0 {
+		return errors.New("null password_hash violates not-null constraint")
+	}
 	if f.hashes == nil {
 		f.hashes = map[uuid.UUID][][]byte{}
 	}
@@ -800,7 +805,7 @@ func TestChangePassword(t *testing.T) {
 	_ = h.sessions.Register(ctx, u.ID, "other-token-1")
 	_ = h.sessions.Register(ctx, u.ID, "other-token-2")
 
-	revoked, err := h.svc.ChangePassword(ctx, u.ID, "old-password-12", "brand-new-pass-1", "brand-new-pass-1", "current-token")
+	revoked, err := h.svc.ChangePassword(ctx, u.ID, "old-password-12", "Brand-new-pass-1!", "Brand-new-pass-1!", "current-token")
 	if err != nil {
 		t.Fatalf("ChangePassword = %v", err)
 	}
@@ -808,7 +813,7 @@ func TestChangePassword(t *testing.T) {
 		t.Errorf("revoked = %d, want 2", revoked)
 	}
 	got, _ := h.users.ByID(ctx, u.ID)
-	if !(fakeHasher{}).Verify("brand-new-pass-1", got.PasswordHash) {
+	if !(fakeHasher{}).Verify("Brand-new-pass-1!", got.PasswordHash) {
 		t.Error("password hash was not updated")
 	}
 	if len(h.sessions.tokens[u.ID]) != 1 || !h.sessions.tokens[u.ID]["current-token"] {
@@ -818,7 +823,7 @@ func TestChangePassword(t *testing.T) {
 		t.Errorf("audit action = %v", a.Detail)
 	}
 	// Old password is now in history: changing back is rejected.
-	if _, err := h.svc.ChangePassword(ctx, u.ID, "brand-new-pass-1", "old-password-12", "old-password-12", "current-token"); !errors.Is(err, domain.ErrValidation) {
+	if _, err := h.svc.ChangePassword(ctx, u.ID, "Brand-new-pass-1!", "old-password-12", "old-password-12", "current-token"); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("reuse of previous password = %v, want ErrValidation", err)
 	}
 }
@@ -834,11 +839,11 @@ func TestChangePasswordFailures(t *testing.T) {
 		new2    string
 		wantErr error
 	}{
-		{"mismatch", u, "old-password-12", "brand-new-pass-1", "brand-new-pass-2", domain.ErrValidation},
-		{"wrong current", u, "not-the-password", "brand-new-pass-1", "brand-new-pass-1", domain.ErrUnauthorized},
+		{"mismatch", u, "old-password-12", "Brand-new-pass-1!", "brand-new-pass-2", domain.ErrValidation},
+		{"wrong current", u, "not-the-password", "Brand-new-pass-1!", "Brand-new-pass-1!", domain.ErrUnauthorized},
 		{"too short", u, "old-password-12", "short", "short", domain.ErrValidation},
 		{"same as current", u, "old-password-12", "old-password-12", "old-password-12", domain.ErrValidation},
-		{"ldap user rejected", ld, "whatever", "brand-new-pass-1", "brand-new-pass-1", domain.ErrValidation},
+		{"ldap user rejected", ld, "whatever", "Brand-new-pass-1!", "Brand-new-pass-1!", domain.ErrValidation},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -856,7 +861,7 @@ func TestChangePasswordFailures(t *testing.T) {
 
 func TestChangePasswordUnknownUser(t *testing.T) {
 	h := newHarness(t)
-	if _, err := h.svc.ChangePassword(context.Background(), uuid.New(), "a", "brand-new-pass-1", "brand-new-pass-1", "t"); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := h.svc.ChangePassword(context.Background(), uuid.New(), "a", "Brand-new-pass-1!", "Brand-new-pass-1!", "t"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("ChangePassword = %v, want ErrNotFound", err)
 	}
 }
@@ -969,11 +974,11 @@ func TestResetPassword(t *testing.T) {
 	_ = h.sessions.Register(ctx, u.ID, "sess-1")
 	encoded := issueToken(t, h, u, 'R')
 
-	if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); err != nil {
+	if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); err != nil {
 		t.Fatalf("ResetPassword = %v", err)
 	}
 	got, _ := h.users.ByID(ctx, u.ID)
-	if !(fakeHasher{}).Verify("reset-new-pass-1", got.PasswordHash) {
+	if !(fakeHasher{}).Verify("Reset-new-pass-1!", got.PasswordHash) {
 		t.Error("password hash was not updated")
 	}
 	if len(h.sessions.tokens[u.ID]) != 0 {
@@ -997,7 +1002,7 @@ func TestResetPasswordFailures(t *testing.T) {
 	t.Run("unknown token", func(t *testing.T) {
 		h, _ := newHarnessWithToken(t)
 		other := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("Z", ResetTokenBytes)))
-		err := h.svc.ResetPassword(context.Background(), other, "reset-new-pass-1", "reset-new-pass-1")
+		err := h.svc.ResetPassword(context.Background(), other, "Reset-new-pass-1!", "Reset-new-pass-1!")
 		if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "invalid or expired") {
 			t.Fatalf("ResetPassword = %v, want generic invalid-or-expired", err)
 		}
@@ -1005,14 +1010,14 @@ func TestResetPasswordFailures(t *testing.T) {
 	t.Run("malformed token", func(t *testing.T) {
 		h, _ := newHarnessWithToken(t)
 		for _, bad := range []string{"", "not-base64!!!", "dG9vLXNob3J0"} {
-			if err := h.svc.ResetPassword(context.Background(), bad, "reset-new-pass-1", "reset-new-pass-1"); !errors.Is(err, domain.ErrValidation) {
+			if err := h.svc.ResetPassword(context.Background(), bad, "Reset-new-pass-1!", "Reset-new-pass-1!"); !errors.Is(err, domain.ErrValidation) {
 				t.Errorf("ResetPassword(%q) = %v, want ErrValidation", bad, err)
 			}
 		}
 	})
 	t.Run("mismatch", func(t *testing.T) {
 		h, encoded := newHarnessWithToken(t)
-		if err := h.svc.ResetPassword(context.Background(), encoded, "reset-new-pass-1", "reset-new-pass-2"); !errors.Is(err, domain.ErrValidation) {
+		if err := h.svc.ResetPassword(context.Background(), encoded, "Reset-new-pass-1!", "reset-new-pass-2"); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("ResetPassword = %v, want ErrValidation", err)
 		}
 	})
@@ -1037,7 +1042,7 @@ func TestResetPasswordFailures(t *testing.T) {
 		tok := domain.PasswordResetToken{ID: id, UserID: u.ID, TokenHash: s[:], ExpiresAt: h.now.Add(-time.Minute)}
 		h.resets.byID[id] = tok
 		h.resets.byHash[string(s[:])] = tok
-		if err := h.svc.ResetPassword(context.Background(), raw, "reset-new-pass-1", "reset-new-pass-1"); !errors.Is(err, domain.ErrValidation) {
+		if err := h.svc.ResetPassword(context.Background(), raw, "Reset-new-pass-1!", "Reset-new-pass-1!"); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("ResetPassword(expired) = %v, want ErrValidation", err)
 		}
 	})
@@ -1050,7 +1055,7 @@ func TestResetPasswordFailures(t *testing.T) {
 		tok := domain.PasswordResetToken{ID: id, UserID: ld.ID, TokenHash: s[:], ExpiresAt: h.now.Add(time.Minute)}
 		h.resets.byID[id] = tok
 		h.resets.byHash[string(s[:])] = tok
-		err := h.svc.ResetPassword(context.Background(), raw, "reset-new-pass-1", "reset-new-pass-1")
+		err := h.svc.ResetPassword(context.Background(), raw, "Reset-new-pass-1!", "Reset-new-pass-1!")
 		if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "directory admin") {
 			t.Fatalf("ResetPassword(ldap) = %v, want explicit directory rejection", err)
 		}
@@ -1067,11 +1072,11 @@ func TestAdminSetPassword(t *testing.T) {
 	ctx := context.Background()
 	_ = h.sessions.Register(ctx, target.ID, "sess-1")
 
-	if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "admin-set-pass-1"); err != nil {
+	if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "Admin-set-pass-1!"); err != nil {
 		t.Fatalf("AdminSetPassword = %v", err)
 	}
 	got, _ := h.users.ByID(ctx, target.ID)
-	if !(fakeHasher{}).Verify("admin-set-pass-1", got.PasswordHash) {
+	if !(fakeHasher{}).Verify("Admin-set-pass-1!", got.PasswordHash) {
 		t.Error("password hash was not updated")
 	}
 	if len(h.sessions.tokens[target.ID]) != 0 {
@@ -1099,13 +1104,13 @@ func TestAdminSetPasswordFailures(t *testing.T) {
 	}
 	t.Run("non-admin forbidden", func(t *testing.T) {
 		h := setup(t)
-		if err := h.svc.AdminSetPassword(context.Background(), plain.ID, target.ID, "admin-set-pass-1"); !errors.Is(err, domain.ErrForbidden) {
+		if err := h.svc.AdminSetPassword(context.Background(), plain.ID, target.ID, "Admin-set-pass-1!"); !errors.Is(err, domain.ErrForbidden) {
 			t.Fatalf("AdminSetPassword = %v, want ErrForbidden", err)
 		}
 	})
 	t.Run("ldap target rejected", func(t *testing.T) {
 		h := setup(t)
-		err := h.svc.AdminSetPassword(context.Background(), admin.ID, ld.ID, "admin-set-pass-1")
+		err := h.svc.AdminSetPassword(context.Background(), admin.ID, ld.ID, "Admin-set-pass-1!")
 		if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "directory admin") {
 			t.Fatalf("AdminSetPassword = %v, want explicit directory rejection", err)
 		}
@@ -1124,7 +1129,7 @@ func TestAdminSetPasswordFailures(t *testing.T) {
 	})
 	t.Run("unknown target", func(t *testing.T) {
 		h := setup(t)
-		if err := h.svc.AdminSetPassword(context.Background(), admin.ID, uuid.New(), "admin-set-pass-1"); !errors.Is(err, domain.ErrNotFound) {
+		if err := h.svc.AdminSetPassword(context.Background(), admin.ID, uuid.New(), "Admin-set-pass-1!"); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("AdminSetPassword = %v, want ErrNotFound", err)
 		}
 	})
@@ -1226,7 +1231,7 @@ func TestChangePasswordInfraFailures(t *testing.T) {
 		return newHarness(t, u), u
 	}
 	run := func(h *harness, u domain.User) error {
-		_, err := h.svc.ChangePassword(ctx, u.ID, "old-password-12", "brand-new-pass-1", "brand-new-pass-1", "tok")
+		_, err := h.svc.ChangePassword(ctx, u.ID, "old-password-12", "Brand-new-pass-1!", "Brand-new-pass-1!", "tok")
 		return err
 	}
 	t.Run("history read failure", func(t *testing.T) {
@@ -1308,7 +1313,7 @@ func TestResetPasswordInfraFailures(t *testing.T) {
 	t.Run("lookup failure", func(t *testing.T) {
 		h, _, encoded := setup(t)
 		h.resets.err = errors.New("db down")
-		if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); err == nil {
+		if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); err == nil {
 			t.Fatal("ResetPassword = nil, want error")
 		}
 	})
@@ -1316,14 +1321,14 @@ func TestResetPasswordInfraFailures(t *testing.T) {
 		h, u, encoded := setup(t)
 		delete(h.users.byID, u.ID)
 		delete(h.users.byUsername, u.Username)
-		if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); !errors.Is(err, domain.ErrNotFound) {
+		if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("ResetPassword = %v, want ErrNotFound", err)
 		}
 	})
 	t.Run("history read failure", func(t *testing.T) {
 		h, _, encoded := setup(t)
 		h.history.err = errors.New("db down")
-		if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); err == nil {
+		if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); err == nil {
 			t.Fatal("ResetPassword = nil, want error")
 		}
 	})
@@ -1338,7 +1343,7 @@ func TestResetPasswordInfraFailures(t *testing.T) {
 		if err := h.resets.MarkUsed(ctx, tok.ID, h.now); err != nil {
 			t.Fatal(err)
 		}
-		err = h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1")
+		err = h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!")
 		if !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("ResetPassword = %v, want ErrValidation", err)
 		}
@@ -1346,14 +1351,14 @@ func TestResetPasswordInfraFailures(t *testing.T) {
 	t.Run("set hash failure", func(t *testing.T) {
 		h, _, encoded := setup(t)
 		h.users.setHashErr = errors.New("db down")
-		if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); err == nil {
+		if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); err == nil {
 			t.Fatal("ResetPassword = nil, want error")
 		}
 	})
 	t.Run("revoke failure", func(t *testing.T) {
 		h, _, encoded := setup(t)
 		h.sessions.err = errors.New("db down")
-		if err := h.svc.ResetPassword(ctx, encoded, "reset-new-pass-1", "reset-new-pass-1"); err == nil {
+		if err := h.svc.ResetPassword(ctx, encoded, "Reset-new-pass-1!", "Reset-new-pass-1!"); err == nil {
 			t.Fatal("ResetPassword = nil, want error")
 		}
 	})
@@ -1371,28 +1376,28 @@ func TestAdminSetPasswordInfraFailures(t *testing.T) {
 	t.Run("admin check failure", func(t *testing.T) {
 		h, admin, target := setup(t)
 		h.groups.err = errors.New("db down")
-		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "admin-set-pass-1"); err == nil {
+		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "Admin-set-pass-1!"); err == nil {
 			t.Fatal("AdminSetPassword = nil, want error")
 		}
 	})
 	t.Run("history read failure", func(t *testing.T) {
 		h, admin, target := setup(t)
 		h.history.err = errors.New("db down")
-		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "admin-set-pass-1"); err == nil {
+		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "Admin-set-pass-1!"); err == nil {
 			t.Fatal("AdminSetPassword = nil, want error")
 		}
 	})
 	t.Run("set hash failure", func(t *testing.T) {
 		h, admin, target := setup(t)
 		h.users.setHashErr = errors.New("db down")
-		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "admin-set-pass-1"); err == nil {
+		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "Admin-set-pass-1!"); err == nil {
 			t.Fatal("AdminSetPassword = nil, want error")
 		}
 	})
 	t.Run("revoke failure", func(t *testing.T) {
 		h, admin, target := setup(t)
 		h.sessions.err = errors.New("db down")
-		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "admin-set-pass-1"); err == nil {
+		if err := h.svc.AdminSetPassword(ctx, admin.ID, target.ID, "Admin-set-pass-1!"); err == nil {
 			t.Fatal("AdminSetPassword = nil, want error")
 		}
 	})
@@ -1465,6 +1470,74 @@ func TestConfirmCachedBind(t *testing.T) {
 	}
 	if len(h.audits.entries) != 4 {
 		t.Errorf("audit entries = %d, want 4 (bad method never audits)", len(h.audits.entries))
+	}
+}
+
+// ---------- InviteUser ----------
+
+func TestInviteUser(t *testing.T) {
+	ctx := context.Background()
+	admin := localUser("root", "Root-password-1!")
+	pending := localUser("newbie", "x")
+	pending.PasswordHash = nil
+	pending.Email = "newbie@example.com"
+	off := localUser("zed", "Zed-password-1!")
+	off.IsActive = false
+	noMail := localUser("nomail", "Nomail-pass-1!")
+	noMail.Email = ""
+	h := newHarness(t, admin, pending, off, noMail)
+	_ = h.sessions.Register(ctx, pending.ID, "sess-1")
+
+	if err := h.svc.InviteUser(ctx, admin.ID, pending.ID, "10.0.0.9"); err != nil {
+		t.Fatalf("InviteUser = %v", err)
+	}
+	if len(h.mailer.to) != 1 || h.mailer.to[0] != "newbie@example.com" {
+		t.Fatalf("invite sent to %v", h.mailer.to)
+	}
+	if !strings.Contains(h.mailer.subject[0], "invited") {
+		t.Errorf("subject = %q, want invite wording", h.mailer.subject[0])
+	}
+	// The mailed link redeems through the normal reset flow, which
+	// activates the invite-pending account.
+	body := h.mailer.bodies[0]
+	token := body[strings.Index(body, "token=")+len("token="):]
+	token = strings.TrimSpace(strings.Split(token, "\n")[0])
+	if err := h.svc.ResetPassword(ctx, token, "First-pass-1!", "First-pass-1!"); err != nil {
+		t.Fatalf("ResetPassword(invite token) = %v", err)
+	}
+	got, err := h.svc.Login(ctx, LoginInput{Username: "newbie", Password: "First-pass-1!", IP: "10.0.0.9"})
+	if err != nil {
+		t.Fatalf("Login after invite = %v", err)
+	}
+	if got.ID != pending.ID {
+		t.Errorf("login user = %v", got.ID)
+	}
+	// Re-invite works too (token rotation, still audited).
+	if err := h.svc.InviteUser(ctx, admin.ID, pending.ID, "10.0.0.9"); err != nil {
+		t.Fatalf("re-invite = %v", err)
+	}
+	invites := 0
+	for _, e := range h.audits.entries {
+		if e.Detail["action"] == audit.ActionUserInvite {
+			invites++
+			if e.Result != domain.ResultSuccess {
+				t.Errorf("invite audit = %+v, want success", e)
+			}
+		}
+	}
+	if invites != 2 {
+		t.Errorf("invite audits = %d, want 2", invites)
+	}
+
+	for name, id := range map[string]uuid.UUID{"unknown": uuid.New(), "inactive": off.ID, "no email": noMail.ID} {
+		if err := h.svc.InviteUser(ctx, admin.ID, id, "10.0.0.9"); err == nil {
+			t.Errorf("%s: InviteUser = nil, want error", name)
+		}
+	}
+	ldapU := ldapUser("dirara", true)
+	h.users.put(ldapU)
+	if err := h.svc.InviteUser(ctx, admin.ID, ldapU.ID, "10.0.0.9"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("ldap target = %v, want validation", err)
 	}
 }
 

@@ -16,13 +16,42 @@ func TestUserValidate(t *testing.T) {
 	if err := (User{Username: "ara", Source: SourceLDAP}).Validate(); err != nil {
 		t.Fatalf("ldap user without hash must be valid: %v", err)
 	}
+	if err := (User{Username: "ara", Source: SourceLocal}).Validate(); err != nil {
+		t.Fatalf("invite-pending local user without hash must be valid: %v", err)
+	}
 	for _, u := range []User{
 		{Source: SourceLocal, PasswordHash: []byte("h")},
 		{Username: "ara", Source: "oidc"},
-		{Username: "ara", Source: SourceLocal},
 	} {
 		if err := u.Validate(); !errors.Is(err, ErrValidation) {
 			t.Errorf("user %+v: err = %v, want ErrValidation", u, err)
+		}
+	}
+}
+
+func TestCheckPasswordComplexity(t *testing.T) {
+	for _, pw := range []string{"Abcdef1!", "P@ssw0rd", "Orang-tua-1!"} {
+		if err := CheckPasswordComplexity(pw); err != nil {
+			t.Errorf("CheckPasswordComplexity(%q) = %v, want nil", pw, err)
+		}
+	}
+	for pw, want := range map[string]string{
+		"short1!":        "at least 8",
+		"alllowercase1!": "uppercase",
+		"ALLUPPERCASE1!": "",
+		"NoDigitsHere!":  "",
+		"NoSymbol123":    "symbol",
+		"12345678":       "uppercase",
+	} {
+		err := CheckPasswordComplexity(pw)
+		if want == "" {
+			if err != nil {
+				t.Errorf("CheckPasswordComplexity(%q) = %v, want nil", pw, err)
+			}
+			continue
+		}
+		if err == nil || !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), want) {
+			t.Errorf("CheckPasswordComplexity(%q) = %v, want validation mentioning %q", pw, err, want)
 		}
 	}
 }

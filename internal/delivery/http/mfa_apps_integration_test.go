@@ -800,18 +800,18 @@ func TestPasswordChangeReAuthE2E(t *testing.T) {
 		})
 	}
 	// Without factors, no re-auth is needed.
-	if code, _ := change(fx.password, "second-password-long-1", ""); code != 200 {
+	if code, _ := change(fx.password, "Second-password-long-1!", ""); code != 200 {
 		t.Fatalf("change without MFA = %d, want 200", code)
 	}
 	// Enroll (full session stamps a fresh verification): the next
 	// change rides the window without a code.
 	fx.enroll(b)
-	if code, _ := change("second-password-long-1", "third-password-long-2", ""); code != 200 {
+	if code, _ := change("Second-password-long-1!", "Third-password-long-2!", ""); code != 200 {
 		t.Fatalf("change in re-auth window = %d, want 200", code)
 	}
 	// A wrong code with a fresh session is ignored (window covers it);
 	// nothing to assert beyond success.
-	if code, _ := change("third-password-long-2", "fourth-password-long-3", "000000"); code != 200 {
+	if code, _ := change("Third-password-long-2!", "Fourth-password-long-3!", "000000"); code != 200 {
 		t.Fatalf("change in window with junk code = %d, want 200", code)
 	}
 }

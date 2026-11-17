@@ -557,8 +557,8 @@ func runCreateAdmin(args []string) error {
 	if *username == "" || *email == "" {
 		return fmt.Errorf("create-admin: --username and --email are required")
 	}
-	if len(*password) < 12 {
-		return fmt.Errorf("create-admin: password must be at least 12 characters (PRD §6.10)")
+	if err := domain.CheckPasswordComplexity(*password); err != nil {
+		return fmt.Errorf("create-admin: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

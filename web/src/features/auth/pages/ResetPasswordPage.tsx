@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
+import { PasswordChecklist } from "@/features/account/components/PasswordChecklist";
 import { errorMessage } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -18,6 +19,7 @@ export function ResetPasswordPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,8 +97,11 @@ export function ResetPasswordPage() {
                     name="new_password"
                     type="password"
                     autoComplete="new-password"
+                    value={preview}
+                    onChange={(e) => setPreview(e.target.value)}
                     required
                   />
+                  <PasswordChecklist value={preview} />
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="reset-confirm">Confirm new password</FieldLabel>

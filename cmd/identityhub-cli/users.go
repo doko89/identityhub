@@ -9,9 +9,11 @@ import (
 const usersUsage = `usage:
   users list [--q QUERY] [--source local|ldap] [--active true|false] [--limit N] [--offset N]
   users get <id>
-  users create --username NAME --email EMAIL --password PASS [--display-name NAME] [--source local|ldap] [--external-dn DN]
+  users create --username NAME --email EMAIL [--password PASS] [--display-name NAME] [--source local|ldap] [--external-dn DN]
+      (omit --password to leave the account invite-pending, then users invite <id>)
   users update <id> [--display-name NAME] [--email EMAIL] [--avatar-url URL] [--active true|false]
   users set-password <id> [--password PASS]
+  users invite <id>
   users mfa-reset <id>`
 
 func usersCmd(ctx context.Context, c *Client, out *output, args []string) error {
@@ -29,6 +31,8 @@ func usersCmd(ctx context.Context, c *Client, out *output, args []string) error 
 		return usersUpdate(ctx, c, out, args[1:])
 	case "set-password":
 		return usersSetPassword(ctx, c, out, args[1:])
+	case "invite":
+		return usersInvite(ctx, c, out, args[1:])
 	case "mfa-reset":
 		return usersMFAReset(ctx, c, out, args[1:])
 	default:
@@ -193,6 +197,21 @@ func usersSetPassword(ctx context.Context, c *Client, out *output, args []string
 		return err
 	}
 	out.line("password updated for %s", rest[0])
+	return nil
+}
+
+func usersInvite(ctx context.Context, c *Client, out *output, args []string) error {
+	if len(args) != 1 {
+		return usagef("users invite <id>")
+	}
+	resp, err := c.do(ctx, "POST", "/api/admin/users/"+args[0]+"/invite", nil, nil)
+	if err != nil {
+		return err
+	}
+	if out.json {
+		return out.printJSON(resp)
+	}
+	out.line("invitation sent to user %s", args[0])
 	return nil
 }
 

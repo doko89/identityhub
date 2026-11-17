@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ApiError } from "@/shared/api/client";
 import { useSessionStore } from "@/shared/stores/session";
+import { PasswordChecklist } from "@/features/account/components/PasswordChecklist";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
@@ -86,8 +87,8 @@ export function AccountPasswordPage() {
         <CardHeader>
           <h1 className="text-xl leading-none font-semibold">Change password</h1>
           <CardDescription>
-            Your new password signs out every other session. It must be at least 12 characters and
-            differ from your recent passwords.
+            Your new password signs out every other session. It must be at least 8 characters with
+            an uppercase letter and a symbol, and differ from your recent passwords.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -149,7 +150,10 @@ export function AccountPasswordPage() {
                     onChange={(e) => set("next", e.target.value)}
                     required
                   />
-                  <FieldDescription>At least 12 characters.</FieldDescription>
+                  <FieldDescription>
+                    At least 8 characters, with an uppercase letter and a symbol.
+                  </FieldDescription>
+                  <PasswordChecklist value={form.next} />
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="new-password-confirm">Confirm new password</FieldLabel>

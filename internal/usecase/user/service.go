@@ -54,9 +54,10 @@ func New(d Deps) (*Service, error) {
 	return &Service{users: d.Users, groups: d.Groups, sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock, attrs: d.Attrs}, nil
 }
 
-// NewUser carries admin-created user fields. Password is required for
-// local users and forbidden for LDAP users (their password lives in the
-// directory).
+// NewUser carries admin-created user fields. Password is optional for
+// local users (empty leaves the account invite-pending: no credentials
+// until set through the invite/reset flow) and forbidden for LDAP users
+// (their password lives in the directory).
 type NewUser struct {
 	Username    string
 	Email       string
@@ -78,13 +79,15 @@ func (s *Service) CreateUser(ctx context.Context, actorID uuid.UUID, in NewUser)
 	}
 	var hash []byte
 	if source == domain.SourceLocal {
-		if len(in.Password) < 12 {
-			return domain.User{}, fmt.Errorf("%w: password must be at least 12 characters", domain.ErrValidation)
-		}
-		var err error
-		hash, err = s.hasher.Hash(in.Password)
-		if err != nil {
-			return domain.User{}, fmt.Errorf("user: hash password: %w", err)
+		if in.Password != "" {
+			if err := domain.CheckPasswordComplexity(in.Password); err != nil {
+				return domain.User{}, err
+			}
+			var err error
+			hash, err = s.hasher.Hash(in.Password)
+			if err != nil {
+				return domain.User{}, fmt.Errorf("user: hash password: %w", err)
+			}
 		}
 	} else if in.Password != "" {
 		return domain.User{}, fmt.Errorf("%w: LDAP users have no local password", domain.ErrValidation)

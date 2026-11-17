@@ -8,7 +8,6 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
 import { Spinner } from "@/shared/ui/spinner";
 
 // Second login step (PRD §6.6): TOTP code or recovery code. Renders in
@@ -99,16 +98,17 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
                     required
                   />
                 ) : (
-                  <InputOTP id="mfa-code" maxLength={6} value={code} onChange={setCode} required containerClassName="justify-center">
-                    <InputOTPGroup>
-                      <InputOTPSlot index={0} />
-                      <InputOTPSlot index={1} />
-                      <InputOTPSlot index={2} />
-                      <InputOTPSlot index={3} />
-                      <InputOTPSlot index={4} />
-                      <InputOTPSlot index={5} />
-                    </InputOTPGroup>
-                  </InputOTP>
+                  <Input
+                    id="mfa-code"
+                    name="totp_code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="123456"
+                    required
+                  />
                 )}
               </Field>
               <Button type="submit" className="w-full" disabled={busy}>
@@ -247,23 +247,17 @@ function EnrollFlow({ next }: { next: string }) {
                   <FieldGroup>
                     <Field>
                       <FieldLabel htmlFor="enroll-code">6-digit code</FieldLabel>
-                      <InputOTP
-                        containerClassName="justify-center"
+                      <Input
                         id="enroll-code"
-                        maxLength={6}
+                        name="totp_code"
                         value={confirm}
-                        onChange={setConfirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="123456"
                         required
-                      >
-                        <InputOTPGroup>
-                          <InputOTPSlot index={0} />
-                          <InputOTPSlot index={1} />
-                          <InputOTPSlot index={2} />
-                          <InputOTPSlot index={3} />
-                          <InputOTPSlot index={4} />
-                          <InputOTPSlot index={5} />
-                        </InputOTPGroup>
-                      </InputOTP>
+                      />
                     </Field>
                     <Button type="submit" className="w-full" disabled={busy}>
                       {busy ? <Spinner data-icon="inline-start" /> : null}

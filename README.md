@@ -63,6 +63,7 @@ curl -b jar -X POST localhost:8080/api/admin/users \
   -d '{"username":"ara","email":"ara@example.com","password":"..."}'
 curl -b jar -X POST localhost:8080/api/admin/users/<id>/password \
   -d '{"new_password":"..."}'
+curl -b jar -X POST localhost:8080/api/admin/users/<id>/invite
 curl -b jar localhost:8080/api/admin/groups
 curl -b jar localhost:8080/api/admin/audit?result=failure
 curl -b jar -X POST localhost:8080/api/admin/ldap/test

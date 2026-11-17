@@ -473,11 +473,45 @@ theme class on the next load, no rebuild. Upload logos as multipart
 (`asset_type=app_logo` + `file` field) via `POST /api/uploads`
 (admin-only; served back as `.webp` under `/uploads/`).
 
+## 9. HRIS provisioning: users, passwords, invites (REST)
+
+HRIS systems provision outbound over the admin API (the LDAP provider
+is read-only, so directory-write provisioning cannot target it). The
+flow mirrors the Authentik pattern: provision first, then email the
+user a setup link.
+
+```bash
+# 1. Provision without a password (invite-pending: cannot log in yet).
+#    Omit "password", or send "" — both leave the account hashless.
+curl -b "$JAR" -X POST "$IDP/api/admin/users" \
+  -H 'Content-Type: application/json' -d '{
+    "username": "ara", "email": "ara@example.com", "display_name": "Ara"
+  }'
+# -> 201 {"user": {"id": "<USER_ID>", ...}}
+
+# 2. Invite: emails a single-use 15-minute setup link. No rate limit
+#    (the admin gate + audit entry are the abuse control), so bulk
+#    onboarding will not throttle like the public forgot-password
+#    endpoint (3/hour/account + 10/hour/IP) would.
+curl -b "$JAR" -X POST "$IDP/api/admin/users/<USER_ID>/invite"
+# -> 200 {"message": "Invitation sent."}
+# The user opens /reset-password?token=... and chooses a password:
+# min 8 characters with one uppercase letter and one symbol.
+```
+
+Rules: invite targets must be active local users with an email
+address (LDAP users and deactivated accounts get explicit 400s);
+minting a new link revokes the previous one, so re-invites are safe.
+Every invite lands in `audit_log` with
+`detail.action=user_invite` and the acting admin. Group membership
+rides the same API (`POST /api/admin/groups/{id}/members`).
+
 ## Appendix A: endpoint reference (this guide)
 
 | Method+path | Purpose |
 |-------------|---------|
 | `POST /api/auth/login`, `POST /api/auth/mfa/totp` | Admin session (§0) |
+| `POST /api/admin/users/{id}/invite` | HRIS invite, no rate limit (§9) |
 | `POST /api/account/mfa/enroll`, `.../enroll/confirm` | First-time admin TOTP (§0) |
 | `GET /api/auth/me` | Session check |
 | `POST /api/admin/apps`, `PATCH/DELETE /api/admin/apps/{id}` | Catalog (§1) |

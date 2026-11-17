@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
+import { Input } from "@/shared/ui/input";
 import { Separator } from "@/shared/ui/separator";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Spinner } from "@/shared/ui/spinner";
@@ -303,24 +303,20 @@ function CodeInput({
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
+  // Single input (not segmented slots): password managers such as
+  // Vaultwarden can only fill a plain one-time-code field.
   return (
-    <InputOTP
+    <Input
       id={id}
-      maxLength={6}
+      name="totp_code"
       value={value}
-      onChange={onChange}
+      onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
+      autoComplete="one-time-code"
+      inputMode="numeric"
+      maxLength={6}
+      placeholder="123456"
       required
-      containerClassName="justify-center"
-    >
-      <InputOTPGroup>
-        <InputOTPSlot index={0} />
-        <InputOTPSlot index={1} />
-        <InputOTPSlot index={2} />
-        <InputOTPSlot index={3} />
-        <InputOTPSlot index={4} />
-        <InputOTPSlot index={5} />
-      </InputOTPGroup>
-    </InputOTP>
+    />
   );
 }

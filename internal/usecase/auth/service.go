@@ -37,8 +37,6 @@ var ErrDirectoryUnavailable = errors.New("directory unavailable")
 var ErrMFARequired = errors.New("multi-factor authentication is required for this account; legacy bind is not allowed")
 
 const (
-	// MinPasswordLength is the v1 password policy floor (PRD §6.10).
-	MinPasswordLength = 12
 	// HistoryDepth is how many previous passwords a new one must differ
 	// from (PRD §6.10).
 	HistoryDepth = 10
@@ -427,11 +425,12 @@ func (s *Service) auditLogin(ctx context.Context, u *domain.User, appID *uuid.UU
 	return nil
 }
 
-// checkNewPassword enforces the v1 policy (PRD §6.10): minimum length and
-// difference from the current plus the last HistoryDepth passwords.
+// checkNewPassword enforces the v1 policy (PRD §6.10): character
+// complexity plus difference from the current and the last
+// HistoryDepth passwords.
 func (s *Service) checkNewPassword(candidate string, currentHash []byte, history [][]byte) error {
-	if len(candidate) < MinPasswordLength {
-		return fmt.Errorf("%w: password must be at least %d characters", domain.ErrValidation, MinPasswordLength)
+	if err := domain.CheckPasswordComplexity(candidate); err != nil {
+		return err
 	}
 	if len(currentHash) > 0 && s.hasher.Verify(candidate, currentHash) {
 		return fmt.Errorf("%w: new password must differ from the current password", domain.ErrValidation)
@@ -486,7 +485,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, current,
 	if err := s.users.SetPasswordHash(ctx, userID, hash); err != nil {
 		return 0, fmt.Errorf("auth: set password: %w", err)
 	}
-	if err := s.history.Add(ctx, userID, u.PasswordHash); err != nil {
+	if err := s.recordHistory(ctx, userID, u.PasswordHash); err != nil {
 		return 0, fmt.Errorf("auth: record password history: %w", err)
 	}
 	revoked, err := s.sessions.RevokeOthers(ctx, userID, keepToken)
@@ -522,17 +521,9 @@ func (s *Service) ForgotPassword(ctx context.Context, loginOrEmail, ip string) e
 	if u.Source != domain.SourceLocal || !u.IsActive || u.Email == "" {
 		return nil
 	}
-	raw, err := s.tokenGen(ResetTokenBytes)
+	encoded, err := s.issueResetToken(ctx, u.ID, ip)
 	if err != nil {
-		return fmt.Errorf("auth: reset token entropy: %w", err)
-	}
-	encoded := base64.RawURLEncoding.EncodeToString(raw)
-	sum := sha256.Sum256([]byte(encoded))
-	now := s.clock.Now()
-	if _, err := s.resets.Create(ctx, domain.PasswordResetToken{
-		UserID: u.ID, TokenHash: sum[:], ExpiresAt: now.Add(ResetTokenTTL), CreatedIP: ip,
-	}); err != nil {
-		return fmt.Errorf("auth: store reset token: %w", err)
+		return err
 	}
 	link := s.baseURL + "/reset-password?token=" + encoded
 	subject := "Reset your IdentityHub password"
@@ -542,6 +533,63 @@ func (s *Service) ForgotPassword(ctx context.Context, loginOrEmail, ip string) e
 	if err := s.mailer.Send(u.Email, subject, text, ""); err != nil {
 		return fmt.Errorf("auth: send reset mail: %w", err)
 	}
+	return nil
+}
+
+// issueResetToken mints one single-use setup link (revoking any previous
+// token for the user) and returns its encoded form for the emailed URL.
+func (s *Service) issueResetToken(ctx context.Context, userID uuid.UUID, ip string) (string, error) {
+	raw, err := s.tokenGen(ResetTokenBytes)
+	if err != nil {
+		return "", fmt.Errorf("auth: reset token entropy: %w", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(encoded))
+	now := s.clock.Now()
+	if _, err := s.resets.Create(ctx, domain.PasswordResetToken{
+		UserID: userID, TokenHash: sum[:], ExpiresAt: now.Add(ResetTokenTTL), CreatedIP: ip,
+	}); err != nil {
+		return "", fmt.Errorf("auth: store reset token: %w", err)
+	}
+	return encoded, nil
+}
+
+// InviteUser emails a password-setup link for a provisioned local user
+// (HRIS invite flow). Unlike ForgotPassword it addresses the user by ID,
+// reports explicit errors to the admin caller, and carries no rate limit:
+// the admin gate plus the audit entry below are the abuse control. It
+// covers invite-pending (hashless) accounts and re-invites alike.
+func (s *Service) InviteUser(ctx context.Context, actorID, userID uuid.UUID, ip string) error {
+	u, err := s.users.ByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u.Source != domain.SourceLocal {
+		return fmt.Errorf("%w: only local users can be invited", domain.ErrValidation)
+	}
+	if !u.IsActive {
+		return fmt.Errorf("%w: user is deactivated", domain.ErrValidation)
+	}
+	if strings.TrimSpace(u.Email) == "" {
+		return fmt.Errorf("%w: user has no email address", domain.ErrValidation)
+	}
+	encoded, err := s.issueResetToken(ctx, u.ID, ip)
+	if err != nil {
+		return err
+	}
+	link := s.baseURL + "/reset-password?token=" + encoded
+	subject := "You've been invited to IdentityHub"
+	text := "Hi " + u.Username + ",\n\n" +
+		"An administrator created your IdentityHub account. Open this link within 15 minutes " +
+		"to choose your password:\n" + link + "\n\n" +
+		"If the link expires, ask your administrator for a new invitation."
+	if err := s.mailer.Send(u.Email, subject, text, ""); err != nil {
+		return fmt.Errorf("auth: send invite mail: %w", err)
+	}
+	_ = s.audit.Record(ctx, domain.AuditEntry{
+		ActorUserID: &actorID, Method: domain.MethodPassword, Result: domain.ResultSuccess,
+		Detail: map[string]any{"action": audit.ActionUserInvite, "target_user_id": u.ID.String()},
+	})
 	return nil
 }
 
@@ -596,7 +644,7 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, new1, new2 string
 	if err := s.users.SetPasswordHash(ctx, u.ID, hash); err != nil {
 		return fmt.Errorf("auth: set password: %w", err)
 	}
-	if err := s.history.Add(ctx, u.ID, u.PasswordHash); err != nil {
+	if err := s.recordHistory(ctx, u.ID, u.PasswordHash); err != nil {
 		return fmt.Errorf("auth: record password history: %w", err)
 	}
 	revoked, err := s.sessions.RevokeAll(ctx, u.ID)
@@ -608,6 +656,15 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, new1, new2 string
 		Detail: map[string]any{"action": audit.ActionPasswordReset, "sessions_revoked": revoked},
 	})
 	return nil
+}
+
+// recordHistory archives the replaced hash. Invite-pending accounts have
+// no previous hash; there is nothing to remember for them.
+func (s *Service) recordHistory(ctx context.Context, userID uuid.UUID, oldHash []byte) error {
+	if len(oldHash) == 0 {
+		return nil
+	}
+	return s.history.Add(ctx, userID, oldHash)
 }
 
 // AdminSetPassword lets an ih_admin member set a local user's password
@@ -642,7 +699,7 @@ func (s *Service) AdminSetPassword(ctx context.Context, actorID, targetID uuid.U
 	if err := s.users.SetPasswordHash(ctx, u.ID, hash); err != nil {
 		return fmt.Errorf("auth: set password: %w", err)
 	}
-	if err := s.history.Add(ctx, u.ID, u.PasswordHash); err != nil {
+	if err := s.recordHistory(ctx, u.ID, u.PasswordHash); err != nil {
 		return fmt.Errorf("auth: record password history: %w", err)
 	}
 	revoked, err := s.sessions.RevokeAll(ctx, u.ID)

@@ -805,7 +805,7 @@ func TestChangePassword(t *testing.T) {
 	h.login(t, "ara", "old-password-12")
 
 	code, out := h.do(http.MethodPost, "/api/account/password/change", map[string]string{
-		"current_password": "old-password-12", "new_password": "brand-new-pass-1", "new_password_confirm": "brand-new-pass-1",
+		"current_password": "old-password-12", "new_password": "Brand-new-pass-1!", "new_password_confirm": "Brand-new-pass-1!",
 	})
 	if code != http.StatusOK {
 		t.Fatalf("change = %d, %v", code, out)
@@ -823,7 +823,7 @@ func TestChangePassword(t *testing.T) {
 	if code != http.StatusUnauthorized {
 		t.Fatalf("old password login = %d, want 401", code)
 	}
-	h.login(t, "ara", "brand-new-pass-1")
+	h.login(t, "ara", "Brand-new-pass-1!")
 }
 
 func TestChangePasswordFailures(t *testing.T) {
@@ -832,13 +832,13 @@ func TestChangePasswordFailures(t *testing.T) {
 	h.login(t, "ara", "old-password-12")
 
 	code, out := h.do(http.MethodPost, "/api/account/password/change", map[string]string{
-		"current_password": "not-the-password", "new_password": "brand-new-pass-1", "new_password_confirm": "brand-new-pass-1",
+		"current_password": "not-the-password", "new_password": "Brand-new-pass-1!", "new_password_confirm": "Brand-new-pass-1!",
 	})
 	if code != http.StatusUnauthorized || out["error"] != "current password is incorrect" {
 		t.Errorf("wrong current = %d, %v", code, out)
 	}
 	code, _ = h.do(http.MethodPost, "/api/account/password/change", map[string]string{
-		"current_password": "old-password-12", "new_password": "brand-new-pass-1", "new_password_confirm": "other-pass-word-1",
+		"current_password": "old-password-12", "new_password": "Brand-new-pass-1!", "new_password_confirm": "other-pass-word-1",
 	})
 	if code != http.StatusBadRequest {
 		t.Errorf("mismatch = %d, want 400", code)
@@ -848,7 +848,7 @@ func TestChangePasswordFailures(t *testing.T) {
 	h.dir.passwords["dirara"] = "dir-secret-pw"
 	h.login(t, "dirara", "dir-secret-pw")
 	code, out = h.do(http.MethodPost, "/api/account/password/change", map[string]string{
-		"current_password": "dir-secret-pw", "new_password": "brand-new-pass-1", "new_password_confirm": "brand-new-pass-1",
+		"current_password": "dir-secret-pw", "new_password": "Brand-new-pass-1!", "new_password_confirm": "Brand-new-pass-1!",
 	})
 	if code != http.StatusBadRequest || !strings.Contains(out["error"].(string), "directory admin") {
 		t.Errorf("ldap change = %d, %v, want explicit directory rejection", code, out)
@@ -918,15 +918,15 @@ func TestForgotResetFlow(t *testing.T) {
 	token := body[strings.Index(body, "token=")+len("token="):]
 	token = strings.TrimSpace(strings.Split(token, "\n")[0])
 	code, _ = h.do(http.MethodPost, "/api/auth/password/reset", map[string]string{
-		"token": token, "new_password": "reset-new-pass-1", "new_password_confirm": "reset-new-pass-1",
+		"token": token, "new_password": "Reset-new-pass-1!", "new_password_confirm": "Reset-new-pass-1!",
 	})
 	if code != http.StatusOK {
 		t.Fatalf("reset = %d", code)
 	}
-	h.login(t, "ara", "reset-new-pass-1")
+	h.login(t, "ara", "Reset-new-pass-1!")
 	// Replay fails.
 	code, _ = h.do(http.MethodPost, "/api/auth/password/reset", map[string]string{
-		"token": token, "new_password": "another-new-pass", "new_password_confirm": "another-new-pass",
+		"token": token, "new_password": "Another-new-pass-1!", "new_password_confirm": "Another-new-pass-1!",
 	})
 	if code != http.StatusBadRequest {
 		t.Fatalf("replay = %d, want 400", code)
@@ -981,7 +981,7 @@ func TestAdminUsers(t *testing.T) {
 	h.login(t, "root", "root-password-12")
 
 	code, out := h.do(http.MethodPost, "/api/admin/users", map[string]string{
-		"username": "ara", "email": "ara@example.com", "password": "long-password-1",
+		"username": "ara", "email": "ara@example.com", "password": "Long-password-1!",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create = %d, %v", code, out)
@@ -1094,18 +1094,50 @@ func TestAdminSetPassword(t *testing.T) {
 	_ = h.groups.AddMember(context.Background(), root.ID, h.admin.ID)
 	h.login(t, "root", "root-password-12")
 
-	code, _ := h.do(http.MethodPost, "/api/admin/users/"+ara.ID.String()+"/password", map[string]string{"new_password": "admin-set-pass-1"})
+	code, _ := h.do(http.MethodPost, "/api/admin/users/"+ara.ID.String()+"/password", map[string]string{"new_password": "Admin-set-pass-1!"})
 	if code != http.StatusNoContent {
 		t.Fatalf("admin set = %d, want 204", code)
 	}
 	h.do(http.MethodPost, "/api/auth/logout", nil)
-	h.login(t, "ara", "admin-set-pass-1")
+	h.login(t, "ara", "Admin-set-pass-1!")
 
 	h.do(http.MethodPost, "/api/auth/logout", nil)
 	h.login(t, "root", "root-password-12")
-	code, out := h.do(http.MethodPost, "/api/admin/users/"+dir.ID.String()+"/password", map[string]string{"new_password": "admin-set-pass-1"})
+	code, out := h.do(http.MethodPost, "/api/admin/users/"+dir.ID.String()+"/password", map[string]string{"new_password": "Admin-set-pass-1!"})
 	if code != http.StatusBadRequest || !strings.Contains(out["error"].(string), "directory admin") {
 		t.Errorf("ldap target = %d, %v, want explicit rejection", code, out)
+	}
+}
+
+func TestAdminInviteUser(t *testing.T) {
+	root := localUser("root", "root-password-12")
+	ara := localUser("ara", "old-password-12")
+	h := newAPI(t, root, ara)
+	_ = h.groups.AddMember(context.Background(), root.ID, h.admin.ID)
+	h.login(t, "root", "root-password-12")
+
+	code, out := h.do(http.MethodPost, "/api/admin/users/"+ara.ID.String()+"/invite", nil)
+	if code != http.StatusOK || out["message"] != "Invitation sent." {
+		t.Fatalf("invite = %d, %v", code, out)
+	}
+	if len(h.mailer.to) != 1 || h.mailer.to[0] != "ara@example.com" {
+		t.Fatalf("invite sent to %v", h.mailer.to)
+	}
+	code, _ = h.do(http.MethodPost, "/api/admin/users/"+uuid.NewString()+"/invite", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("invite unknown = %d, want 404", code)
+	}
+	code, _ = h.do(http.MethodPost, "/api/admin/users/not-a-uuid/invite", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("invite malformed = %d, want 400", code)
+	}
+
+	// Non-admins are refused by the gate, before the usecase runs.
+	h.do(http.MethodPost, "/api/auth/logout", nil)
+	h.login(t, "ara", "old-password-12")
+	code, _ = h.do(http.MethodPost, "/api/admin/users/"+ara.ID.String()+"/invite", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member invite = %d, want 403", code)
 	}
 }
 
