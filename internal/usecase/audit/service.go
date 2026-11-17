@@ -27,6 +27,7 @@ const (
 	ActionMFADisable         = "mfa_disable"
 	ActionMFARecoveryRegen   = "mfa_recovery_regenerate"
 	ActionMFAReset           = "mfa_reset"
+	ActionBrandingUpdate     = "branding_update"
 )
 
 // Service validates and persists audit entries.
