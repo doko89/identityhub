@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -89,16 +90,18 @@ export function AdminGroupsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Groups</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-semibold">Groups</h1>
+        <div className="ml-auto">
+          <Button type="button" onClick={() => setShowCreate(true)}>
+            <Plus className="size-4" />
+            Add group
+          </Button>
+        </div>
+      </div>
       <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Membership drives app access and the admin flag (ih_admin members are administrators).
       </p>
-
-      <div className="mb-3">
-        <Button type="button" onClick={() => setShowCreate(true)}>
-          Add group
-        </Button>
-      </div>
 
       <Notice value={notice} />
 
