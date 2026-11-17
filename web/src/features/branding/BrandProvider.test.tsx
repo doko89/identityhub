@@ -3,7 +3,15 @@ import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { Branding } from "./api";
-import { applyBrand, applyTheme } from "./apply";
+import {
+  THEME_STORAGE_KEY,
+  applyBrand,
+  applyTheme,
+  getStoredTheme,
+  normalizeTheme,
+  resolveTheme,
+  setStoredTheme,
+} from "./apply";
 import { BrandProvider, useBrand } from "./BrandProvider";
 
 const brand: Branding = {
@@ -35,6 +43,7 @@ afterEach(() => {
   document.documentElement.style.removeProperty("--ring");
   document.getElementById("ih-custom-css")?.remove();
   document.title = "";
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -54,6 +63,39 @@ describe("applyTheme", () => {
     mockMatchMedia(false);
     applyTheme("");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+});
+
+describe("theme storage", () => {
+  it("normalizes known choices and rejects the rest", () => {
+    expect(normalizeTheme("light")).toBe("light");
+    expect(normalizeTheme("dark")).toBe("dark");
+    expect(normalizeTheme("system")).toBe("system");
+    expect(normalizeTheme("")).toBeNull();
+    expect(normalizeTheme("midnight")).toBeNull();
+    expect(normalizeTheme(null)).toBeNull();
+    expect(normalizeTheme(undefined)).toBeNull();
+  });
+
+  it("round-trips the stored choice", () => {
+    expect(getStoredTheme()).toBeNull();
+    setStoredTheme("dark");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    expect(getStoredTheme()).toBe("dark");
+  });
+
+  it("resolves stored > brand default > system", () => {
+    expect(resolveTheme("dark")).toBe("dark");
+    expect(resolveTheme("")).toBe("system");
+    expect(resolveTheme("midnight")).toBe("system");
+    setStoredTheme("light");
+    expect(resolveTheme("dark")).toBe("light");
+    // An explicit stored "system" beats an explicit brand default.
+    setStoredTheme("system");
+    expect(resolveTheme("dark")).toBe("system");
+    // A corrupt stored value falls back to the brand default.
+    localStorage.setItem(THEME_STORAGE_KEY, "midnight");
+    expect(resolveTheme("dark")).toBe("dark");
   });
 });
 
@@ -77,6 +119,13 @@ describe("applyBrand", () => {
     // A malformed color leaves the previous variable untouched.
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#123abc");
     expect(document.getElementById("ih-custom-css")).toBeNull();
+  });
+
+  it("lets the stored user choice win over the brand default", () => {
+    mockMatchMedia(false);
+    setStoredTheme("dark");
+    applyBrand({ ...brand, theme: "light" });
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 });
 
@@ -117,5 +166,19 @@ describe("BrandProvider", () => {
     ));
     // The provider never throws: children render with a null brand.
     expect(getByText("loading")).toBeDefined();
+  });
+
+  it("applies the stored choice even when the endpoint fails", async () => {
+    mockMatchMedia(false);
+    setStoredTheme("dark");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("oops", { status: 500 })));
+    render(shell(
+      <BrandProvider>
+        <ShowName />
+      </BrandProvider>,
+    ));
+    await waitFor(() =>
+      expect(document.documentElement.classList.contains("dark")).toBe(true),
+    );
   });
 });

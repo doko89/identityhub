@@ -1,5 +1,46 @@
 import type { Branding } from "./api";
 
+// ThemeChoice is the user's theme preference: an explicit mode or the OS.
+export type ThemeChoice = "light" | "dark" | "system";
+
+// THEME_STORAGE_KEY holds the ThemeToggle choice. A stored choice wins
+// over the server brand default (DESIGN.md §3).
+export const THEME_STORAGE_KEY = "ih-theme";
+
+// normalizeTheme maps brand/stored strings onto a choice; "" (legacy
+// brand default) and anything unknown fall back to null = follow the OS.
+export function normalizeTheme(value: string | null | undefined): ThemeChoice | null {
+  if (value === "light" || value === "dark" || value === "system") {
+    return value;
+  }
+  return null;
+}
+
+// getStoredTheme reads the user's saved choice, or null when unset,
+// invalid, or unreadable (private mode).
+export function getStoredTheme(): ThemeChoice | null {
+  try {
+    return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+// setStoredTheme persists the user's choice ("system" is stored
+// explicitly so it keeps winning over an explicit brand default).
+export function setStoredTheme(choice: ThemeChoice): void {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, choice);
+  } catch {
+    // Private mode: the choice still applies for this session.
+  }
+}
+
+// resolveTheme picks the winning choice: stored > brand default > OS.
+export function resolveTheme(brandTheme: string): ThemeChoice {
+  return getStoredTheme() ?? normalizeTheme(brandTheme) ?? "system";
+}
+
 // applyTheme toggles the .dark class (index.css tokens). Empty and
 // "system" follow the OS; explicit light/dark win.
 export function applyTheme(theme: string): void {
@@ -18,7 +59,7 @@ export function applyBrand(b: Branding): void {
     root.style.setProperty("--primary", b.primary_color);
     root.style.setProperty("--ring", b.primary_color);
   }
-  applyTheme(b.theme);
+  applyTheme(resolveTheme(b.theme));
   document.title = b.org_name !== "" ? b.org_name : "IdentityHub";
   const existing = document.getElementById("ih-custom-css");
   if (b.custom_css !== "") {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useBrand } from "@/features/branding/BrandProvider";
+import { ThemeToggle } from "@/features/branding/ThemeToggle";
 import { signOut as endSession } from "@/shared/api/session";
 import { useSessionStore } from "@/shared/stores/session";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -130,6 +131,7 @@ export function DashboardPage() {
           </div>
         </div>
         <nav className="flex items-center gap-2" aria-label="User">
+          <ThemeToggle />
           {me?.is_admin === true && (
             <Button variant="ghost" size="sm" asChild>
               <Link to="/admin">Admin</Link>
