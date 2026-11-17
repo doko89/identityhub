@@ -189,3 +189,34 @@ func TestEvaluateEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+type stubAccess struct {
+	allow map[uuid.UUID]bool
+}
+
+func (s stubAccess) CanAccess(_ context.Context, _ domain.User, appID uuid.UUID) (bool, error) {
+	return s.allow[appID], nil
+}
+
+func TestEvaluateEnforcesBindings(t *testing.T) {
+	svc, sps, groups := testService()
+	appID := uuid.New()
+	sp := sps.byEntity["https://sp.example.com/metadata"]
+	sp.ApplicationID = appID
+	sps.byEntity["https://sp.example.com/metadata"] = sp
+	denied, err := New(Deps{SPs: sps, Groups: groups, Access: stubAccess{allow: map[uuid.UUID]bool{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := denied.Evaluate(context.Background(), testUser(), testRequest()); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("denied binding must be forbidden, got %v", err)
+	}
+	allowed, err := New(Deps{SPs: sps, Groups: groups, Access: stubAccess{allow: map[uuid.UUID]bool{appID: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := allowed.Evaluate(context.Background(), testUser(), testRequest()); err != nil {
+		t.Fatalf("allowed binding must pass: %v", err)
+	}
+	_ = svc
+}

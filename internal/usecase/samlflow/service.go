@@ -9,20 +9,31 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/identityhub/identityhub/internal/domain"
 )
+
+// AccessChecker answers whether a user may open an app. *app.Service
+// implements it; nil skips the check (tests that predate bindings).
+type AccessChecker interface {
+	CanAccess(ctx context.Context, user domain.User, appID uuid.UUID) (bool, error)
+}
 
 // Service evaluates AuthnRequests for authenticated users.
 type Service struct {
 	sps    domain.SAMLSPStore
 	groups domain.GroupStore
+	access AccessChecker
 	clock  domain.Clock
 }
 
-// Deps wires a Service. All stores are required.
+// Deps wires a Service. SPs and Groups are required; Access is optional
+// (nil skips the binding check).
 type Deps struct {
 	SPs    domain.SAMLSPStore
 	Groups domain.GroupStore
+	Access AccessChecker
 	Clock  domain.Clock
 }
 
@@ -34,17 +45,14 @@ func New(d Deps) (*Service, error) {
 	if d.Clock == nil {
 		d.Clock = domain.SystemClock{}
 	}
-	return &Service{sps: d.SPs, groups: d.Groups, clock: d.Clock}, nil
+	return &Service{sps: d.SPs, groups: d.Groups, access: d.Access, clock: d.Clock}, nil
 }
 
 // Evaluate checks an AuthnRequest for an authenticated user: the account
 // must be active, the SP must still be registered (an SP deleted after
-// the login round trip started fails closed here), and the assertion
-// content is built from the user + group memberships: NameID = username,
-// attributes email/displayName/groups.
-//
-// App-access bindings (all-or-any evaluation) belong to the dashboard
-// milestone (T6): until then every active user may SSO into any SP.
+// the login round trip started fails closed here), the app's bindings
+// must admit the user, and the assertion content is built from the user +
+// group memberships: NameID = username, attributes email/displayName/groups.
 func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAMLAuthnRequest) (domain.SAMLDecision, error) {
 	if !user.IsActive {
 		return domain.SAMLDecision{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
@@ -52,11 +60,21 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAM
 	if req.EntityID == "" {
 		return domain.SAMLDecision{}, fmt.Errorf("%w: SP entity ID is required", domain.ErrValidation)
 	}
-	if _, err := s.sps.GetByEntityID(ctx, req.EntityID); err != nil {
+	sp, err := s.sps.GetByEntityID(ctx, req.EntityID)
+	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.SAMLDecision{}, fmt.Errorf("%w: unknown service provider", domain.ErrValidation)
 		}
 		return domain.SAMLDecision{}, err
+	}
+	if s.access != nil {
+		ok, err := s.access.CanAccess(ctx, user, sp.ApplicationID)
+		if err != nil {
+			return domain.SAMLDecision{}, err
+		}
+		if !ok {
+			return domain.SAMLDecision{}, fmt.Errorf("%w: no access to this application", domain.ErrForbidden)
+		}
 	}
 	groups, err := s.groups.GroupsOfUser(ctx, user.ID)
 	if err != nil {

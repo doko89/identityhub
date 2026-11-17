@@ -1471,3 +1471,55 @@ func TestLoginLegacyInfraFailures(t *testing.T) {
 		}
 	})
 }
+
+type stubMFAPolicy struct {
+	required map[uuid.UUID]bool
+	err      error
+}
+
+func (s stubMFAPolicy) RequiredForApp(_ context.Context, _ uuid.UUID, appID uuid.UUID) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.required[appID], nil
+}
+
+func TestLoginLegacyPerAppMFAPolicy(t *testing.T) {
+	u := localUser("ara", "ara-password-12")
+	h := newHarness(t, u)
+	mfaApp := uuid.New()
+	plainApp := uuid.New()
+	svc, err := New(Deps{
+		Users: h.users, Groups: h.groups, Resets: h.resets, History: h.history,
+		Sessions: h.sessions, Audit: audit.New(h.audits, fixedClock{now: h.now}),
+		Hasher: fakeHasher{}, Clock: fixedClock{now: h.now}, Mailer: h.mailer,
+		Directory: h.dir, BaseURL: "https://idp.example.com",
+		MFAPolicy: stubMFAPolicy{required: map[uuid.UUID]bool{mfaApp: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Regular user on an MFA-required app is denied with the sentinel.
+	_, err = svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
+		ApplicationID: &mfaApp,
+	})
+	if !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("MFA-app LoginLegacy = %v, want ErrMFARequired", err)
+	}
+	// Same user on a plain app passes.
+	if _, err := svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
+		ApplicationID: &plainApp,
+	}); err != nil {
+		t.Fatalf("plain-app LoginLegacy = %v, want success", err)
+	}
+	// Policy errors surface instead of silently allowing.
+	svc.mfa = stubMFAPolicy{err: errors.New("policy down")}
+	if _, err := svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
+		ApplicationID: &plainApp,
+	}); err == nil {
+		t.Fatal("policy error must fail the bind")
+	}
+}

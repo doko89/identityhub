@@ -48,6 +48,13 @@ const (
 	ResetTokenTTL = 15 * time.Minute
 )
 
+// LegacyMFAPolicy answers whether a user must pass a second factor for
+// an app. *mfa.Service implements it; auth holds it as an interface so
+// the M4 admin-only gate stays intact when MFA is unwired (nil).
+type LegacyMFAPolicy interface {
+	RequiredForApp(ctx context.Context, userID, appID uuid.UUID) (bool, error)
+}
+
 // Service holds the auth business rules. All outer details arrive as
 // domain interfaces; Directory may be nil (LDAP upstream disabled).
 type Service struct {
@@ -61,6 +68,7 @@ type Service struct {
 	clock    domain.Clock
 	mailer   domain.Mailer
 	dir      domain.Directory
+	mfa      LegacyMFAPolicy
 	baseURL  string
 	tokenGen func(n int) ([]byte, error)
 }
@@ -79,6 +87,9 @@ type Deps struct {
 	Mailer   domain.Mailer
 	// Directory is nil when LDAP_URL is unset.
 	Directory domain.Directory
+	// MFAPolicy is nil in tests that predate MFA; production wires
+	// *mfa.Service so per-app policy reaches legacy binds.
+	MFAPolicy LegacyMFAPolicy
 	// BaseURL is the public origin for emailed reset links.
 	BaseURL string
 	// TokenGen overrides crypto/rand in tests.
@@ -105,7 +116,8 @@ func New(d Deps) (*Service, error) {
 	return &Service{
 		users: d.Users, groups: d.Groups, resets: d.Resets, history: d.History,
 		sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock,
-		mailer: d.Mailer, dir: d.Directory, baseURL: strings.TrimRight(d.BaseURL, "/"),
+		mailer: d.Mailer, dir: d.Directory, mfa: d.MFAPolicy,
+		baseURL:  strings.TrimRight(d.BaseURL, "/"),
 		tokenGen: gen,
 	}, nil
 }
@@ -186,8 +198,10 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (domain.User, error)
 // legacy protocol method and denies users who must use MFA (TECH_SPEC
 // §6.4–6.5: direct bind is rejected when the user must use MFA, since a
 // legacy bind cannot prompt for a second factor). Admins are always
-// MFA-bound (TECH_SPEC §8, no exceptions); per-app MFA policy for
-// regular users plugs into the gate once usecase/app lands (M6).
+// MFA-bound (TECH_SPEC §8, no exceptions); with an MFAPolicy wired,
+// regular users are denied too when the target app requires MFA. The
+// global LDAP tree carries no app identity, so its binds keep the
+// admin-only gate.
 func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.User, error) {
 	if in.Method != domain.MethodLDAP && in.Method != domain.MethodRADIUS {
 		return domain.User{}, fmt.Errorf("%w: legacy login method must be ldap or radius", domain.ErrValidation)
@@ -210,11 +224,11 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 		}
 		return domain.User{}, chk.err
 	}
-	admin, err := s.groups.IsMember(ctx, chk.user.ID, domain.AdminGroup)
+	denied, err := s.legacyMFADenied(ctx, chk.user.ID, in.ApplicationID)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("auth: mfa policy check: %w", err)
+		return domain.User{}, err
 	}
-	if admin {
+	if denied {
 		if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, "mfa required"); err != nil {
 			return domain.User{}, err
 		}
@@ -224,6 +238,24 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 		return domain.User{}, err
 	}
 	return chk.user, nil
+}
+
+// legacyMFADenied reports whether the legacy bind must be rejected for
+// MFA: admins always; when a policy and an app identity are both
+// present, per-app requirements for regular users too.
+func (s *Service) legacyMFADenied(ctx context.Context, userID uuid.UUID, appID *uuid.UUID) (bool, error) {
+	if s.mfa != nil && appID != nil {
+		required, err := s.mfa.RequiredForApp(ctx, userID, *appID)
+		if err != nil {
+			return false, fmt.Errorf("auth: mfa policy check: %w", err)
+		}
+		return required, nil
+	}
+	admin, err := s.groups.IsMember(ctx, userID, domain.AdminGroup)
+	if err != nil {
+		return false, fmt.Errorf("auth: mfa policy check: %w", err)
+	}
+	return admin, nil
 }
 
 // checkCredentials verifies username/password without auditing: local

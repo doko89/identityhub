@@ -14,19 +14,28 @@ import (
 	"github.com/identityhub/identityhub/internal/domain"
 )
 
+// AccessChecker answers whether a user may open an app. *app.Service
+// implements it; nil skips the check (tests that predate bindings).
+type AccessChecker interface {
+	CanAccess(ctx context.Context, user domain.User, appID uuid.UUID) (bool, error)
+}
+
 // Service evaluates authorize requests for authenticated users.
 type Service struct {
 	clients  domain.OIDCClientStore
 	groups   domain.GroupStore
 	consents domain.OIDCConsentStore
+	access   AccessChecker
 	clock    domain.Clock
 }
 
-// Deps wires a Service. All stores are required.
+// Deps wires a Service. Clients, Groups and Consents are required;
+// Access is optional (nil skips the binding check).
 type Deps struct {
 	Clients  domain.OIDCClientStore
 	Groups   domain.GroupStore
 	Consents domain.OIDCConsentStore
+	Access   AccessChecker
 	Clock    domain.Clock
 }
 
@@ -38,7 +47,7 @@ func New(d Deps) (*Service, error) {
 	if d.Clock == nil {
 		d.Clock = domain.SystemClock{}
 	}
-	return &Service{clients: d.Clients, groups: d.Groups, consents: d.Consents, clock: d.Clock}, nil
+	return &Service{clients: d.Clients, groups: d.Groups, consents: d.Consents, access: d.Access, clock: d.Clock}, nil
 }
 
 // Outcome is the evaluated authorize request: the claims to issue plus
@@ -49,12 +58,10 @@ type Outcome struct {
 }
 
 // Evaluate checks an authorize request for an authenticated user: the
-// account must be active, every requested scope must be registered on
-// the client, and claims are built from the user + group memberships.
-// Consent is needed unless a remembered grant covers all requested scopes.
-//
-// App-access bindings (all-or-any evaluation) belong to the dashboard
-// milestone (T6): until then every active user may authorize any client.
+// account must be active, the app's bindings must admit the user, every
+// requested scope must be registered on the client, and claims are built
+// from the user + group memberships. Consent is needed unless a
+// remembered grant covers all requested scopes.
 func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.OIDCAuthRequest) (Outcome, error) {
 	if !user.IsActive {
 		return Outcome{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
@@ -65,6 +72,15 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.OID
 			return Outcome{}, fmt.Errorf("%w: unknown client", domain.ErrValidation)
 		}
 		return Outcome{}, err
+	}
+	if s.access != nil {
+		ok, err := s.access.CanAccess(ctx, user, client.ApplicationID)
+		if err != nil {
+			return Outcome{}, err
+		}
+		if !ok {
+			return Outcome{}, fmt.Errorf("%w: no access to this application", domain.ErrForbidden)
+		}
 	}
 	allowed := map[string]bool{}
 	for _, sc := range client.Scopes {

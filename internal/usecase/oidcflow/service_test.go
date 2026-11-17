@@ -257,3 +257,42 @@ func TestCovers(t *testing.T) {
 		t.Fatal("covers(nil, want) = true, want false")
 	}
 }
+
+type stubAccess struct {
+	allow map[uuid.UUID]bool
+	err   error
+}
+
+func (s stubAccess) CanAccess(_ context.Context, _ domain.User, appID uuid.UUID) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.allow[appID], nil
+}
+
+func TestEvaluateEnforcesBindings(t *testing.T) {
+	svc, clients, groups, consents := testService()
+	appID := uuid.New()
+	c := clients.byID["web"]
+	c.ApplicationID = appID
+	clients.byID["web"] = c
+	denied, err := New(Deps{Clients: clients, Groups: groups, Consents: consents, Access: stubAccess{allow: map[uuid.UUID]bool{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := denied.Evaluate(context.Background(), testUser(), domain.OIDCAuthRequest{
+		ClientID: "web", RequestedScopes: []string{"openid"},
+	}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("denied binding must be forbidden, got %v", err)
+	}
+	allowed, err := New(Deps{Clients: clients, Groups: groups, Consents: consents, Access: stubAccess{allow: map[uuid.UUID]bool{appID: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := allowed.Evaluate(context.Background(), testUser(), domain.OIDCAuthRequest{
+		ClientID: "web", RequestedScopes: []string{"openid"},
+	}); err != nil {
+		t.Fatalf("allowed binding must pass: %v", err)
+	}
+	_ = svc
+}
