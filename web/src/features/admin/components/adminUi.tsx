@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { ApiError } from "@/shared/api/client";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
 import { ADMIN_PAGE_SIZE } from "../api";
 
 // AdminNotice is the renderable form of a failed admin call: plain text,
@@ -30,17 +32,20 @@ export function Notice({ value }: { value: AdminNotice | null }) {
     return null;
   }
   return (
-    <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-      {value.text}
-      {value.stepUp && (
-        <Link
-          to={`/mfa?stepup=1&next=${encodeURIComponent(window.location.pathname)}`}
-          style={{ color: "var(--primary)" }}
-        >
-          Verify with MFA to continue.
-        </Link>
-      )}
-    </p>
+    <Alert variant="destructive" className="mb-4">
+      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertDescription>
+        {value.text}
+        {value.stepUp && (
+          <Link
+            to={`/mfa?stepup=1&next=${encodeURIComponent(window.location.pathname)}`}
+            className="font-medium underline underline-offset-4"
+          >
+            Verify with MFA to continue.
+          </Link>
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -57,36 +62,28 @@ export function Pager({
   const page = Math.floor(offset / ADMIN_PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / ADMIN_PAGE_SIZE));
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontSize: 13 }}>
-      <button
+    <div className="mt-3 flex items-center gap-2 text-sm">
+      <Button
         type="button"
-        style={pagerButtonStyle}
+        variant="outline"
+        size="sm"
         disabled={offset <= 0}
         onClick={() => onPage(Math.max(0, offset - ADMIN_PAGE_SIZE))}
       >
         ← Prev
-      </button>
-      <span style={{ color: "var(--muted-foreground)" }}>
+      </Button>
+      <span className="text-muted-foreground">
         Page {page} of {pages} ({total} total)
       </span>
-      <button
+      <Button
         type="button"
-        style={pagerButtonStyle}
+        variant="outline"
+        size="sm"
         disabled={offset + ADMIN_PAGE_SIZE >= total}
         onClick={() => onPage(offset + ADMIN_PAGE_SIZE)}
       >
         Next →
-      </button>
+      </Button>
     </div>
   );
 }
-
-const pagerButtonStyle: React.CSSProperties = {
-  padding: "6px 12px",
-  border: "1px solid var(--border)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "transparent",
-  color: "var(--foreground)",
-  fontSize: 13,
-  cursor: "pointer",
-};
