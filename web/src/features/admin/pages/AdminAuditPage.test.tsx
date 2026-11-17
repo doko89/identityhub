@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminAuditPage, exportFileName } from "./AdminAuditPage";
@@ -29,15 +29,14 @@ describe("AdminAuditPage", () => {
         return Response.json({ entries: [entry], total: 1 });
       }),
     );
-    const { container, getByRole, getByText } = render(
+    const { getByRole, getByText } = render(
       <MemoryRouter>
         <AdminAuditPage />
       </MemoryRouter>,
     );
     await waitFor(() => expect(getByText("10.0.0.1")).toBeDefined());
-    const form = container.querySelector("form") as HTMLFormElement;
-    const method = form.querySelector('[name="method"]') as HTMLSelectElement;
-    fireEvent.change(method, { target: { value: "password" } });
+    fireEvent.click(getByRole("combobox", { name: "Filter by method" }));
+    fireEvent.click(await screen.findByRole("option", { name: "password" }));
     fireEvent.click(getByRole("button", { name: "Filter" }));
     await waitFor(() => expect(seen.length).toBeGreaterThan(1));
     expect(seen[seen.length - 1]).toContain("method=password");
@@ -64,15 +63,14 @@ describe("AdminAuditPage", () => {
     Object.defineProperty(window.URL, "revokeObjectURL", { value: revokeURL, writable: true });
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     try {
-      const { container, getByRole, getByText } = render(
+      const { getByRole, getByText } = render(
         <MemoryRouter>
           <AdminAuditPage />
         </MemoryRouter>,
       );
       await waitFor(() => expect(getByText("10.0.0.1")).toBeDefined());
-      const form = container.querySelector("form") as HTMLFormElement;
-      const result = form.querySelector('[name="result"]') as HTMLSelectElement;
-      fireEvent.change(result, { target: { value: "failure" } });
+      fireEvent.click(getByRole("combobox", { name: "Filter by result" }));
+      fireEvent.click(await screen.findByRole("option", { name: "failure" }));
       fireEvent.click(getByRole("button", { name: "Filter" }));
       await waitFor(() => expect(seen.some((u) => u.includes("result=failure"))).toBe(true));
       fireEvent.click(getByRole("button", { name: "Export CSV" }));

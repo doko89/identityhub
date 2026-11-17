@@ -1,6 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "@/shared/api/client";
-import { inputStyle, secondaryStyle } from "@/shared/ui/formStyles";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { Skeleton } from "@/shared/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/ui/table";
 import { ADMIN_PAGE_SIZE, exportAuditURL, listAudit, type AuditEntry, type AuditListParams } from "../api";
 import { Notice, Pager, toNotice, type AdminNotice } from "../components/adminUi";
 
@@ -11,6 +29,8 @@ export function AdminAuditPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState<AuditListParams>({});
+  const [method, setMethod] = useState("");
+  const [result, setResult] = useState("");
   const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -41,8 +61,8 @@ export function AdminAuditPage() {
       return Number.isNaN(t.getTime()) ? "" : t.toISOString();
     };
     const f: AuditListParams = {
-      method: text("method"),
-      result: text("result"),
+      method,
+      result,
       actor: text("actor"),
       app: text("app"),
       since: instant("since"),
@@ -79,79 +99,92 @@ export function AdminAuditPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Audit log</h1>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
+      <h1 className="text-xl font-semibold">Audit log</h1>
+      <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Every login, newest first. The CSV export carries the same filters as the table.
       </p>
 
-      <form
-        onSubmit={apply}
-        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
-      >
-        <select name="method" defaultValue="" style={{ ...inputStyle, marginTop: 0, width: 130 }} aria-label="Filter by method">
-          <option value="">Any method</option>
-          {["password", "totp", "webauthn", "ldap", "radius", "oidc", "saml"].map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-        <select name="result" defaultValue="" style={{ ...inputStyle, marginTop: 0, width: 130 }} aria-label="Filter by result">
-          <option value="">Any result</option>
-          <option value="success">success</option>
-          <option value="failure">failure</option>
-        </select>
-        <input name="actor" placeholder="Actor user ID" aria-label="Filter by actor" style={{ ...inputStyle, marginTop: 0, width: 170 }} />
-        <input name="app" placeholder="Application ID" aria-label="Filter by app" style={{ ...inputStyle, marginTop: 0, width: 170 }} />
-        <input name="since" type="datetime-local" aria-label="Filter from" style={{ ...inputStyle, marginTop: 0, width: 190 }} />
-        <input name="until" type="datetime-local" aria-label="Filter until" style={{ ...inputStyle, marginTop: 0, width: 190 }} />
-        <button type="submit" style={{ ...secondaryStyle, width: "auto" }}>
+      <form onSubmit={apply} className="mb-3 flex flex-wrap gap-2">
+        <Select value={method === "" ? "any" : method} onValueChange={(v) => setMethod(v === "any" ? "" : v)}>
+          <SelectTrigger aria-label="Filter by method" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any method</SelectItem>
+            {["password", "totp", "webauthn", "ldap", "radius", "oidc", "saml"].map((m) => (
+              <SelectItem key={m} value={m}>
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={result === "" ? "any" : result} onValueChange={(v) => setResult(v === "any" ? "" : v)}>
+          <SelectTrigger aria-label="Filter by result" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any result</SelectItem>
+            <SelectItem value="success">success</SelectItem>
+            <SelectItem value="failure">failure</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input name="actor" placeholder="Actor user ID" aria-label="Filter by actor" className="w-44" />
+        <Input name="app" placeholder="Application ID" aria-label="Filter by app" className="w-44" />
+        <Input name="since" type="datetime-local" aria-label="Filter from" className="w-48" />
+        <Input name="until" type="datetime-local" aria-label="Filter until" className="w-48" />
+        <Button type="submit" variant="outline">
           Filter
-        </button>
-        <button
-          type="button"
-          style={{ ...secondaryStyle, width: "auto" }}
-          disabled={exporting}
-          onClick={() => void exportCSV()}
-        >
+        </Button>
+        <Button type="button" variant="outline" disabled={exporting} onClick={() => void exportCSV()}>
           {exporting ? "Exporting…" : "Export CSV"}
-        </button>
+        </Button>
       </form>
 
       <Notice value={notice} />
 
       {entries === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading audit log…</p>
+        <div className="flex flex-col gap-2" aria-label="Loading audit log">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       )}
       {entries !== null && (
         <>
-          <div className="ih-table-wrap">
-            <table className="ih-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Method</th>
-                  <th>Result</th>
-                  <th>IP</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Result</TableHead>
+                  <TableHead>IP</TableHead>
+                  <TableHead>Detail</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {entries.map((e) => (
-                  <tr key={e.id}>
-                    <td>{formatTime(e.at)}</td>
-                    <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <TableRow key={e.id}>
+                    <TableCell>{formatTime(e.at)}</TableCell>
+                    <TableCell className="max-w-36 overflow-hidden text-ellipsis">
                       {e.actor_user_id ?? "—"}
-                    </td>
-                    <td>{e.method}</td>
-                    <td>{e.result}</td>
-                    <td>{e.ip || "—"}</td>
-                    <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    </TableCell>
+                    <TableCell>{e.method}</TableCell>
+                    <TableCell>
+                      {e.result === "success" ? (
+                        <Badge>success</Badge>
+                      ) : (
+                        <Badge variant="destructive">failure</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>{e.ip || "—"}</TableCell>
+                    <TableCell className="max-w-56 overflow-hidden text-ellipsis">
                       {formatDetail(e.detail)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <Pager offset={offset} total={total} onPage={(o) => void load(filters, o)} />
         </>

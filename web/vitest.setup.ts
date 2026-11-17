@@ -9,3 +9,6 @@ class ResizeObserverStub {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+
+// Radix Select scrolls the active option into view when its list opens.
+window.HTMLElement.prototype.scrollIntoView = function (): void {};
