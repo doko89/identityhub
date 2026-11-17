@@ -30,3 +30,7 @@ web/dist-ssr/
 # Test artifacts
 coverage.out
 coverage.html
+
+# Python caches (vendored skill scripts)
+__pycache__/
+*.pyc
