@@ -270,3 +270,58 @@ func TestLoadLDAPSMTPFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadStorageDefaults(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	t.Setenv("STORAGE_BACKEND", "")
+	t.Setenv("STORAGE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Storage.Backend != StorageLocal || cfg.Storage.Dir != DefaultStorageDir {
+		t.Errorf("storage = %+v, want local backend", cfg.Storage)
+	}
+	if !cfg.Storage.S3UseSSL {
+		t.Error("S3 TLS must default to on")
+	}
+}
+
+func TestLoadStorageFailures(t *testing.T) {
+	validURL := "postgres://localhost:5432/identityhub"
+	validKey := testEncKey(t)
+
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"bad backend", map[string]string{"STORAGE_BACKEND": "gcs"}},
+		{"s3 without credentials", map[string]string{"STORAGE_BACKEND": "s3"}},
+		{"s3 without bucket", map[string]string{
+			"STORAGE_BACKEND": "s3", "STORAGE_S3_ENDPOINT": "https://s3.example.com",
+			"STORAGE_S3_ACCESS_KEY": "ak", "STORAGE_S3_SECRET_KEY": "sk",
+		}},
+		{"s3 bad ssl flag", map[string]string{
+			"STORAGE_BACKEND": "s3", "STORAGE_S3_ENDPOINT": "https://s3.example.com",
+			"STORAGE_S3_BUCKET": "b", "STORAGE_S3_ACCESS_KEY": "ak",
+			"STORAGE_S3_SECRET_KEY": "sk", "STORAGE_S3_USE_SSL": "nope",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"DATABASE_URL", "ENC_KEY", "STORAGE_BACKEND", "STORAGE_DIR", "STORAGE_S3_ENDPOINT", "STORAGE_S3_BUCKET", "STORAGE_S3_ACCESS_KEY", "STORAGE_S3_SECRET_KEY", "STORAGE_S3_USE_SSL"} {
+				t.Setenv(k, "")
+			}
+			t.Setenv("DATABASE_URL", validURL)
+			t.Setenv("ENC_KEY", validKey)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() = nil error, want failure")
+			}
+		})
+	}
+}

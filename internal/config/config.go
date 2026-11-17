@@ -27,6 +27,8 @@ const (
 	DefaultAppEnv          = "development"
 	DefaultLDAPTimeout     = 10 * time.Second
 	DefaultBaseURL         = "http://localhost:8080"
+	DefaultStorageBackend  = "local"
+	DefaultStorageDir      = "./var/uploads"
 	// DefaultLDAPServerPort is the unprivileged equivalent of 389 for the
 	// in-process LDAP provider (TECH_SPEC §6.4). Operators serving the
 	// standard ports set LDAP_PORT=389/636 explicitly.
@@ -68,6 +70,14 @@ const (
 	// RADIUS provider (server) settings (TECH_SPEC §6.5).
 	envRADIUSEnabled = "RADIUS_ENABLED"
 	envRADIUSPort    = "RADIUS_PORT"
+	// Asset storage settings (TECH_SPEC §6.7).
+	envStorageBackend    = "STORAGE_BACKEND"
+	envStorageDir        = "STORAGE_DIR"
+	envStorageS3Endpoint = "STORAGE_S3_ENDPOINT"
+	envStorageS3Bucket   = "STORAGE_S3_BUCKET"
+	envStorageS3Access   = "STORAGE_S3_ACCESS_KEY"
+	envStorageS3Secret   = "STORAGE_S3_SECRET_KEY"
+	envStorageS3UseSSL   = "STORAGE_S3_USE_SSL"
 )
 
 // LDAP provider connection modes (TECH_SPEC §6.4). Empty disables the
@@ -113,6 +123,8 @@ type Config struct {
 	// RADIUS holds the in-process RADIUS server settings (TECH_SPEC
 	// §6.5). It listens on UDP port 1812 by default.
 	RADIUS RADIUSConfig
+	// Storage selects the asset object backend (TECH_SPEC §6.7).
+	Storage StorageConfig
 }
 
 // LDAPConfig mirrors the upstream connector fields (PRD §6.2).
@@ -170,6 +182,27 @@ type RADIUSConfig struct {
 	Port int
 }
 
+// Storage backends (TECH_SPEC §6.7). v1 ships local; s3 is parsed and
+// validated here but wired in M7.
+const (
+	StorageLocal = "local"
+	StorageS3    = "s3"
+)
+
+// StorageConfig mirrors the asset object-backend settings.
+type StorageConfig struct {
+	// Backend is "local" (filesystem at Dir) or "s3".
+	Backend string
+	// Dir roots the local backend.
+	Dir string
+	// S3* configure the M7 S3 backend (minio-go, S3-compatible).
+	S3Endpoint string
+	S3Bucket   string
+	S3Access   string
+	S3Secret   string
+	S3UseSSL   bool
+}
+
 // SMTPConfig mirrors the transactional mailer settings.
 type SMTPConfig struct {
 	Host     string
@@ -225,6 +258,22 @@ func Load() (Config, error) {
 		TLSKeyFile:  strings.TrimSpace(os.Getenv(envLDAPTLSKeyFile)),
 	}
 	cfg.RADIUS = RADIUSConfig{Enabled: true, Port: DefaultRADIUSPort}
+	cfg.Storage = StorageConfig{
+		Backend:    strings.ToLower(strings.TrimSpace(getEnv(envStorageBackend, DefaultStorageBackend))),
+		Dir:        strings.TrimSpace(getEnv(envStorageDir, DefaultStorageDir)),
+		S3Endpoint: strings.TrimSpace(os.Getenv(envStorageS3Endpoint)),
+		S3Bucket:   strings.TrimSpace(os.Getenv(envStorageS3Bucket)),
+		S3Access:   strings.TrimSpace(os.Getenv(envStorageS3Access)),
+		S3Secret:   os.Getenv(envStorageS3Secret),
+		S3UseSSL:   true,
+	}
+	if raw := strings.TrimSpace(os.Getenv(envStorageS3UseSSL)); raw != "" {
+		useSSL, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s %q: must be a boolean", envStorageS3UseSSL, raw)
+		}
+		cfg.Storage.S3UseSSL = useSSL
+	}
 
 	if raw := strings.TrimSpace(os.Getenv(envHTTPPort)); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -355,6 +404,9 @@ func (c Config) Validate() error {
 	if err := c.RADIUS.Validate(); err != nil {
 		return err
 	}
+	if err := c.Storage.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -434,6 +486,27 @@ func (r RADIUSConfig) Validate() error {
 		return fmt.Errorf("invalid RADIUS_PORT %d: must be 1-65535", r.Port)
 	}
 	return nil
+}
+
+// Validate checks the storage settings: local needs a dir, s3 needs an
+// endpoint, bucket and credentials. An empty backend (programmatic zero
+// value) means local with wiring-time defaults, matching how the other
+// optional sections treat their zero value.
+func (s StorageConfig) Validate() error {
+	switch s.Backend {
+	case "", StorageLocal:
+		if s.Backend == StorageLocal && s.Dir == "" {
+			return fmt.Errorf("invalid STORAGE_DIR: required when STORAGE_BACKEND is local")
+		}
+		return nil
+	case StorageS3:
+		if s.S3Endpoint == "" || s.S3Bucket == "" || s.S3Access == "" || s.S3Secret == "" {
+			return fmt.Errorf("invalid STORAGE_S3_*: endpoint, bucket, access key and secret key are all required when STORAGE_BACKEND is s3")
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid STORAGE_BACKEND %q: must be local or s3", s.Backend)
+	}
 }
 
 // parseCIDRList parses a comma-separated whitelist. Each item is a CIDR
