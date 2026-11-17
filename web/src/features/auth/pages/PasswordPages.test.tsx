@@ -65,6 +65,17 @@ describe("ForgotPasswordPage", () => {
     fireEvent.click(getByRole("button", { name: "Send reset link" }));
     await waitFor(() => expect(getByText("Cannot reach the server. Try again.")).toBeDefined());
   });
+
+  it("renders the brand split panel", () => {
+    const { getAllByRole, getByRole } = render(
+      <MemoryRouter>
+        <ForgotPasswordPage />
+      </MemoryRouter>,
+    );
+    expect(getByRole("heading", { name: "Reset your password" })).toBeDefined();
+    // The panel and the mobile header each render the mark (CSS shows one).
+    expect(getAllByRole("img", { name: "IdentityHub logo" })).toHaveLength(2);
+  });
 });
 
 describe("ResetPasswordPage", () => {

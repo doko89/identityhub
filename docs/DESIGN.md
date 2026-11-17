@@ -91,7 +91,7 @@ Asymmetric 3:2 split on desktop. Wide panel: the brand backdrop photo (`login_ba
 
 ### 5.2 MFA (`/mfa`) and password (`/forgot-password`, `/reset-password`, `/account/mfa`)
 
-Same centered-card pattern as §5.1. MFA: 6-box `InputOTP` + verify button + "try another way" link when >1 factor exists. Forgot password: one email/username field + the exact same generic success message whether the account exists or not. MFA management: list of enrolled factors (name + "last used") with add/remove actions via confirming `Dialog` + re-auth.
+Forgot-password follows the §5.1 split (shared `AuthSplitPanel`); MFA, reset-password, and account MFA keep the centered card. MFA: 6-box `InputOTP` + verify button + "try another way" link when >1 factor exists. Forgot password: one email/username field + the exact same generic success message whether the account exists or not. MFA management: list of enrolled factors (name + "last used") with add/remove actions via confirming `Dialog` + re-auth.
 
 ### 5.3 Dashboard (`/`)
 

@@ -100,3 +100,33 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Page entrances (DESIGN §6): run once on mount, transform and opacity
+   only, 300ms max. Stagger via inline animation-delay. */
+@keyframes ih-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ih-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.anim-fade {
+  animation: ih-fade 200ms ease-out both;
+}
+
+.anim-rise {
+  animation: ih-rise 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade,
+  .anim-rise {
+    animation: none;
+  }
+}

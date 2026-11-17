@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
-import { BrandMark } from "@/features/branding/BrandMark";
+import { AuthSplitPanel } from "@/features/auth/components/AuthSplitPanel";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -22,10 +22,6 @@ export function LoginPage() {
   const brand = useBrand();
   const orgName =
     brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
-  const backgroundUrl =
-    brand?.login_background_url !== undefined && brand.login_background_url !== ""
-      ? brand.login_background_url
-      : null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,41 +62,10 @@ export function LoginPage() {
 
   return (
     <main className="grid min-h-screen lg:grid-cols-5">
-      <div className="relative hidden overflow-hidden lg:col-span-3 lg:block">
-        {backgroundUrl !== null ? (
-          <>
-            <img
-              src={backgroundUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
-            />
-          </>
-        ) : (
-          <div aria-hidden="true" className="absolute inset-0 bg-primary">
-            <BrandMark className="absolute -right-10 -bottom-10 size-64 text-white/10" />
-          </div>
-        )}
-        <div className="absolute inset-x-0 bottom-0 p-10">
-          <div className="flex items-center gap-3">
-            {brand?.logo_url !== undefined && brand.logo_url !== "" ? (
-              <img src={brand.logo_url} alt="" className="h-10" />
-            ) : (
-              <BrandMark className="size-10 text-white" />
-            )}
-            <p className="text-2xl font-bold text-white">{orgName}</p>
-          </div>
-          <p className="mt-3 max-w-md text-white/80">
-            The single front door to every company app. Sign in once, open anything.
-          </p>
-        </div>
-      </div>
+      <AuthSplitPanel />
 
       <div className="flex flex-col justify-center px-4 py-10 sm:px-8 lg:col-span-2">
-        <div className="mx-auto w-full max-w-sm">
+        <div className="anim-rise mx-auto w-full max-w-sm" style={{ animationDelay: "80ms" }}>
           <div className="mb-8 lg:hidden">
             <AuthBrandHeader />
           </div>
@@ -111,7 +76,7 @@ export function LoginPage() {
           <form onSubmit={(e) => void submit(e)}>
             <FieldGroup>
               {notice !== null && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="anim-fade">
                   <AlertTitle>Sign-in failed</AlertTitle>
                   <AlertDescription>{notice}</AlertDescription>
                 </Alert>
@@ -130,7 +95,7 @@ export function LoginPage() {
                   required
                 />
               </Field>
-              <Button type="submit" className="w-full" disabled={busy}>
+              <Button type="submit" className="w-full active:scale-[0.98]" disabled={busy}>
                 {busy ? <Spinner data-icon="inline-start" /> : null}
                 {busy ? "Signing in…" : "Sign in"}
               </Button>

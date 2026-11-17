@@ -185,7 +185,7 @@ export function DashboardPage() {
       </header>
       <main className="mx-auto w-full max-w-5xl px-4 py-6">
         {me !== null && apps !== null && apps.length > 0 && (
-          <div className="mb-5 flex flex-wrap items-end gap-3">
+          <div className="anim-fade mb-5 flex flex-wrap items-end gap-3">
             <div>
               <h2 className="text-lg font-semibold">Hello, {me.display_name || me.username}</h2>
               <p className="text-sm text-muted-foreground">
@@ -208,7 +208,7 @@ export function DashboardPage() {
         )}
 
         {notice !== null && (
-          <Alert variant="destructive" className="mb-4">
+          <Alert variant="destructive" className="anim-fade mb-4">
             <AlertTitle>Something went wrong</AlertTitle>
             <AlertDescription>{notice}</AlertDescription>
           </Alert>
@@ -238,10 +238,11 @@ export function DashboardPage() {
               <span className="font-normal text-muted-foreground">({list.length})</span>
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {list.map((app) => (
+              {list.map((app, i) => (
                 <Card
                   key={app.id}
-                  className="cursor-pointer transition hover:border-primary/50 hover:shadow-sm"
+                  className="anim-rise cursor-pointer transition hover:border-primary/50 hover:shadow-sm active:scale-[0.99]"
+                  style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
                   onClick={() => void launch(app)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {

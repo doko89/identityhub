@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
+import { AuthSplitPanel } from "@/features/auth/components/AuthSplitPanel";
 import { errorMessage } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -45,15 +45,20 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
-      <AuthBrandHeader />
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <h2 className="text-xl leading-none font-semibold">Reset your password</h2>
-        </CardHeader>
-        <CardContent>
+    <main className="grid min-h-screen lg:grid-cols-5">
+      <AuthSplitPanel />
+
+      <div className="flex flex-col justify-center px-4 py-10 sm:px-8 lg:col-span-2">
+        <div className="anim-rise mx-auto w-full max-w-sm" style={{ animationDelay: "80ms" }}>
+          <div className="mb-8 lg:hidden">
+            <AuthBrandHeader />
+          </div>
+          <h1 className="text-2xl font-semibold">Reset your password</h1>
+          <p className="mt-1 mb-6 text-sm text-muted-foreground">
+            Enter your username or email and we&apos;ll send a reset link.
+          </p>
           {sent ? (
-            <Alert role="status">
+            <Alert role="status" className="anim-fade">
               <AlertDescription>
                 If an account exists for that username or email, a reset link is on its way. Check
                 your inbox, then{" "}
@@ -67,7 +72,7 @@ export function ForgotPasswordPage() {
             <form onSubmit={(e) => void submit(e)}>
               <FieldGroup>
                 {notice !== null && (
-                  <Alert variant="destructive">
+                  <Alert variant="destructive" className="anim-fade">
                     <AlertTitle>Couldn&apos;t send the link</AlertTitle>
                     <AlertDescription>{notice}</AlertDescription>
                   </Alert>
@@ -76,20 +81,21 @@ export function ForgotPasswordPage() {
                   <FieldLabel htmlFor="forgot-login">Username or email</FieldLabel>
                   <Input id="forgot-login" name="login" autoComplete="username" required />
                 </Field>
-                <Button type="submit" className="w-full" disabled={busy}>
+                <Button type="submit" className="w-full active:scale-[0.98]" disabled={busy}>
                   {busy ? <Spinner data-icon="inline-start" /> : null}
                   {busy ? "Sending…" : "Send reset link"}
                 </Button>
               </FieldGroup>
             </form>
           )}
-          <p className="mt-3 mb-0 text-sm">
+          <p className="mt-3 text-sm">
             <Link to="/login" className="text-primary hover:underline">
               Back to sign in
             </Link>
           </p>
-        </CardContent>
-      </Card>
+          <p className="mt-10 text-xs text-muted-foreground">© IdentityHub</p>
+        </div>
+      </div>
     </main>
   );
 }
