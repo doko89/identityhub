@@ -85,6 +85,7 @@ func (h *Handlers) mount(r *chi.Mux) {
 		r.Post("/groups/{id}/members", h.handleAdminAddMember)
 		r.Delete("/groups/{id}/members/{userID}", h.handleAdminRemoveMember)
 		r.Get("/audit", h.handleAdminListAudit)
+		r.Get("/audit/export", h.handleAdminExportAudit)
 		r.Post("/ldap/test", h.handleAdminLDAPTest)
 		if h.mfa != nil {
 			r.Post("/users/{id}/mfa/reset", h.handleAdminMFAReset)

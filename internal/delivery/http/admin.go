@@ -1,6 +1,8 @@
 package http
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -301,36 +303,74 @@ func (h *Handlers) handleAdminRemoveMember(w http.ResponseWriter, req *http.Requ
 
 // ---------- admin: audit ----------
 
-// handleAdminListAudit pages audit entries, newest first. CSV export
-// arrives with the hardening milestone (M7).
-func (h *Handlers) handleAdminListAudit(w http.ResponseWriter, req *http.Request) {
-	q := req.URL.Query()
-	limit, offset := parsePage(q.Get)
-	f := domain.AuditFilter{Method: q.Get("method"), Result: q.Get("result"), Limit: limit, Offset: offset}
-	if v := q.Get("actor"); v != "" {
+// auditFilterError maps a malformed filter parameter to its 400 message.
+// The list and CSV export endpoints share the vocabulary.
+func auditFilterError(param string) string {
+	switch param {
+	case "actor":
+		return "invalid actor id"
+	case "app":
+		return "invalid app id"
+	case "since":
+		return "invalid since timestamp"
+	case "until":
+		return "invalid until timestamp"
+	default:
+		return "invalid filter"
+	}
+}
+
+// parseAuditFilter reads the shared list/export filters (actor, app,
+// method, result, since/until). It returns the offending parameter name
+// when a value is malformed, or "" on success.
+func parseAuditFilter(q map[string][]string, limit, offset int) (domain.AuditFilter, string) {
+	get := func(k string) string {
+		if len(q[k]) > 0 {
+			return q[k][0]
+		}
+		return ""
+	}
+	f := domain.AuditFilter{Method: get("method"), Result: get("result"), Limit: limit, Offset: offset}
+	if v := get("actor"); v != "" {
 		id, err := uuid.Parse(v)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid actor id"})
-			return
+			return domain.AuditFilter{}, "actor"
 		}
 		f.ActorUserID = &id
 	}
+	if v := get("app"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return domain.AuditFilter{}, "app"
+		}
+		f.ApplicationID = &id
+	}
 	// since/until accept RFC3339 timestamps; malformed values are 400.
-	if v := q.Get("since"); v != "" {
+	if v := get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid since timestamp"})
-			return
+			return domain.AuditFilter{}, "since"
 		}
 		f.Since = &t
 	}
-	if v := q.Get("until"); v != "" {
+	if v := get("until"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid until timestamp"})
-			return
+			return domain.AuditFilter{}, "until"
 		}
 		f.Until = &t
+	}
+	return f, ""
+}
+
+// handleAdminListAudit pages audit entries, newest first.
+func (h *Handlers) handleAdminListAudit(w http.ResponseWriter, req *http.Request) {
+	q := req.URL.Query()
+	limit, offset := parsePage(q.Get)
+	f, bad := parseAuditFilter(q, limit, offset)
+	if bad != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": auditFilterError(bad)})
+		return
 	}
 	entries, total, err := h.audits.List(req.Context(), f)
 	if err != nil {
@@ -353,6 +393,31 @@ func (h *Handlers) handleAdminListAudit(w http.ResponseWriter, req *http.Request
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "total": total})
+}
+
+// handleAdminExportAudit downloads the filtered audit log as CSV
+// (PRD §6.9), newest first, capped at usecaseaudit.MaxExportRows rows.
+// The output is buffered so a mid-stream store failure still answers a
+// clean 500 instead of a truncated file.
+func (h *Handlers) handleAdminExportAudit(w http.ResponseWriter, req *http.Request) {
+	q := req.URL.Query()
+	f, bad := parseAuditFilter(q, 0, 0)
+	if bad != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": auditFilterError(bad)})
+		return
+	}
+	var buf bytes.Buffer
+	if _, err := h.audits.ExportCSV(req.Context(), f, &buf); err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(
+		`attachment; filename="audit-export-%s.csv"`,
+		time.Now().UTC().Format("20060102-150405")))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // ---------- admin: LDAP upstream ----------

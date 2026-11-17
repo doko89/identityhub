@@ -8,7 +8,12 @@ package audit
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"io"
+	"strconv"
+	"time"
 
 	"github.com/identityhub/identityhub/internal/domain"
 )
@@ -67,4 +72,54 @@ func (s *Service) Record(ctx context.Context, e domain.AuditEntry) error {
 // List returns a page of entries, newest first, plus the total count.
 func (s *Service) List(ctx context.Context, f domain.AuditFilter) ([]domain.AuditEntry, int, error) {
 	return s.store.List(ctx, f)
+}
+
+// MaxExportRows caps CSV exports so one download cannot exhaust memory.
+// Admins narrow large windows with the since/until filters.
+const MaxExportRows = 10000
+
+// ExportCSV writes up to MaxExportRows matching entries, newest first, as
+// RFC 4180 CSV (encoding/csv quoting). The filter's pagination is
+// ignored: exports always start from the newest row. It returns the
+// number of data rows written.
+func (s *Service) ExportCSV(ctx context.Context, f domain.AuditFilter, w io.Writer) (int, error) {
+	f.Limit = MaxExportRows
+	f.Offset = 0
+	entries, _, err := s.store.List(ctx, f)
+	if err != nil {
+		return 0, err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write([]string{"id", "at", "actor_user_id", "application_id", "method", "result", "ip", "detail"}); err != nil {
+		return 0, err
+	}
+	for _, e := range entries {
+		detail := e.Detail
+		if detail == nil {
+			detail = map[string]any{}
+		}
+		raw, err := json.Marshal(detail)
+		if err != nil {
+			return 0, err
+		}
+		var actor, app string
+		if e.ActorUserID != nil {
+			actor = e.ActorUserID.String()
+		}
+		if e.ApplicationID != nil {
+			app = e.ApplicationID.String()
+		}
+		rec := []string{
+			strconv.FormatInt(e.ID, 10), e.At.UTC().Format(time.RFC3339),
+			actor, app, e.Method, e.Result, e.IP, string(raw),
+		}
+		if err := cw.Write(rec); err != nil {
+			return 0, err
+		}
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		return 0, err
+	}
+	return len(entries), nil
 }
