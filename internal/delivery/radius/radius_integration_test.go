@@ -153,7 +153,12 @@ func (fx *radiusFixture) makeAdmin(u domain.User) {
 
 func (fx *radiusFixture) startServer() *Server {
 	fx.t.Helper()
-	srv, err := New(Config{Addr: "127.0.0.1:0", EncKey: fx.encKey}, Deps{
+	return fx.startServerWith(Config{Addr: "127.0.0.1:0", EncKey: fx.encKey})
+}
+
+func (fx *radiusFixture) startServerWith(cfg Config) *Server {
+	fx.t.Helper()
+	srv, err := New(cfg, Deps{
 		Auth: fx.auth, Clients: fx.clients,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -201,6 +206,51 @@ func accessRequest(t *testing.T, addr, secret, username, password string) (radiu
 		t.Fatalf("exchange: %v", err)
 	}
 	return resp.Code, rfc2865.ReplyMessage_GetString(resp)
+}
+
+// tryAccessRequest is the fallible variant: dropped packets (unknown NAS,
+// rate limit) surface as an exchange error instead of failing the test.
+// A zero retry sends exactly one packet, keeping limiter budgets exact.
+func tryAccessRequest(ctx context.Context, addr, secret, username, password string, retry time.Duration) (radius.Code, error) {
+	p := radius.New(radius.CodeAccessRequest, []byte(secret))
+	if err := rfc2865.UserName_SetString(p, username); err != nil {
+		return 0, err
+	}
+	if err := rfc2865.UserPassword_SetString(p, password); err != nil {
+		return 0, err
+	}
+	client := &radius.Client{Retry: retry}
+	resp, err := client.Exchange(ctx, p, addr)
+	if err != nil {
+		return 0, err
+	}
+	return resp.Code, nil
+}
+
+// TestRADIUSPerNASRateLimit floods one NAS past its budget and asserts
+// the excess packets are dropped (no response) instead of answered.
+func TestRADIUSPerNASRateLimit(t *testing.T) {
+	fx := setupFixture(t)
+	u := fx.createUser("flood", "flood-password-12", true)
+	srv := fx.startServerWith(Config{Addr: "127.0.0.1:0", EncKey: fx.encKey, PerNASLimit: 3})
+	addr := srv.Addr().String()
+
+	for i := 0; i < 3; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		code, err := tryAccessRequest(ctx, addr, nasSecret, u.Username, "flood-password-12", 0)
+		cancel()
+		if err != nil {
+			t.Fatalf("request %d: exchange: %v", i+1, err)
+		}
+		if code != radius.CodeAccessAccept {
+			t.Fatalf("request %d: code = %v, want Access-Accept", i+1, code)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	if code, err := tryAccessRequest(ctx, addr, nasSecret, u.Username, "flood-password-12", 100*time.Millisecond); err == nil {
+		t.Fatalf("request past the budget answered (%v), want drop", code)
+	}
 }
 
 func TestRADIUSAcceptAndAudit(t *testing.T) {

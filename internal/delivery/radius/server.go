@@ -34,6 +34,11 @@ type Config struct {
 	Addr string
 	// EncKey (ENC_KEY) opens the sealed NAS shared secrets.
 	EncKey [32]byte
+	// PerNASLimit/PerNASWindow bound packets per NAS source IP.
+	// Zero values take DefaultPerNASLimit/DefaultPerNASWindow;
+	// tests shrink them to observe drops quickly.
+	PerNASLimit  int
+	PerNASWindow time.Duration
 }
 
 // Deps wires the server to the shared usecases.
@@ -52,6 +57,7 @@ type Server struct {
 	encKey    [32]byte
 	auth      *usecaseauth.Service
 	clients   domain.RADIUSClientStore
+	limiter   *nasLimiter
 	log       *slog.Logger
 	srv       *radius.PacketServer
 	ready     chan struct{}
@@ -73,7 +79,11 @@ func New(cfg Config, d Deps) (*Server, error) {
 	if slogLog == nil {
 		slogLog = slog.Default()
 	}
-	s := &Server{addr: cfg.Addr, encKey: cfg.EncKey, auth: d.Auth, clients: d.Clients, log: slogLog, ready: make(chan struct{})}
+	s := &Server{
+		addr: cfg.Addr, encKey: cfg.EncKey, auth: d.Auth, clients: d.Clients,
+		limiter: newNASLimiter(cfg.PerNASLimit, cfg.PerNASWindow),
+		log:     slogLog, ready: make(chan struct{}),
+	}
 	s.srv = &radius.PacketServer{
 		Addr:         cfg.Addr,
 		SecretSource: s,
@@ -112,6 +122,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // the lookup, which drops the packet unverified.
 func (s *Server) RADIUSSecret(ctx context.Context, remoteAddr net.Addr) ([]byte, error) {
 	host := nasHost(remoteAddr)
+	if !s.limiter.Allow(host) {
+		s.log.Warn("radius packet dropped: NAS over rate limit", "ip", host)
+		return nil, fmt.Errorf("radius: NAS %s over rate limit", host)
+	}
 	c, err := s.clients.ByNASIdentifier(ctx, host)
 	if errors.Is(err, domain.ErrNotFound) {
 		s.log.Warn("radius packet from unknown NAS dropped", "ip", host)
