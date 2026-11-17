@@ -64,7 +64,12 @@ func (h *Handlers) handleAdminCreateOIDCClient(w http.ResponseWriter, req *http.
 		h.writeError(w, req, err)
 		return
 	}
-	resp := map[string]any{"client": oidcClientJSON(created)}
+	// The usecase strips the hash before returning, so the public flag
+	// cannot be derived from it here: a non-empty secret means the
+	// client is confidential.
+	clientJSON := oidcClientJSON(created)
+	clientJSON["public"] = secret == ""
+	resp := map[string]any{"client": clientJSON}
 	if secret != "" {
 		resp["client_secret"] = secret
 	}

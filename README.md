@@ -154,10 +154,10 @@ ldapsearch -H ldap://localhost:1389 -x \
 End-to-end coverage with real clients against ephemeral listeners:
 `internal/delivery/{ldap,radius}/*_integration_test.go
 -tags=integration` (bind/search/whitelist/StartTLS/LDAPS, PAP
-accept/reject/MFA-deny/NAS-drop, audit rows). NAS/client
-registration UI/API arrives with the app-catalog milestone; the
-`domain.RADIUSClientStore` port and Postgres repository (secrets
-sealed with ENC_KEY via AES-256-GCM) are already in place.
+accept/reject/MFA-deny/NAS-drop, audit rows). NAS registration is an
+admin API since M7 (`POST /api/admin/radius/clients`, secrets sealed
+with ENC_KEY via AES-256-GCM); RADIUS also carries per-NAS flood
+protection (300 packets/min, excess dropped before the NAS lookup).
 
 ## MFA (M5)
 
@@ -204,21 +204,41 @@ avatars any user, logos admin-only) validates magic bytes (jpeg/png/
 webp, max 2 MB), re-encodes to webp server-side (pure-Go lossless,
 512px long edge — the `.webp` contract never trusts the client), and
 answers the public path; `GET /uploads/<type>/<uuid>.webp` serves
-`image/webp` with immutable caching. Storage via `domain.FileStorage`;
-`STORAGE_BACKEND=local` (dir `STORAGE_DIR`) in v1, S3 in M7.
+`image/webp` with immutable caching. Storage via `domain.FileStorage`:
+`STORAGE_BACKEND=local` (dir `STORAGE_DIR`) or `s3` (minio-go,
+endpoint/bucket/credentials via `STORAGE_S3_*`, bucket checked at
+boot) since M7.
+
+## Hardening (M7)
+
+Branding (`usecase/branding` + `GET /api/branding` public /
+`PATCH /api/admin/branding`): the singleton row is cached in memory and
+refreshed on admin update; `custom_css` is sanitized server-side
+(`@import`/`url(`/`</style>` refused, 10 KB cap) and the SPA theme
+provider (`features/branding`) applies variables + `light|dark|system`
+class without a redeploy. Provider registration closes the T3/T4 gap:
+`/api/admin/oidc/clients` (confidential secrets bcrypt-hashed, shown
+once; public PKCE-only; redirect URIs https except loopback),
+`/api/admin/saml/sps` (metadata-XML import), `/api/admin/radius/clients`
+(NAS secrets sealed, shown once) — one credential of each kind per app.
+Audit CSV: `GET /api/admin/audit/export` shares the list filters,
+capped at 10.000 newest rows. Per-protocol operator guide (a non-dev
+admin adds an OIDC app following it alone): `docs/INTEGRATION.md`; v1
+scope decisions: `docs/DECISIONS.md`.
 
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
 - `internal/domain` — entities + ports (imports no other internal package)
 - `internal/config` — env-only config + boot validation (LDAP/SMTP included)
-- `internal/usecase/{auth,user,audit,oidcflow,samlflow,mfa,app,asset}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent + SAML assertion decisions, TOTP/recovery/policy, app catalog + bindings + launch, webp uploads
-- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml,storage}` — pgx stores + goose runner, argon2id + TOTP + seed seal, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`, local file storage
-- `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads, embedded SPA
-- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy)
+- `internal/usecase/{auth,user,audit,oidcflow,samlflow,mfa,app,asset,branding}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit (+CSV), OIDC authorize/consent + SAML assertion decisions, TOTP/recovery/policy, app catalog + bindings + launch + provider registration, webp uploads, brand singleton
+- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml,storage}` — pgx stores + goose runner, argon2id + TOTP + seed seal, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`, local/S3 file storage
+- `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads + branding + provider registration, embedded SPA
+- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy, per-NAS flood protection)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
 - `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag)
-- `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
+- `web` — React+Vite+TS SPA (vitest + eslint + playwright); `web/dist` is the embedded production build
+- `docs/INTEGRATION.md` — per-protocol operator guide; `docs/DECISIONS.md` — v1 scope decisions
 
 Dependency rule: `delivery → usecase → domain`; `adapter` implements
 domain-owned interfaces; `main.go` is the only wiring site.
@@ -226,10 +246,14 @@ domain-owned interfaces; `main.go` is the only wiring site.
 ## Checks
 
 ```sh
-go vet ./... && gofmt -l cmd internal web migrations  # must print nothing
-go test ./...                                          # unit
-TEST_DATABASE_URL=postgres://... go test -tags=integration ./internal/adapter/postgres/
-cd web && npm run build   # tsc + vite
+go vet ./... && gofmt -l cmd internal  # must print nothing
+go test ./...                          # unit
+go test ./internal/usecase/... -cover  # each package >= 85%
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5434/identityhub \
+  go test -tags=integration ./...      # real Postgres (+ S3 with TEST_S3_ENDPOINT)
+cd web && npm run typecheck && npm run lint && npm run test && npm run build
+PLAYWRIGHT_BASE_URL=http://localhost:8080 \
+  TEST_E2E_USER=u TEST_E2E_PASSWORD=p npm run test:e2e  # against live serve
 ```
 
 ## Deploy

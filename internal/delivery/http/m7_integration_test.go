@@ -330,6 +330,19 @@ func TestProviderRegistrationE2E(t *testing.T) {
 	if code, _ := doJSON(t, r, http.MethodDelete, fx.srv.URL+"/api/admin/oidc/clients/"+clientID, nil); code != 404 {
 		t.Fatalf("re-delete OIDC client = %d, want 404", code)
 	}
+	if client["public"] != false {
+		t.Fatalf("confidential create must report public=false: %v", client)
+	}
+	// Public client: no secret issued, flagged PKCE-only.
+	if code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/oidc/clients", map[string]any{
+		"application_id": appOIDC, "redirect_uris": []string{"https://spa.example.com/cb"}, "public": true,
+	}); code != 201 {
+		t.Fatalf("register public client = %d (%v)", code, body)
+	} else if pub, _ := body["client"].(map[string]any); pub["public"] != true {
+		t.Fatalf("public create must report public=true: %v", pub)
+	} else if _, hasSecret := body["client_secret"]; hasSecret {
+		t.Fatalf("public create must not issue a secret: %v", body)
+	}
 
 	// SAML: metadata import, duplicate + garbage rejected.
 	appSAML := mkapp("prov-crm", "saml")
