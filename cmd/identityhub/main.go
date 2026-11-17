@@ -22,12 +22,14 @@ import (
 	"github.com/identityhub/identityhub/internal/adapter/crypto"
 	"github.com/identityhub/identityhub/internal/adapter/ldapclient"
 	"github.com/identityhub/identityhub/internal/adapter/mailer"
+	"github.com/identityhub/identityhub/internal/adapter/oidc"
 	"github.com/identityhub/identityhub/internal/adapter/postgres"
 	"github.com/identityhub/identityhub/internal/config"
 	deliveryhttp "github.com/identityhub/identityhub/internal/delivery/http"
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 	"github.com/identityhub/identityhub/internal/worker"
 )
@@ -78,23 +80,30 @@ func setup(ctx context.Context) (config.Config, *slog.Logger, *postgres.DB, erro
 // services is the wired M1 dependency graph. main.go is the only
 // concrete wiring site (TECH_SPEC §4).
 type services struct {
-	auth     *usecaseauth.Service
-	users    *usecaseuser.Service
-	audits   *usecaseaudit.Service
-	groups   *postgres.GroupRepository
-	registry *postgres.SessionRegistryRepository
-	dir      domain.Directory // nil when LDAP_URL is unset
+	auth        *usecaseauth.Service
+	users       *usecaseuser.Service
+	audits      *usecaseaudit.Service
+	groups      *postgres.GroupRepository
+	registry    *postgres.SessionRegistryRepository
+	dir         domain.Directory // nil when LDAP_URL is unset
+	oidc        domain.OIDCProvider
+	oidcFlow    *usecaseoidcflow.Service
+	challenges  *postgres.OIDCChallengeRepository
+	oidcClients *postgres.OIDCClientRepository
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
 // degrade gracefully: an unset LDAP_URL disables directory login/sync,
 // an unset SMTP_HOST logs mail instead of delivering it.
-func wireServices(db *postgres.DB, cfg config.Config, log *slog.Logger) (*services, error) {
+func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *slog.Logger) (*services, error) {
 	users := postgres.NewUserRepository(db)
 	groups := postgres.NewGroupRepository(db)
 	auditRepo := postgres.NewAuditRepository(db)
 	passwords := postgres.NewPasswordRepository(db)
 	registry := postgres.NewSessionRegistryRepository(db)
+	oidcClients := postgres.NewOIDCClientRepository(db)
+	consents := postgres.NewOIDCConsentRepository(db)
+	challenges := postgres.NewOIDCChallengeRepository(db)
 	audits := usecaseaudit.New(auditRepo, nil)
 
 	var m domain.Mailer
@@ -141,7 +150,23 @@ func wireServices(db *postgres.DB, cfg config.Config, log *slog.Logger) (*servic
 	if err != nil {
 		return nil, fmt.Errorf("wire user: %w", err)
 	}
-	return &services{auth: authSvc, users: userSvc, audits: audits, groups: groups, registry: registry, dir: dir}, nil
+	oidcFlow, err := usecaseoidcflow.New(usecaseoidcflow.Deps{
+		Clients: oidcClients, Groups: groups, Consents: consents,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire oidcflow: %w", err)
+	}
+	oidcProvider, err := oidc.New(ctx, db.Pool, oidcClients, oidc.Config{
+		Issuer: cfg.BaseURL, GlobalSecret: cfg.EncKey[:], SendDebug: !cfg.IsProduction(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire oidc: %w", err)
+	}
+	return &services{
+		auth: authSvc, users: userSvc, audits: audits, groups: groups,
+		registry: registry, dir: dir, oidc: oidcProvider, oidcFlow: oidcFlow,
+		challenges: challenges, oidcClients: oidcClients,
+	}, nil
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
@@ -170,7 +195,7 @@ func runServe(args []string) error {
 	}
 	defer db.Close()
 
-	svc, err := wireServices(db, cfg, log)
+	svc, err := wireServices(ctx, db, cfg, log)
 	if err != nil {
 		return err
 	}
@@ -182,6 +207,7 @@ func runServe(args []string) error {
 	handlers := deliveryhttp.NewHandlers(deliveryhttp.HandlerDeps{
 		Sessions: sessions, Registry: svc.registry, Auth: svc.auth, Users: svc.users,
 		Audits: svc.audits, Groups: svc.groups, Directory: svc.dir, Log: log,
+		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 
@@ -220,7 +246,7 @@ func runWorker(args []string) error {
 	}
 	defer db.Close()
 
-	svc, err := wireServices(db, cfg, log)
+	svc, err := wireServices(ctx, db, cfg, log)
 	if err != nil {
 		return err
 	}

@@ -69,6 +69,11 @@ func (r *Runner) runOnce(ctx context.Context) {
 	} else if n > 0 {
 		r.log.Info("cleaned expired reset tokens", "count", n)
 	}
+	if n, err := CleanupExpiredOIDC(ctx, r.pool); err != nil {
+		r.log.Error("cleanup expired OIDC sessions failed", "error", err)
+	} else if n > 0 {
+		r.log.Info("cleaned expired OIDC sessions", "count", n)
+	}
 }
 
 // CleanupExpiredSessions deletes scs rows past expiry. pgxstore never
@@ -88,4 +93,19 @@ func CleanupExpiredResetTokens(ctx context.Context, pool *pgxpool.Pool) (int64, 
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// CleanupExpiredOIDC deletes fosite flow sessions and consent challenges
+// past expiry (TECH_SPEC §6.6 token_cleanup).
+func CleanupExpiredOIDC(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `DELETE FROM oidc_flow_sessions WHERE expires_at < now()`)
+	if err != nil {
+		return 0, err
+	}
+	n := tag.RowsAffected()
+	tag, err = pool.Exec(ctx, `DELETE FROM oidc_consent_challenges WHERE expires_at < now()`)
+	if err != nil {
+		return n, err
+	}
+	return n + tag.RowsAffected(), nil
 }

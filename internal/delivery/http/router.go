@@ -61,6 +61,7 @@ func (h *Handlers) mount(r *chi.Mux) {
 	r.Post("/api/auth/logout", h.handleLogout)
 	r.Post("/api/auth/password/forgot", h.handleForgotPassword)
 	r.Post("/api/auth/password/reset", h.handleResetPassword)
+	h.mountOIDC(r)
 	r.With(h.requireUser).Get("/api/auth/me", h.handleMe)
 	r.With(h.requireUser).Post("/api/account/password/change", h.handleChangePassword)
 

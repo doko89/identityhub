@@ -14,6 +14,7 @@ const (
 	MethodWebAuthn = "webauthn"
 	MethodLDAP     = "ldap"
 	MethodRADIUS   = "radius"
+	MethodOIDC     = "oidc"
 )
 
 // Audit results recorded in audit_log.result.

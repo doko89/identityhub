@@ -15,6 +15,7 @@ import (
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecaseoidcflow "github.com/identityhub/identityhub/internal/usecase/oidcflow"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 )
 
@@ -30,6 +31,12 @@ type Handlers struct {
 	dir      domain.Directory // nil when the LDAP upstream is disabled
 	limiter  *Limiter
 	log      *slog.Logger
+	// OIDC provider wiring (TECH_SPEC §6.2). Nil in unit tests that
+	// focus on the session API; mountOIDC skips registration then.
+	oidc        domain.OIDCProvider
+	oidcFlow    *usecaseoidcflow.Service
+	challenges  domain.OIDCConsentChallengeStore
+	oidcClients domain.OIDCClientStore
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -45,6 +52,11 @@ type HandlerDeps struct {
 	Directory domain.Directory
 	Limiter   *Limiter
 	Log       *slog.Logger
+	// OIDC is nil in tests that do not cover the provider endpoints.
+	OIDC        domain.OIDCProvider
+	OIDCFlow    *usecaseoidcflow.Service
+	Challenges  domain.OIDCConsentChallengeStore
+	OIDCClients domain.OIDCClientStore
 }
 
 // NewHandlers builds the API handlers.
@@ -59,6 +71,7 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		sessions: d.Sessions, registry: d.Registry, auth: d.Auth, users: d.Users,
 		audits: d.Audits, groups: d.Groups, dir: d.Directory,
 		limiter: d.Limiter, log: d.Log,
+		oidc: d.OIDC, oidcFlow: d.OIDCFlow, challenges: d.Challenges, oidcClients: d.OIDCClients,
 	}
 }
 
