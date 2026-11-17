@@ -27,6 +27,7 @@ describe("AuthBrandHeader", () => {
     const { getByRole, container } = render(<AuthBrandHeader />);
     expect(getByRole("heading", { name: "IdentityHub" })).toBeDefined();
     expect(container.querySelector("img")).toBeNull();
+    expect(getByRole("img", { name: "IdentityHub logo" })).toBeDefined();
   });
 
   it("shows the org name and logo from the brand", async () => {

@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "cn";
+import { BrandMark } from "@/features/branding/BrandMark";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { ThemeToggle } from "@/features/branding/ThemeToggle";
 import { useSessionStore } from "@/shared/stores/session";
@@ -99,12 +100,7 @@ export function AdminLayout() {
           {brand?.logo_url !== undefined && brand.logo_url !== "" ? (
             <img src={brand.logo_url} alt="" className="size-8 shrink-0 rounded-md object-cover" />
           ) : (
-            <span
-              aria-hidden="true"
-              className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-[13px] font-bold text-primary-foreground"
-            >
-              IH
-            </span>
+            <BrandMark className="size-8 shrink-0 text-primary" />
           )}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{orgName}</p>

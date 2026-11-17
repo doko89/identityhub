@@ -87,7 +87,7 @@ Install via CLI into `src/shared/ui/`. Rules: semantic tokens, `Field`+`FieldGro
 
 ### 5.1 Login (`/login`)
 
-Centered `max-w-sm` card: logo + org name, "Sign in" title, username + password form + full-width primary button, right-aligned "Forgot password?" link, small "© IdentityHub" footer. Background: `--background` + subtle primary radial accent (pure CSS, no image). Errors: destructive `Alert` above the form, focus returned to the failing field.
+Asymmetric 3:2 split on desktop. Wide panel: the brand backdrop photo (`login_background_url`) with a dark legibility overlay, else a solid `--primary` panel with a watermark mark; bottom-left brand block (uploaded logo or built-in `BrandMark` + org name + one-line tagline). Narrow panel: cardless centered `max-w-sm` form — "Sign in" title, welcome line, username + password form + full-width primary button, right-aligned "Forgot password?" link, small "© IdentityHub" footer. Below `lg` the panel hides and a compact `AuthBrandHeader` tops the form. Errors: destructive `Alert` above the form, focus returned to the failing field.
 
 ### 5.2 MFA (`/mfa`) and password (`/forgot-password`, `/reset-password`, `/account/mfa`)
 

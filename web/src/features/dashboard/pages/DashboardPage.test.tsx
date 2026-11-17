@@ -31,7 +31,7 @@ const apps = [
   {
     id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", slug: "crm", name: "CRM",
     description: "", icon_url: "", launch_url: "https://crm.example.com",
-    group_label: "", provider_type: "oidc", mfa_required: false, open_in_new_tab: true,
+    group_label: "", provider_type: "oidc", mfa_required: true, open_in_new_tab: true,
   },
 ];
 
@@ -74,5 +74,34 @@ describe("DashboardPage", () => {
     fireEvent.click(getByRole("button", { name: "Open Wiki" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/apps/wiki/launch"));
     expect(openMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the default logo, greeting, and MFA marks without a brand", async () => {
+    stubFetch();
+    const { getByRole, getByText, getByTitle } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    expect(getByRole("img", { name: "IdentityHub logo" })).toBeDefined();
+    expect(getByText("Hello, Alice")).toBeDefined();
+    expect(getByText("2 applications ready to launch.")).toBeDefined();
+    expect(getByTitle("Requires two-step verification")).toBeDefined();
+  });
+
+  it("filters applications by name", async () => {
+    stubFetch();
+    const { getByPlaceholderText, getByText, queryByText } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    fireEvent.change(getByPlaceholderText("Filter applications…"), { target: { value: "crm" } });
+    expect(queryByText("Wiki")).toBeNull();
+    expect(getByText("CRM")).toBeDefined();
+    fireEvent.change(getByPlaceholderText("Filter applications…"), { target: { value: "zzz" } });
+    expect(getByText("No applications match “zzz”.")).toBeDefined();
   });
 });
