@@ -34,3 +34,6 @@ coverage.html
 # Python caches (vendored skill scripts)
 __pycache__/
 *.pyc
+
+# TS build cache
+web/*.tsbuildinfo
