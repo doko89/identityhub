@@ -1,5 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useBrand } from "@/features/branding/BrandProvider";
+import { signOut as endSession } from "@/shared/api/session";
+import { useSessionStore } from "@/shared/stores/session";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/shared/ui/empty";
+import { Skeleton } from "@/shared/ui/skeleton";
 
 type AppEntry = {
   id: string;
@@ -13,20 +30,16 @@ type AppEntry = {
   mfa_required: boolean;
 };
 
-type Me = {
-  user: {
-    username: string;
-    display_name: string;
-    is_admin: boolean;
-  };
-};
-
 // User dashboard (PRD §6.7): the signed-in user's apps, grouped by the
 // admin's display group. Clicking an app SSOs straight in while the
 // session lasts; MFA-gated apps detour through step-up first.
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [me, setMe] = useState<Me["user"] | null>(null);
+  const brand = useBrand();
+  const orgName = brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
+  const loadSession = useSessionStore((s) => s.load);
+  const me = useSessionStore((s) => s.user);
+  const clearSession = useSessionStore((s) => s.clear);
   const [apps, setApps] = useState<AppEntry[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -34,16 +47,12 @@ export function DashboardPage() {
     let cancelled = false;
     (async () => {
       try {
-        const meRes = await fetch("/api/auth/me");
-        if (meRes.status === 401) {
+        const user = await loadSession();
+        if (cancelled) return;
+        if (user === null) {
           navigate("/login?next=/", { replace: true });
           return;
         }
-        if (!meRes.ok) {
-          if (!cancelled) setNotice("Cannot load your session. Try again.");
-          return;
-        }
-        const meData = (await meRes.json()) as Me;
         const appsRes = await fetch("/api/my-apps");
         if (!appsRes.ok) {
           if (!cancelled) setNotice("Cannot load your apps. Try again.");
@@ -51,7 +60,6 @@ export function DashboardPage() {
         }
         const appsData = (await appsRes.json()) as { apps: AppEntry[] };
         if (!cancelled) {
-          setMe(meData.user);
           setApps(appsData.apps);
         }
       } catch {
@@ -61,7 +69,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, loadSession]);
 
   async function launch(app: AppEntry) {
     setNotice(null);
@@ -91,7 +99,8 @@ export function DashboardPage() {
   }
 
   async function signOut() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    await endSession();
+    clearSession();
     window.location.href = "/login";
   }
 
@@ -104,100 +113,123 @@ export function DashboardPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", padding: "24px 16px", maxWidth: 960, margin: "0 auto" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 24,
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>IdentityHub</h1>
-          {me !== null && (
-            <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "4px 0 0" }}>
-              Signed in as {me.display_name || me.username}
-              {me.is_admin ? " (admin)" : ""}
-            </p>
+    <main className="mx-auto w-full max-w-5xl px-4 py-6">
+      <header className="mb-6 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          {brand?.logo_url !== undefined && brand.logo_url !== "" && (
+            <img src={brand.logo_url} alt="" className="h-7" />
           )}
+          <div>
+            <h1 className="text-xl font-bold">{orgName}</h1>
+            {me !== null && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Signed in as {me.display_name || me.username}
+                {me.is_admin ? " (admin)" : ""}
+              </p>
+            )}
+          </div>
         </div>
-        <nav style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13 }}>
+        <nav className="flex items-center gap-2" aria-label="User">
           {me?.is_admin === true && (
-            <Link to="/admin" style={{ color: "var(--primary)" }}>
-              Admin
-            </Link>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/admin">Admin</Link>
+            </Button>
           )}
-          <Link to="/account" style={{ color: "var(--primary)" }}>
-            Account
-          </Link>
-          <Link to="/account/mfa" style={{ color: "var(--primary)" }}>
-            Two-step verification
-          </Link>
-          <Link to="/account/password" style={{ color: "var(--primary)" }}>
-            Change password
-          </Link>
-          <button type="button" onClick={() => void signOut()} style={linkButtonStyle}>
-            Sign out
-          </button>
+          {me !== null && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Account menu">
+                  <Avatar className="size-8">
+                    {me.avatar_url !== "" && <AvatarImage src={me.avatar_url} alt="" />}
+                    <AvatarFallback>{initials(me.display_name || me.username)}</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => navigate("/account")}>
+                  Account
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/account/mfa")}>
+                  Two-step verification
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/account/password")}>
+                  Change password
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </nav>
       </header>
 
       {notice !== null && (
-        <p role="alert" style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-          {notice}
-        </p>
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Something went wrong</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
       )}
       {apps === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading your apps…</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your apps">
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+        </div>
       )}
       {apps !== null && apps.length === 0 && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
-          No apps yet. Ask your administrator to add you to one.
-        </p>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No applications assigned to you yet</EmptyTitle>
+            <EmptyDescription>Ask your administrator to add you to one.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {[...groups.entries()].map(([label, list]) => (
-        <section key={label} style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 12px" }}>{label}</h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: 12,
-            }}
-          >
+        <section key={label} className="mb-6">
+          <h2 className="mb-3 text-sm font-semibold">{label}</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {list.map((app) => (
-              <button
+              <Card
                 key={app.id}
-                type="button"
+                className="cursor-pointer transition-shadow hover:shadow-sm"
                 onClick={() => void launch(app)}
-                style={appCardStyle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void launch(app);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Open ${app.name}`}
               >
-                {app.icon_url ? (
-                  <img
-                    src={app.icon_url}
-                    alt=""
-                    width={40}
-                    height={40}
-                    style={{ borderRadius: 8, objectFit: "cover" }}
-                  />
-                ) : (
-                  <span style={appInitialStyle}>{app.name.slice(0, 1).toUpperCase()}</span>
-                )}
-                <span style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>{app.name}</span>
-                {app.description && (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: "var(--muted-foreground)",
-                      marginTop: 4,
-                      display: "block",
-                    }}
-                  >
-                    {app.description}
-                  </span>
-                )}
-              </button>
+                <CardHeader className="flex-row items-start gap-3">
+                  {app.icon_url ? (
+                    <img
+                      src={app.icon_url}
+                      alt=""
+                      width={40}
+                      height={40}
+                      className="size-10 rounded-md object-cover"
+                    />
+                  ) : (
+                    <Avatar className="size-10 rounded-md">
+                      <AvatarFallback className="rounded-md">
+                        {app.name.slice(0, 1).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm">{app.name}</CardTitle>
+                    {app.description && (
+                      <CardDescription className="line-clamp-1">{app.description}</CardDescription>
+                    )}
+                  </div>
+                  <Badge variant="secondary" className="ml-auto shrink-0">
+                    {app.provider_type}
+                  </Badge>
+                </CardHeader>
+              </Card>
             ))}
           </div>
         </section>
@@ -206,37 +238,9 @@ export function DashboardPage() {
   );
 }
 
-const linkButtonStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "var(--primary)",
-  fontSize: 13,
-  cursor: "pointer",
-};
-
-const appCardStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  textAlign: "left",
-  padding: 16,
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  background: "var(--background)",
-  color: "var(--foreground)",
-  cursor: "pointer",
-};
-
-const appInitialStyle: React.CSSProperties = {
-  width: 40,
-  height: 40,
-  borderRadius: 8,
-  background: "var(--accent)",
-  color: "var(--foreground)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 18,
-  fontWeight: 700,
-};
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.slice(0, 1) ?? "";
+  const second = parts.length > 1 ? (parts[1]?.slice(0, 1) ?? "") : "";
+  return (first + second).toUpperCase() || "?";
+}
