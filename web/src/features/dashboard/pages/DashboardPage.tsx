@@ -128,6 +128,9 @@ export function DashboardPage() {
               Admin
             </Link>
           )}
+          <Link to="/account" style={{ color: "var(--primary)" }}>
+            Account
+          </Link>
           <Link to="/account/mfa" style={{ color: "var(--primary)" }}>
             Two-step verification
           </Link>

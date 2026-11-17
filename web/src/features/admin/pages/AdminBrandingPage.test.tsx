@@ -62,4 +62,30 @@ describe("AdminBrandingPage", () => {
     await waitFor(() => expect(getByText("Saved. The new theme is live.")).toBeDefined());
     expect(patched).toMatchObject({ org_name: "Globex", theme: "light" });
   });
+
+  it("fills the logo URL from an uploaded file", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === "/api/uploads" && init?.method === "POST") {
+          return Response.json(
+            { id: "9", url: "/uploads/app_logo/9.webp", width: 200, height: 60, byte_size: 42 },
+            { status: 201 },
+          );
+        }
+        return Response.json({ branding: brand });
+      }),
+    );
+    const { container, getByLabelText } = render(shell(<AdminBrandingPage />));
+    await waitFor(() => expect(getByLabelText("Organization name")).toBeDefined());
+    const picker = container.querySelector("#logo-upload") as HTMLInputElement;
+    fireEvent.change(picker, {
+      target: { files: [new File([new Uint8Array(10)], "logo.png", { type: "image/png" })] },
+    });
+    await waitFor(() =>
+      expect((getByLabelText("Logo URL") as HTMLInputElement).value).toBe(
+        "/uploads/app_logo/9.webp",
+      ),
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchBranding, type Branding } from "@/features/branding/api";
+import { UploadField } from "@/features/uploads/components/UploadField";
 import { buttonStyle, inputStyle, labelStyle } from "@/shared/ui/formStyles";
 import { updateBranding, type BrandingPatch } from "../api";
 import { Notice, toNotice, type AdminNotice } from "../components/adminUi";
@@ -98,6 +99,15 @@ export function AdminBrandingPage() {
                 placeholder="/uploads/logo.png"
               />
             </label>
+            <div style={{ margin: "-4px 0 12px" }}>
+              <UploadField
+                id="logo-upload"
+                assetType="app_logo"
+                label="Upload a logo file"
+                description="JPEG, PNG or WebP, max 2 MB. Fills the logo URL above."
+                onUploaded={(url) => set("logo_url", url)}
+              />
+            </div>
             <label style={labelStyle}>
               Favicon URL
               <input
@@ -108,6 +118,15 @@ export function AdminBrandingPage() {
                 placeholder="/uploads/favicon.ico"
               />
             </label>
+            <div style={{ margin: "-4px 0 12px" }}>
+              <UploadField
+                id="favicon-upload"
+                assetType="app_logo"
+                label="Upload a favicon file"
+                description="JPEG, PNG or WebP, max 2 MB. Fills the favicon URL above."
+                onUploaded={(url) => set("favicon_url", url)}
+              />
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
               <label style={labelStyle}>
                 Primary color
@@ -144,6 +163,15 @@ export function AdminBrandingPage() {
                 placeholder="/uploads/login-bg.jpg"
               />
             </label>
+            <div style={{ margin: "-4px 0 12px" }}>
+              <UploadField
+                id="login-bg-upload"
+                assetType="app_logo"
+                label="Upload a background file"
+                description="JPEG, PNG or WebP, max 2 MB. Fills the background URL above."
+                onUploaded={(url) => set("login_background_url", url)}
+              />
+            </div>
             <label style={{ ...labelStyle, marginBottom: 16 }}>
               Custom CSS (max 10 KB, sanitized on the server)
               <textarea
