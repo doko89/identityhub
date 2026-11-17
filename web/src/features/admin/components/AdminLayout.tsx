@@ -79,4 +79,5 @@ const links: Array<[string, string]> = [
   ["/admin/providers", "Providers"],
   ["/admin/branding", "Branding"],
   ["/admin/audit", "Audit log"],
+  ["/admin/ldap-test", "LDAP test"],
 ];

@@ -419,6 +419,20 @@ export function deleteRADIUSClient(nas: string): Promise<void> {
   return sendVoid(`/api/admin/radius/clients/${encodeURIComponent(nas)}`, "DELETE");
 }
 
+// ---------- LDAP upstream ----------
+
+export interface LDAPTestResult {
+  configured: boolean;
+  ok: boolean;
+  error?: string;
+}
+
+// testLDAP pings the upstream directory (PRD §6.2). The backend always
+// answers 200 with the outcome; transport failures throw ApiError.
+export function testLDAP(): Promise<LDAPTestResult> {
+  return sendJSON("/api/admin/ldap/test", "POST", {});
+}
+
 // ---------- branding ----------
 
 export interface BrandingPatch {

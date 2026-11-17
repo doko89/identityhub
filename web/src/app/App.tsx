@@ -9,6 +9,7 @@ import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
 import { AdminAuditPage } from "@/features/admin/pages/AdminAuditPage";
 import { AdminBrandingPage } from "@/features/admin/pages/AdminBrandingPage";
 import { AdminGroupsPage } from "@/features/admin/pages/AdminGroupsPage";
+import { AdminLDAPTestPage } from "@/features/admin/pages/AdminLDAPTestPage";
 import { AdminProvidersPage } from "@/features/admin/pages/AdminProvidersPage";
 import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { ConsentPage } from "@/features/auth/pages/ConsentPage";
@@ -45,6 +46,7 @@ export function App() {
               <Route path="providers" element={<AdminProvidersPage />} />
               <Route path="branding" element={<AdminBrandingPage />} />
               <Route path="audit" element={<AdminAuditPage />} />
+              <Route path="ldap-test" element={<AdminLDAPTestPage />} />
             </Route>
             <Route path="/" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
