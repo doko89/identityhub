@@ -32,7 +32,7 @@ func (r *PasswordRepository) Create(ctx context.Context, tok domain.PasswordRese
 		}
 		const q = `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_ip)
 			VALUES ($1,$2,$3,$4,$5)
-			RETURNING id, user_id, token_hash, expires_at, used_at, created_ip::text, created_at`
+			RETURNING id, user_id, token_hash, expires_at, used_at, host(created_ip), created_at`
 		var created domain.PasswordResetToken
 		var ip *string
 		if err := tx.QueryRow(ctx, q, tok.ID, tok.UserID, tok.TokenHash, tok.ExpiresAt, nullIP(tok.CreatedIP)).
@@ -53,7 +53,7 @@ func (r *PasswordRepository) Create(ctx context.Context, tok domain.PasswordRese
 
 // ByHash loads a token by its hash (tokens are stored hashed, TECH_SPEC §8).
 func (r *PasswordRepository) ByHash(ctx context.Context, hash []byte) (domain.PasswordResetToken, error) {
-	const q = `SELECT id, user_id, token_hash, expires_at, used_at, created_ip::text, created_at
+	const q = `SELECT id, user_id, token_hash, expires_at, used_at, host(created_ip), created_at
 		FROM password_reset_tokens WHERE token_hash=$1`
 	var t domain.PasswordResetToken
 	var ip *string

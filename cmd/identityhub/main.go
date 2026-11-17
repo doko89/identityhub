@@ -20,10 +20,15 @@ import (
 	"time"
 
 	"github.com/identityhub/identityhub/internal/adapter/crypto"
+	"github.com/identityhub/identityhub/internal/adapter/ldapclient"
+	"github.com/identityhub/identityhub/internal/adapter/mailer"
 	"github.com/identityhub/identityhub/internal/adapter/postgres"
 	"github.com/identityhub/identityhub/internal/config"
 	deliveryhttp "github.com/identityhub/identityhub/internal/delivery/http"
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
+	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 	"github.com/identityhub/identityhub/internal/worker"
 )
 
@@ -70,6 +75,75 @@ func setup(ctx context.Context) (config.Config, *slog.Logger, *postgres.DB, erro
 	return cfg, log, db, nil
 }
 
+// services is the wired M1 dependency graph. main.go is the only
+// concrete wiring site (TECH_SPEC §4).
+type services struct {
+	auth     *usecaseauth.Service
+	users    *usecaseuser.Service
+	audits   *usecaseaudit.Service
+	groups   *postgres.GroupRepository
+	registry *postgres.SessionRegistryRepository
+	dir      domain.Directory // nil when LDAP_URL is unset
+}
+
+// wireServices builds repositories, adapters and usecases. LDAP and SMTP
+// degrade gracefully: an unset LDAP_URL disables directory login/sync,
+// an unset SMTP_HOST logs mail instead of delivering it.
+func wireServices(db *postgres.DB, cfg config.Config, log *slog.Logger) (*services, error) {
+	users := postgres.NewUserRepository(db)
+	groups := postgres.NewGroupRepository(db)
+	auditRepo := postgres.NewAuditRepository(db)
+	passwords := postgres.NewPasswordRepository(db)
+	registry := postgres.NewSessionRegistryRepository(db)
+	audits := usecaseaudit.New(auditRepo, nil)
+
+	var m domain.Mailer
+	if cfg.SMTP.Enabled() {
+		smtpMailer, err := mailer.NewSMTP(mailer.Config{
+			Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password, From: cfg.SMTP.From,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("wire mailer: %w", err)
+		}
+		m = smtpMailer
+	} else {
+		log.Info("SMTP not configured; mail goes to the log (set SMTP_HOST to deliver)")
+		m = mailer.NewLog(log)
+	}
+
+	var dir domain.Directory
+	if cfg.LDAP.Enabled() {
+		client, err := ldapclient.New(ldapclient.Config{
+			URL: cfg.LDAP.URL, BindDN: cfg.LDAP.BindDN, BindPassword: cfg.LDAP.BindPassword,
+			BaseDN: cfg.LDAP.BaseDN, UserFilter: cfg.LDAP.UserFilter, GroupFilter: cfg.LDAP.GroupFilter,
+			AdminGroupDN: cfg.LDAP.AdminGroupDN, Timeout: cfg.LDAP.Timeout,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("wire ldapclient: %w", err)
+		}
+		dir = client
+	} else {
+		log.Info("LDAP upstream not configured; directory login/sync disabled (set LDAP_URL to enable)")
+	}
+
+	authSvc, err := usecaseauth.New(usecaseauth.Deps{
+		Users: users, Groups: groups, Resets: passwords, History: passwords,
+		Sessions: registry, Audit: audits, Hasher: crypto.Hasher{},
+		Mailer: m, Directory: dir, BaseURL: cfg.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire auth: %w", err)
+	}
+	userSvc, err := usecaseuser.New(usecaseuser.Deps{
+		Users: users, Groups: groups, Sessions: registry, Audit: audits, Hasher: crypto.Hasher{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire user: %w", err)
+	}
+	return &services{auth: authSvc, users: userSvc, audits: audits, groups: groups, registry: registry, dir: dir}, nil
+}
+
 func newLogger(cfg config.Config) *slog.Logger {
 	level := slog.LevelInfo
 	if !cfg.IsProduction() {
@@ -96,12 +170,20 @@ func runServe(args []string) error {
 	}
 	defer db.Close()
 
+	svc, err := wireServices(db, cfg, log)
+	if err != nil {
+		return err
+	}
 	sessions := deliveryhttp.NewSessionManager(db.Pool, deliveryhttp.SessionConfig{
 		IdleTimeout: cfg.SessionIdle,
 		Lifetime:    cfg.SessionLifetime,
 		Secure:      cfg.CookieSecure(),
 	})
-	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db})
+	handlers := deliveryhttp.NewHandlers(deliveryhttp.HandlerDeps{
+		Sessions: sessions, Registry: svc.registry, Auth: svc.auth, Users: svc.users,
+		Audits: svc.audits, Groups: svc.groups, Directory: svc.dir, Log: log,
+	})
+	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -138,7 +220,33 @@ func runWorker(args []string) error {
 	}
 	defer db.Close()
 
-	return worker.NewRunner(db.Pool, cfg.WorkerSyncInterval, log).Run(ctx)
+	svc, err := wireServices(db, cfg, log)
+	if err != nil {
+		return err
+	}
+	runner := worker.NewRunner(db.Pool, cfg.WorkerSyncInterval, log)
+	if svc.dir != nil {
+		adminDN := cfg.LDAP.AdminGroupDN
+		runner.WithLDAPSync(func(syncCtx context.Context) error {
+			snap, err := svc.dir.Snapshot(syncCtx)
+			if err != nil {
+				return err
+			}
+			rep, err := svc.users.SyncFromDirectory(syncCtx, snap, adminDN)
+			if err != nil {
+				return err
+			}
+			log.Info("ldap sync applied",
+				"created", rep.Created, "updated", rep.Updated,
+				"disabled", rep.Disabled, "reenabled", rep.Reenabled,
+				"admin_added", len(rep.AdminAdded), "conflicts", len(rep.Conflicts))
+			for _, c := range rep.Conflicts {
+				log.Warn("ldap sync conflict: local user kept, directory entry ignored", "username", c)
+			}
+			return nil
+		})
+	}
+	return runner.Run(ctx)
 }
 
 func runMigrate(args []string) error {

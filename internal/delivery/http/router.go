@@ -16,10 +16,11 @@ type Pinger interface {
 
 // Deps wires delivery handlers. main.go is the only construction site.
 type Deps struct {
-	Sessions interface {
-		LoadAndSave(next http.Handler) http.Handler
-	}
-	DB Pinger
+	Sessions Sessions
+	DB       Pinger
+	// Handlers serves the JSON API. Nil leaves only the probes mounted
+	// (used by router tests that focus on health/SPA behavior).
+	Handlers *Handlers
 }
 
 // NewRouter builds the chi mux: middleware, health probes, API routes, and
@@ -34,6 +35,10 @@ func NewRouter(d Deps) http.Handler {
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", handleReadyz(d.DB))
 
+	if d.Handlers != nil {
+		d.Handlers.mount(r)
+	}
+
 	// API surface grows in later milestones; unknown /api/* paths fail as
 	// JSON 404 instead of falling through to the SPA.
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
@@ -47,6 +52,34 @@ func NewRouter(d Deps) http.Handler {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	})
 	return r
+}
+
+// mount registers the JSON API (TECH_SPEC §6.1). Auth guards wrap each
+// route group: session users for /account, ih_admin members for /admin.
+func (h *Handlers) mount(r *chi.Mux) {
+	r.Post("/api/auth/login", h.handleLogin)
+	r.Post("/api/auth/logout", h.handleLogout)
+	r.Post("/api/auth/password/forgot", h.handleForgotPassword)
+	r.Post("/api/auth/password/reset", h.handleResetPassword)
+	r.With(h.requireUser).Get("/api/auth/me", h.handleMe)
+	r.With(h.requireUser).Post("/api/account/password/change", h.handleChangePassword)
+
+	r.Route("/api/admin", func(r chi.Router) {
+		r.Use(h.requireAdmin)
+		r.Get("/users", h.handleAdminListUsers)
+		r.Post("/users", h.handleAdminCreateUser)
+		r.Get("/users/{id}", h.handleAdminGetUser)
+		r.Patch("/users/{id}", h.handleAdminUpdateUser)
+		r.Post("/users/{id}/password", h.handleAdminSetPassword)
+		r.Get("/groups", h.handleAdminListGroups)
+		r.Post("/groups", h.handleAdminCreateGroup)
+		r.Get("/groups/{id}", h.handleAdminGetGroup)
+		r.Delete("/groups/{id}", h.handleAdminDeleteGroup)
+		r.Post("/groups/{id}/members", h.handleAdminAddMember)
+		r.Delete("/groups/{id}/members/{userID}", h.handleAdminRemoveMember)
+		r.Get("/audit", h.handleAdminListAudit)
+		r.Post("/ldap/test", h.handleAdminLDAPTest)
+	})
 }
 
 // handleHealthz is the liveness probe: it answers without touching the

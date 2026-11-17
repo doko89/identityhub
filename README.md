@@ -5,7 +5,8 @@ login via LDAP/local, SSO via OIDC/SAML, legacy via LDAP/RADIUS, plus MFA,
 an app dashboard, and branding. See [PRD.md](PRD.md),
 [TECH_SPEC.md](docs/TECH_SPEC.md), [DESIGN.md](docs/DESIGN.md).
 
-Status: M0 foundation (this task). Login, protocols, and MFA land in M1–M7.
+Status: M1 local login + LDAP upstream + password management + audit.
+Protocols and MFA land in M2–M7.
 
 ## Quickstart
 
@@ -35,15 +36,51 @@ go run ./cmd/identityhub worker    # sync/email/cleanup jobs
 Open `http://localhost:8080/login`. Probes: `GET /healthz` (liveness, no DB),
 `GET /readyz` (readiness, pings Postgres).
 
+## API (M1)
+
+Sessions via `identityhub_session` cookie (HttpOnly + Secure in
+production + SameSite=Lax). Rate limits per TECH_SPEC §8
+(login 10/min/IP + 5/min/user with progressive lockout).
+
+```sh
+# Login (local argon2id or LDAP bind incl. just-in-time provisioning)
+curl -c jar -X POST localhost:8080/api/auth/login \
+  -d '{"username":"root","password":"..."}'
+curl -b jar localhost:8080/api/auth/me
+curl -b jar -X POST localhost:8080/api/auth/logout
+
+# Password management (local users only; LDAP users get an explicit
+# "contact your directory admin" message)
+curl -b jar -X POST localhost:8080/api/account/password/change \
+  -d '{"current_password":"...","new_password":"...","new_password_confirm":"..."}'
+curl -X POST localhost:8080/api/auth/password/forgot -d '{"login":"ara"}'
+curl -X POST localhost:8080/api/auth/password/reset \
+  -d '{"token":"...","new_password":"...","new_password_confirm":"..."}'
+
+# Admin (ih_admin members; every membership change is audited)
+curl -b jar localhost:8080/api/admin/users?q=ara
+curl -b jar -X POST localhost:8080/api/admin/users \
+  -d '{"username":"ara","email":"ara@example.com","password":"..."}'
+curl -b jar -X POST localhost:8080/api/admin/users/<id>/password \
+  -d '{"new_password":"..."}'
+curl -b jar localhost:8080/api/admin/groups
+curl -b jar localhost:8080/api/admin/audit?result=failure
+curl -b jar -X POST localhost:8080/api/admin/ldap/test
+```
+
+Every login — success, failure, or rate-limited — lands in `audit_log`
+(fail-closed: a failed audit write fails the login).
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
 - `internal/domain` — entities + ports (imports no other internal package)
-- `internal/config` — env-only config + boot validation
-- `internal/adapter/{postgres,crypto}` — pgx stores, goose runner, argon2id
-- `internal/delivery/http` — chi router, scs sessions, embedded SPA
-- `internal/worker` — periodic jobs (session/token cleanup in M0)
-- `migrations` — goose SQL (`00001_init.sql` seeds `ih_admin` + branding)
+- `internal/config` — env-only config + boot validation (LDAP/SMTP included)
+- `internal/usecase/{auth,user,audit}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit
+- `internal/adapter/{postgres,crypto,ldapclient,mailer}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail
+- `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, embedded SPA
+- `internal/worker` — periodic jobs (LDAP sync when configured + session/token cleanup)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry)
 - `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
 
 Dependency rule: `delivery → usecase → domain`; `adapter` implements

@@ -11,6 +11,12 @@ import (
 type stubSessions struct{}
 
 func (stubSessions) LoadAndSave(next http.Handler) http.Handler { return next }
+func (stubSessions) Token(context.Context) string               { return "" }
+func (stubSessions) RenewToken(context.Context) error           { return nil }
+func (stubSessions) Put(context.Context, string, any)           {}
+func (stubSessions) GetString(context.Context, string) string   { return "" }
+func (stubSessions) Remove(context.Context, string)             {}
+func (stubSessions) Destroy(context.Context) error              { return nil }
 
 type stubDB struct{ err error }
 

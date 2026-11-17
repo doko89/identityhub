@@ -1,6 +1,6 @@
-// Package worker runs background jobs: LDAP sync, email outbox, session and
-// token cleanup (TECH_SPEC §6.6). Jobs call usecases; in M0 only the
-// database cleanup jobs exist — sync/email arrive in M1.
+// Package worker runs background jobs: LDAP sync, session and token
+// cleanup (TECH_SPEC §6.6). Jobs call usecases; email outbox delivery
+// arrives with the notification milestone.
 package worker
 
 import (
@@ -16,11 +16,22 @@ type Runner struct {
 	pool     *pgxpool.Pool
 	interval time.Duration
 	log      *slog.Logger
+	// ldapSync pulls the directory and applies it; nil disables the job
+	// (LDAP upstream not configured).
+	ldapSync func(ctx context.Context) error
 }
 
 // NewRunner wires the worker on the shared pool.
 func NewRunner(pool *pgxpool.Pool, interval time.Duration, log *slog.Logger) *Runner {
 	return &Runner{pool: pool, interval: interval, log: log}
+}
+
+// WithLDAPSync enables the periodic directory sync job. main.go supplies
+// the closure (ldapclient snapshot + usecase/user apply); the worker only
+// schedules and logs it.
+func (r *Runner) WithLDAPSync(fn func(ctx context.Context) error) *Runner {
+	r.ldapSync = fn
+	return r
 }
 
 // Run executes one pass immediately, then repeats every interval.
@@ -43,6 +54,11 @@ func (r *Runner) Run(ctx context.Context) error {
 func (r *Runner) runOnce(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
+	if r.ldapSync != nil {
+		if err := r.ldapSync(ctx); err != nil {
+			r.log.Error("ldap sync failed", "error", err)
+		}
+	}
 	if n, err := CleanupExpiredSessions(ctx, r.pool); err != nil {
 		r.log.Error("cleanup expired sessions failed", "error", err)
 	} else if n > 0 {

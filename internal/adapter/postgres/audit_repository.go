@@ -39,7 +39,7 @@ func (r *AuditRepository) Append(ctx context.Context, e domain.AuditEntry) error
 // List returns a page of entries, newest first, plus the total count.
 func (r *AuditRepository) List(ctx context.Context, f domain.AuditFilter) ([]domain.AuditEntry, int, error) {
 	limit, offset := page(f.Limit, f.Offset)
-	const q = `SELECT id, at, actor_user_id, application_id, method, result, ip::text, detail
+	const q = `SELECT id, at, actor_user_id, application_id, method, result, host(ip), detail
 		FROM audit_log
 		WHERE ($1::uuid IS NULL OR actor_user_id = $1)
 		  AND ($2::uuid IS NULL OR application_id = $2)
