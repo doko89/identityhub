@@ -11,7 +11,6 @@ import {
 import { Button, buttonVariants } from "@/shared/ui/button";
 import { Separator } from "@/shared/ui/separator";
 import { Skeleton } from "@/shared/ui/skeleton";
-import "./AdminLayout.css";
 
 // AdminLayout guards /admin/* (DESIGN §5.4): signed-out admins bounce to
 // login, non-admins see a forbidden page, and the backend's 403 stays the
