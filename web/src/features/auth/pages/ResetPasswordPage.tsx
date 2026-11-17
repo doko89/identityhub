@@ -2,15 +2,12 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { errorMessage } from "@/shared/api/client";
-import {
-  buttonStyle,
-  cardStyle,
-  inputStyle,
-  labelStyle,
-  linkStyle,
-  noticeStyle,
-  pageStyle,
-} from "@/shared/ui/formStyles";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import { Spinner } from "@/shared/ui/spinner";
 
 // Reset-password page (DESIGN §5.2): redeems the ?token= from the mailed
 // link with a new password pair. A missing token is a dead link, shown
@@ -56,66 +53,77 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>{orgName}</h1>
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
-          Choose a new password
-        </p>
-        {token === "" ? (
-          <p role="alert" style={{ fontSize: 14 }}>
-            This reset link is incomplete (missing token).{" "}
-            <Link to="/forgot-password" style={linkStyle}>
-              Request a new one
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>{orgName}</CardTitle>
+          <CardDescription>Choose a new password</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {token === "" ? (
+            <Alert variant="destructive">
+              <AlertTitle>Link incomplete</AlertTitle>
+              <AlertDescription>
+                This reset link is incomplete (missing token).{" "}
+                <Link to="/forgot-password" className="text-primary hover:underline">
+                  Request a new one
+                </Link>
+                .
+              </AlertDescription>
+            </Alert>
+          ) : done ? (
+            <Alert role="status">
+              <AlertDescription>
+                Password has been reset.{" "}
+                <Link to="/login" className="text-primary hover:underline">
+                  Sign in
+                </Link>
+                .
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <form onSubmit={(e) => void submit(e)}>
+              <FieldGroup>
+                {notice !== null && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Couldn&apos;t reset the password</AlertTitle>
+                    <AlertDescription>{notice}</AlertDescription>
+                  </Alert>
+                )}
+                <Field>
+                  <FieldLabel htmlFor="reset-new">New password</FieldLabel>
+                  <Input
+                    id="reset-new"
+                    name="new_password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="reset-confirm">Confirm new password</FieldLabel>
+                  <Input
+                    id="reset-confirm"
+                    name="new_password_confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </Field>
+                <Button type="submit" className="w-full" disabled={busy}>
+                  {busy ? <Spinner data-icon="inline-start" /> : null}
+                  {busy ? "Resetting…" : "Reset password"}
+                </Button>
+              </FieldGroup>
+            </form>
+          )}
+          <p className="mt-3 mb-0 text-sm">
+            <Link to="/login" className="text-primary hover:underline">
+              Back to sign in
             </Link>
-            .
           </p>
-        ) : done ? (
-          <p role="status" style={{ fontSize: 14 }}>
-            Password has been reset.{" "}
-            <Link to="/login" style={linkStyle}>
-              Sign in
-            </Link>
-            .
-          </p>
-        ) : (
-          <form onSubmit={(e) => void submit(e)}>
-            <label style={labelStyle}>
-              New password
-              <input
-                name="new_password"
-                type="password"
-                autoComplete="new-password"
-                style={inputStyle}
-                required
-              />
-            </label>
-            <label style={{ ...labelStyle, marginBottom: 16 }}>
-              Confirm new password
-              <input
-                name="new_password_confirm"
-                type="password"
-                autoComplete="new-password"
-                style={inputStyle}
-                required
-              />
-            </label>
-            <button type="submit" style={buttonStyle} disabled={busy}>
-              {busy ? "Resetting…" : "Reset password"}
-            </button>
-          </form>
-        )}
-        {notice !== null && (
-          <p role="alert" style={noticeStyle}>
-            {notice}
-          </p>
-        )}
-        <p style={{ fontSize: 13, marginBottom: 0 }}>
-          <Link to="/login" style={linkStyle}>
-            Back to sign in
-          </Link>
-        </p>
-      </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }
