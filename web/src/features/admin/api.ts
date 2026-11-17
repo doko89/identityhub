@@ -449,6 +449,54 @@ export function setUserAttrs(
   return sendJSON(`/api/admin/users/${encodeURIComponent(id)}/attrs`, "PUT", attrs);
 }
 
+// AttrDrafts are the editor texts keyed by def key: multi-valued defs
+// join values with newlines, booleans use "true"/"false"/"" (unset).
+export type AttrDrafts = Record<string, string>;
+
+// attrsToDrafts renders typed values back into editor texts.
+export function attrsToDrafts(defs: AttrDef[], attrs: Record<string, AttrValue>): AttrDrafts {
+  const drafts: AttrDrafts = {};
+  for (const d of defs) {
+    const v = attrs[d.key];
+    if (v === undefined) {
+      drafts[d.key] = "";
+    } else if (Array.isArray(v)) {
+      drafts[d.key] = v.map((e) => String(e)).join("\n");
+    } else {
+      drafts[d.key] = String(v);
+    }
+  }
+  return drafts;
+}
+
+// draftsToBody converts editor texts into a PUT body: blank editors
+// clear the key (null), multi-valued editors split on newlines.
+export function draftsToBody(
+  defs: AttrDef[],
+  drafts: AttrDrafts,
+): Record<string, AttrValue | null> {
+  const body: Record<string, AttrValue | null> = {};
+  for (const d of defs) {
+    const raw = drafts[d.key] ?? "";
+    if (d.multi) {
+      const lines = raw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l !== "");
+      body[d.key] = lines.length > 0 ? lines : null;
+    } else {
+      body[d.key] = raw.trim() === "" ? null : raw.trim();
+    }
+  }
+  return body;
+}
+
+// hasAttrDraft reports whether any editor holds a value (create sheets
+// skip the PUT when nothing was filled in).
+export function hasAttrDraft(drafts: AttrDrafts): boolean {
+  return Object.values(drafts).some((v) => v.trim() !== "");
+}
+
 // ---------- LDAP upstream ----------
 
 export interface LDAPTestResult {

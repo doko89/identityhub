@@ -37,18 +37,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
-import { Textarea } from "@/shared/ui/textarea";
 import {
+  attrsToDrafts,
   createAttrDef,
   deleteAttrDef,
+  draftsToBody,
   getUserAttrs,
   listAttrDefs,
   resolveUserId,
   setUserAttrs,
   type AttrDef,
-  type AttrValue,
+  type AttrDrafts,
 } from "../api";
 import { Notice, toNotice, type AdminNotice } from "../components/adminUi";
+import { UserAttrFields } from "../components/UserAttrFields";
 
 // Admin custom-attributes console: the schema (key, type, multi-valued)
 // plus per-user values. Keys double as the wire names on LDAP, OIDC and
@@ -278,7 +280,7 @@ function UserValues({
 }) {
   const [login, setLogin] = useState("");
   const [subject, setSubject] = useState<{ id: string; label: string } | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<AttrDrafts>({});
   const [loadBusy, setLoadBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [savedTick, setSavedTick] = useState(0);
@@ -290,12 +292,7 @@ function UserValues({
       const id = await resolveUserId(login);
       const { attrs } = await getUserAttrs(id);
       setSubject({ id, label: login.trim() });
-      const next: Record<string, string> = {};
-      for (const d of defs) {
-        const v = attrs[d.key];
-        next[d.key] = v === undefined ? "" : toDraft(v);
-      }
-      setDrafts(next);
+      setDrafts(attrsToDrafts(defs, attrs));
     } catch (err) {
       setSubject(null);
       onError(toNotice(err));
@@ -308,26 +305,8 @@ function UserValues({
     if (subject === null) return;
     setSaveBusy(true);
     try {
-      const body: Record<string, AttrValue | null> = {};
-      for (const d of defs) {
-        const raw = drafts[d.key] ?? "";
-        if (d.multi) {
-          const lines = raw
-            .split("\n")
-            .map((l) => l.trim())
-            .filter((l) => l !== "");
-          body[d.key] = lines.length > 0 ? lines : null;
-        } else {
-          body[d.key] = raw.trim() === "" ? null : raw.trim();
-        }
-      }
-      const { attrs } = await setUserAttrs(subject.id, body);
-      const next: Record<string, string> = {};
-      for (const d of defs) {
-        const v = attrs[d.key];
-        next[d.key] = v === undefined ? "" : toDraft(v);
-      }
-      setDrafts(next);
+      const { attrs } = await setUserAttrs(subject.id, draftsToBody(defs, drafts));
+      setDrafts(attrsToDrafts(defs, attrs));
       setSavedTick((t) => t + 1);
     } catch (err) {
       onError(toNotice(err));
@@ -366,51 +345,12 @@ function UserValues({
             Editing <span className="font-medium text-foreground">{subject.label}</span>
             {savedTick > 0 && <span key={savedTick}> · Saved.</span>}
           </p>
-          <FieldGroup>
-            {defs.map((d) => (
-              <Field key={d.key}>
-                <FieldLabel htmlFor={`attr-value-${d.key}`}>
-                  <span className="font-mono text-[13px]">{d.key}</span>
-                  <span className="ml-2 font-normal text-muted-foreground">
-                    {d.type}
-                    {d.multi ? " · multi" : ""}
-                  </span>
-                </FieldLabel>
-                {d.multi ? (
-                  <Textarea
-                    id={`attr-value-${d.key}`}
-                    value={drafts[d.key] ?? ""}
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [d.key]: e.target.value }))}
-                    placeholder="one value per line"
-                    rows={3}
-                  />
-                ) : d.type === "boolean" ? (
-                  <Select
-                    value={drafts[d.key] === "" || drafts[d.key] === undefined ? "unset" : drafts[d.key]}
-                    onValueChange={(v) =>
-                      setDrafts((prev) => ({ ...prev, [d.key]: v === "unset" ? "" : v }))
-                    }
-                  >
-                    <SelectTrigger id={`attr-value-${d.key}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unset">Unset</SelectItem>
-                      <SelectItem value="true">true</SelectItem>
-                      <SelectItem value="false">false</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id={`attr-value-${d.key}`}
-                    value={drafts[d.key] ?? ""}
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [d.key]: e.target.value }))}
-                    placeholder={d.type === "number" ? "3" : "value"}
-                  />
-                )}
-              </Field>
-            ))}
-          </FieldGroup>
+          <UserAttrFields
+            defs={defs}
+            drafts={drafts}
+            onChange={setDrafts}
+            idPrefix="attr-value-"
+          />
           <div className="mt-4">
             <Button type="button" onClick={() => void save()} disabled={saveBusy}>
               {saveBusy ? "Saving…" : "Save values"}
@@ -420,12 +360,4 @@ function UserValues({
       )}
     </section>
   );
-}
-
-// toDraft renders a typed value back into its editor text.
-function toDraft(v: AttrValue): string {
-  if (Array.isArray(v)) {
-    return v.map((e) => String(e)).join("\n");
-  }
-  return String(v);
 }

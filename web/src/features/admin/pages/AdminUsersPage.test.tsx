@@ -46,6 +46,9 @@ describe("AdminUsersPage", () => {
       if (typeof url === "string" && url.startsWith("/api/admin/users?")) {
         return Response.json({ users: [alice], total: 1 });
       }
+      if (url === "/api/admin/user-attrs") {
+        return Response.json({ defs: [] });
+      }
       expect(init?.method).toBe("POST");
       return Response.json({ user: bob }, { status: 201 });
     });
@@ -76,6 +79,12 @@ describe("AdminUsersPage", () => {
       if (u.startsWith("/api/admin/users?")) {
         return Response.json({ users: [alice], total: 1 });
       }
+      if (u === "/api/admin/user-attrs") {
+        return Response.json({ defs: [] });
+      }
+      if (u === `/api/admin/users/${alice.id}/attrs`) {
+        return Response.json({ attrs: {} });
+      }
       if (u === "/api/uploads" && init?.method === "POST") {
         expect((init.body as FormData).get("asset_type")).toBe("avatar");
         return Response.json({ id: "aaa", url: uploadedUrl, width: 1, height: 1, byte_size: 3 });
@@ -100,6 +109,84 @@ describe("AdminUsersPage", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(patchBody).not.toBeNull());
     expect(patchBody?.["avatar_url"]).toBe(uploadedUrl);
+  });
+
+  it("saves custom attributes when creating a user", async () => {
+    const bob = { ...alice, id: "22222222-2222-2222-2222-222222222222", username: "bob", email: "bob@example.com" };
+    const dept = { key: "dept", type: "string", multi: false };
+    let putBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/admin/users?")) {
+        return Response.json({ users: [alice], total: 1 });
+      }
+      if (u === "/api/admin/user-attrs") {
+        return Response.json({ defs: [dept] });
+      }
+      if (init?.method === "PUT") {
+        putBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return Response.json({ attrs: { dept: "eng" } });
+      }
+      expect(init?.method).toBe("POST");
+      return Response.json({ user: bob }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminUsersPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("alice@example.com")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Add user" }));
+    const sheet = getByRole("dialog", { name: "Add user" });
+    const set = (label: string | RegExp, value: string) => {
+      fireEvent.change(within(sheet).getByLabelText(label), { target: { value } });
+    };
+    set("Username", "bob");
+    set("Email", "bob@example.com");
+    set("Password", "secret-1");
+    await waitFor(() => expect(within(sheet).getByLabelText(/dept/)).toBeDefined());
+    set(/dept/, "eng");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create user" }));
+    await waitFor(() => expect(putBody).toEqual({ dept: "eng" }));
+    await waitFor(() => expect(getByText("bob@example.com")).toBeDefined());
+  });
+
+  it("edits custom attributes in the edit sheet", async () => {
+    const dept = { key: "dept", type: "string", multi: false };
+    let putBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/admin/users?")) {
+        return Response.json({ users: [alice], total: 1 });
+      }
+      if (u === "/api/admin/user-attrs") {
+        return Response.json({ defs: [dept] });
+      }
+      if (u === `/api/admin/users/${alice.id}/attrs`) {
+        if (init?.method === "PUT") {
+          putBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({ attrs: { dept: "ops" } });
+        }
+        return Response.json({ attrs: { dept: "eng" } });
+      }
+      expect(init?.method).toBe("PATCH");
+      return Response.json({ user: alice });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminUsersPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("alice@example.com")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Edit alice" }));
+    const sheet = getByRole("dialog", { name: "Edit alice" });
+    const field = (await waitFor(() => within(sheet).getByLabelText(/dept/))) as HTMLInputElement;
+    expect(field.value).toBe("eng");
+    fireEvent.change(field, { target: { value: "ops" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putBody).toEqual({ dept: "ops" }));
   });
 
   it("shows the backend message on failure", async () => {

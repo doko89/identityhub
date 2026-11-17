@@ -16,6 +16,7 @@ import {
 } from "@/shared/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
+import { Separator } from "@/shared/ui/separator";
 import {
   Select,
   SelectContent,
@@ -41,16 +42,25 @@ import {
 } from "@/shared/ui/table";
 import {
   ADMIN_PAGE_SIZE,
+  attrsToDrafts,
   createUser,
+  draftsToBody,
   getUser,
+  getUserAttrs,
+  hasAttrDraft,
+  listAttrDefs,
   listUsers,
   resetUserMFA,
   setAdmin,
+  setUserAttrs,
   setUserPassword,
   updateUser,
   type AdminUser,
+  type AttrDef,
+  type AttrDrafts,
 } from "../api";
 import { Notice, Pager, toNotice, type AdminNotice } from "../components/adminUi";
+import { UserAttrFields } from "../components/UserAttrFields";
 
 // Admin users console (PRD §6.1): search + list, create, edit profile,
 // activate/deactivate, grant/revoke admin, set password, reset MFA.
@@ -328,6 +338,23 @@ function CreateUserForm({
 }) {
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState("local");
+  const [defs, setDefs] = useState<AttrDef[] | null>(null);
+  const [drafts, setDrafts] = useState<AttrDrafts>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await listAttrDefs();
+        if (!cancelled) setDefs(res.defs);
+      } catch (err) {
+        if (!cancelled) onError(toNotice(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onError]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -342,6 +369,16 @@ function CreateUserForm({
         source,
         external_dn: String(form.get("external_dn") ?? ""),
       });
+      if (defs !== null && hasAttrDraft(drafts)) {
+        try {
+          await setUserAttrs(user.id, draftsToBody(defs, drafts));
+        } catch (err) {
+          const n = toNotice(err);
+          onDone(user);
+          onError({ ...n, text: `User created, but attributes were not saved: ${n.text}` });
+          return;
+        }
+      }
       onDone(user);
     } catch (err) {
       onError(toNotice(err));
@@ -390,6 +427,13 @@ function CreateUserForm({
           />
         </Field>
       </FieldGroup>
+      {defs !== null && defs.length > 0 && (
+        <>
+          <Separator className="my-5" />
+          <h3 className="mb-3 text-sm font-semibold">Custom attributes</h3>
+          <UserAttrFields defs={defs} drafts={drafts} onChange={setDrafts} idPrefix="new-attr-" />
+        </>
+      )}
       <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Creating…" : "Create user"}
@@ -416,6 +460,27 @@ function EditUserForm({
   const [email, setEmail] = useState(user.email);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url);
   const [isActive, setIsActive] = useState(user.is_active);
+  const [defs, setDefs] = useState<AttrDef[] | null>(null);
+  const [drafts, setDrafts] = useState<AttrDrafts>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [defRes, attrRes] = await Promise.all([listAttrDefs(), getUserAttrs(user.id)]);
+        if (cancelled) return;
+        setDefs(defRes.defs);
+        setDrafts(attrsToDrafts(defRes.defs, attrRes.attrs));
+      } catch (err) {
+        if (!cancelled) onError(toNotice(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Remounted per user (key on the sheet), so user.id is fixed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -427,6 +492,16 @@ function EditUserForm({
         avatar_url: avatarUrl,
         is_active: isActive,
       });
+      if (defs !== null && defs.length > 0) {
+        try {
+          await setUserAttrs(user.id, draftsToBody(defs, drafts));
+        } catch (err) {
+          const n = toNotice(err);
+          onDone(updated);
+          onError({ ...n, text: `Profile saved, but attributes were not saved: ${n.text}` });
+          return;
+        }
+      }
       onDone(updated);
     } catch (err) {
       onError(toNotice(err));
@@ -499,6 +574,13 @@ function EditUserForm({
           <FieldLabel htmlFor="edit-active">Active (unchecking revokes every session)</FieldLabel>
         </Field>
       </FieldGroup>
+      {defs !== null && defs.length > 0 && (
+        <>
+          <Separator className="my-5" />
+          <h3 className="mb-3 text-sm font-semibold">Custom attributes</h3>
+          <UserAttrFields defs={defs} drafts={drafts} onChange={setDrafts} idPrefix="edit-attr-" />
+        </>
+      )}
       <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 grid gap-2 border-t bg-background px-6 py-4">
         <div className="flex gap-2">
           <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
