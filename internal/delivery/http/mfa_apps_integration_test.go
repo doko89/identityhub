@@ -39,6 +39,7 @@ import (
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
+	usecasebranding "github.com/identityhub/identityhub/internal/usecase/branding"
 	usecasemfa "github.com/identityhub/identityhub/internal/usecase/mfa"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
 )
@@ -107,6 +108,12 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 	if err != nil {
 		t.Fatalf("wire asset: %v", err)
 	}
+	brandingSvc, err := usecasebranding.New(usecasebranding.Deps{
+		Store: postgres.NewBrandingRepository(db), Audit: audits,
+	})
+	if err != nil {
+		t.Fatalf("wire branding: %v", err)
+	}
 	authSvc, err := usecaseauth.New(usecaseauth.Deps{
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
 		Sessions: registry, Audit: audits, Hasher: adaptercrypto.Hasher{},
@@ -129,6 +136,7 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 		Audits: audits, Groups: groups,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		MFA: mfaSvc, Apps: appSvc, Assets: assetSvc, Storage: files, Sealer: sealer,
+		Branding: brandingSvc,
 	})
 	srv := httptest.NewServer(NewRouter(Deps{Sessions: sessions, DB: db, Handlers: handlers}))
 	t.Cleanup(srv.Close)
