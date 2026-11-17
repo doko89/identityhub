@@ -15,6 +15,7 @@ const (
 	MethodLDAP     = "ldap"
 	MethodRADIUS   = "radius"
 	MethodOIDC     = "oidc"
+	MethodSAML     = "saml"
 )
 
 // Audit results recorded in audit_log.result.
