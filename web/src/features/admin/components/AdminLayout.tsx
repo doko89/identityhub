@@ -1,51 +1,66 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { ApiError } from "@/shared/api/client";
-import { getMe } from "../api";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { cn } from "cn";
+import { useSessionStore } from "@/shared/stores/session";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/shared/ui/breadcrumb";
+import { Button, buttonVariants } from "@/shared/ui/button";
+import { Separator } from "@/shared/ui/separator";
+import { Skeleton } from "@/shared/ui/skeleton";
 import "./AdminLayout.css";
 
 // AdminLayout guards /admin/* (DESIGN §5.4): signed-out admins bounce to
 // login, non-admins see a forbidden page, and the backend's 403 stays the
 // real guard on every call the pages make.
 export function AdminLayout() {
+  const loadSession = useSessionStore((s) => s.load);
   const [state, setState] = useState<"loading" | "ok" | "forbidden">("loading");
+  const location = useLocation();
+  const section = links.find(([to]) => location.pathname === to)?.[1] ?? "Console";
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const { user } = await getMe();
-        if (!cancelled) setState(user.is_admin ? "ok" : "forbidden");
-      } catch (err) {
-        if (!cancelled) {
-          if (err instanceof ApiError && err.status === 401) {
-            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-            return;
-          }
-          setState("forbidden");
+      const user = await loadSession();
+      if (cancelled) return;
+      if (user === null) {
+        if (useSessionStore.getState().status === "signed-out") {
+          window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+          return;
         }
+        setState("forbidden");
+        return;
       }
+      setState(user.is_admin ? "ok" : "forbidden");
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadSession]);
 
   if (state === "loading") {
     return (
-      <main style={{ minHeight: "100vh", padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading…</p>
+      <main className="mx-auto w-full max-w-5xl px-4 py-6" aria-label="Loading">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
       </main>
     );
   }
 
   if (state === "forbidden") {
     return (
-      <main style={{ minHeight: "100vh", padding: "24px 16px", maxWidth: 640, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600 }}>Administrator access required</h1>
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>
+      <main className="mx-auto w-full max-w-xl px-4 py-6">
+        <h1 className="text-xl font-semibold">Administrator access required</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           This console is only for administrators.{" "}
-          <Link to="/" style={{ color: "var(--primary)" }}>
+          <Link to="/" className="text-primary hover:underline">
             Back to dashboard
           </Link>
           .
@@ -55,17 +70,33 @@ export function AdminLayout() {
   }
 
   return (
-    <div className="ih-admin">
-      <nav className="ih-admin-nav" aria-label="Admin">
-        <div style={{ fontSize: 15, fontWeight: 700, padding: "8px 12px" }}>Admin console</div>
+    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row">
+      <nav className="flex flex-row flex-wrap gap-1 self-start md:sticky md:top-6 md:w-48 md:flex-col" aria-label="Admin">
+        <div className="w-full px-3 py-2 text-sm font-bold">Admin console</div>
         {links.map(([to, label]) => (
-          <NavLink key={to} to={to} className={({ isActive }) => (isActive ? "ih-active" : "")}>
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              cn(buttonVariants({ variant: "ghost", size: "sm" }), "justify-start", isActive && "bg-muted font-semibold")
+            }
+          >
             {label}
           </NavLink>
         ))}
-        <Link to="/">← Back to dashboard</Link>
+        <Button variant="ghost" size="sm" className="justify-start" asChild>
+          <Link to="/">← Back to dashboard</Link>
+        </Button>
       </nav>
-      <main className="ih-admin-main">
+      <main className="min-w-0 flex-1">
+        <Breadcrumb className="mb-4">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>Admin console · {section}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+        <Separator className="mb-4" />
         <Outlet />
       </main>
     </div>
