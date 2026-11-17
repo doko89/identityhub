@@ -132,16 +132,6 @@ async function sendVoid(path: string, method: string, body?: unknown): Promise<v
   }
 }
 
-// ---------- session ----------
-
-export interface Me {
-  user: AdminUser;
-}
-
-export function getMe(): Promise<Me> {
-  return getJSON<Me>("/api/auth/me");
-}
-
 // ---------- users ----------
 
 export interface UserListParams {
