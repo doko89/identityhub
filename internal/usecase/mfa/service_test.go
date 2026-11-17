@@ -122,11 +122,17 @@ func (f *fakeUsers) ByID(_ context.Context, id uuid.UUID) (domain.User, error) {
 func (f *fakeUsers) ByUsername(_ context.Context, _ string) (domain.User, error) {
 	return domain.User{}, domain.ErrNotFound
 }
+func (f *fakeUsers) ByUsernameFold(_ context.Context, _ string) (domain.User, error) {
+	return domain.User{}, domain.ErrNotFound
+}
 func (f *fakeUsers) ByEmail(_ context.Context, _ string) (domain.User, error) {
 	return domain.User{}, domain.ErrNotFound
 }
 func (f *fakeUsers) List(_ context.Context, _ domain.UserFilter) ([]domain.User, int, error) {
 	return nil, 0, nil
+}
+func (f *fakeUsers) AllActive(_ context.Context) ([]domain.User, error) {
+	return nil, nil
 }
 func (f *fakeUsers) Update(_ context.Context, u domain.User) (domain.User, error) {
 	f.byID[u.ID] = u
@@ -158,6 +164,9 @@ func (f *fakeGroups) ByName(_ context.Context, name string) (domain.Group, error
 func (f *fakeGroups) List(_ context.Context, _, _ int) ([]domain.Group, int, error) {
 	return nil, 0, nil
 }
+func (f *fakeGroups) All(_ context.Context) ([]domain.Group, error) {
+	return nil, nil
+}
 func (f *fakeGroups) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeGroups) AddMember(_ context.Context, _, _ uuid.UUID) error {
 	return nil
@@ -167,6 +176,9 @@ func (f *fakeGroups) RemoveMember(_ context.Context, _, _ uuid.UUID) error {
 }
 func (f *fakeGroups) MemberIDs(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
 	return nil, nil
+}
+func (f *fakeGroups) MemberUsernamesByGroup(_ context.Context) (map[uuid.UUID][]string, error) {
+	return map[uuid.UUID][]string{}, nil
 }
 func (f *fakeGroups) GroupsOfUser(_ context.Context, _ uuid.UUID) ([]domain.Group, error) {
 	return nil, nil

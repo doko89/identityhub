@@ -2,6 +2,7 @@ package ldapclient
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -104,6 +105,43 @@ func TestMapUser(t *testing.T) {
 	})
 	if u := c.mapUser(e2); u.DisplayName != "Bob" {
 		t.Errorf("displayName fallback = %q, want Bob", u.DisplayName)
+	}
+	if u.Attrs != nil {
+		t.Errorf("unmapped Attrs = %v, want nil", u.Attrs)
+	}
+}
+
+func TestMapUserAttrMap(t *testing.T) {
+	cfg := validConfig()
+	cfg.AttrMap = map[string]string{"department": "dept", "employeeID": "employee-id"}
+	c, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := ldap.NewEntry("uid=ara,ou=users,dc=example,dc=com", map[string][]string{
+		"uid":        {"ara"},
+		"department": {"IT"},
+		"employeeID": {"E1", "E2"},
+		"title":      {"Engineer"}, // unmapped: dropped
+	})
+	u := c.mapUser(e)
+	if len(u.Attrs) != 2 || len(u.Attrs["dept"]) != 1 || u.Attrs["dept"][0] != "IT" {
+		t.Errorf("mapped dept = %v", u.Attrs)
+	}
+	if len(u.Attrs["employee-id"]) != 2 {
+		t.Errorf("mapped employee-id = %v", u.Attrs)
+	}
+	// Mapped-but-absent attributes are skipped, not stored empty.
+	e2 := ldap.NewEntry("uid=bob,ou=users,dc=example,dc=com", map[string][]string{
+		"uid": {"bob"},
+	})
+	if u := c.mapUser(e2); len(u.Attrs) != 0 {
+		t.Errorf("absent mapping Attrs = %v, want empty", u.Attrs)
+	}
+	// The import rides the requested attribute list.
+	want := []string{"uid", "mail", "displayName", "cn", "memberOf", "department", "employeeID"}
+	if got := c.userAttributes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("userAttributes = %v, want %v", got, want)
 	}
 }
 

@@ -143,6 +143,10 @@ branding(id CHECK (id = 1), org_name, logo_url, favicon_url, primary_color,
          theme TEXT DEFAULT 'system', login_background_url, custom_css NULLABLE)
 audit_log(id BIGSERIAL, at TIMESTAMPTZ, actor_user_id NULLABLE, application_id NULLABLE,
           method TEXT, result TEXT, ip INET, detail JSONB)
+user_attr_defs(id, attr_key UNIQUE, attr_type, -- 'string'|'number'|'boolean'
+               multi BOOLEAN DEFAULT FALSE, created_at)
+user_attr_values(user_id, def_id, ordinal, value TEXT, -- PK(user_id, def_id, ordinal)
+                 source TEXT DEFAULT 'admin') -- 'admin'|'ldap'
 ```
 
 Encryption keys for `seed_enc` and `shared_secret_enc` come from env (`ENC_KEY`, 32 bytes); decrypted only in memory during verification.
@@ -150,6 +154,8 @@ Encryption keys for `seed_enc` and `shared_secret_enc` come from env (`ENC_KEY`,
 `avatar_url`, `icon_url`, and `logo_url` hold public paths of the form `/uploads/<assetType>/<uuid>.webp` referencing an `assets` row.
 
 Admin model: admin rights come solely from membership in the reserved `ih_admin` group (seeded in the initial migration; cannot be deleted or renamed). Guards: admins cannot remove themselves or the last member; every membership change is audited. Each `/api/admin/*` request checks membership directly so revoked admins lose access immediately. The first admin is bootstrapped via `create-admin` (must change password and enroll MFA at first login).
+
+Custom attributes: the admin defines the schema in `user_attr_defs` (lowercase LDAP-safe key, type, multi flag; reserved wire names rejected) and per-user values live in `user_attr_values`. Keys double as the wire names on LDAP, OIDC and SAML. `source` tracks the last writer: mapped keys are upstream-managed — each directory sync replaces them wholesale (`ldap`), so admin edits to a mapped key are overwritten, while `admin` values are never touched by sync. Def deletion cascades its values.
 
 ## 6. Endpoints and Flows
 
@@ -168,13 +174,15 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - `GET /api/apps/:slug/launch` — start SSO into an app (IdP-initiated).
 - `/api/account/mfa/*` — TOTP enroll/disable, regenerate recovery codes (re-auth with the old factor required to change factors).
 - `/api/admin/*` — user/group/app/provider CRUD, branding, audit; requires `ih_admin` membership + MFA.
+- `GET|POST /api/admin/user-attrs`, `DELETE /api/admin/user-attrs/:key` — attribute schema CRUD (def deletion cascades values).
+- `GET /api/admin/users/:id/attrs`, `PUT /api/admin/users/:id/attrs` — per-user values (scalar or array per key, null clears; unknown keys and type violations fail the write).
 - `GET /api/branding` — active brand/theme settings (public, no secrets).
 
 ### 6.2 OIDC (via fosite)
 
 - `GET /oauth2/auth`, `POST /oauth2/token`, `GET /oauth2/userinfo`, `GET /.well-known/openid-configuration`, `GET /oauth2/jwks`.
 - Flow: authorization code + PKCE required for public clients; client secrets for confidential ones.
-- Claims: `sub` = stable user UUID, `preferred_username`, `email`, `name`, `groups` (group-name array).
+- Claims: `sub` = stable user UUID, `preferred_username`, `email`, `name`, `groups` (group-name array), plus custom attributes as typed claims (scalars, arrays when multi-valued). Discovery `claims_supported` appends the def keys dynamically (degrades to the static list when the store is unwired or fails).
 - Refresh token rotation: the old token dies when used.
 
 ### 6.3 SAML (via crewjam/saml)
@@ -182,7 +190,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - `GET /saml/metadata` — IdP metadata.
 - `POST /saml/sso` — accept AuthnRequest, authenticate the user, send a signed Response to the ACS.
 - `GET|POST /saml/slo` — basic logout.
-- NameID = username; attributes: email, displayName, groups.
+- NameID = username; attributes: email, displayName, groups, plus custom attributes as `xs:string` values (sorted by key).
 
 ### 6.4 LDAP provider (via vjeantet/ldapserver)
 
@@ -190,7 +198,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - TLS config (`LDAP_TLS_CERT_FILE`, `LDAP_TLS_KEY_FILE`): TLS 1.2 minimum, certificates from the secret store. Plaintext mode refuses to boot unless the whitelist below is non-empty.
 - IP whitelist: global `LDAP_ALLOWED_CIDRS` (comma-separated CIDRs) enforced in the library's `OnNewConnection` hook — rejected connections are closed before any LDAP bytes are parsed, so even plaintext 389 only talks to known clients.
 - Bind: DN `uid=<username>,ou=users,dc=identityhub` + password; the delivery handler calls `usecase/auth` (note: direct LDAP bind is rejected when the user must use MFA, unless the app is explicitly exempted in config — see risk).
-- Search: users and groups per the app's `ldap_provider_config`.
+- Search: users (`inetOrgPerson`: uid/cn/sn/displayName/mail/memberOf plus custom attributes) and groups per the app's `ldap_provider_config`. Point lookups (`(uid=x)`, bare or inside AND) resolve one indexed row; custom keys are filterable like built-ins. Listings cost a fixed handful of queries (users, groups, one membership join, one attribute batch) — no per-user/per-member queries.
 
 ### 6.5 RADIUS provider (via layeh/radius, port 1812)
 
@@ -199,7 +207,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 
 ### 6.6 Worker
 
-- `ldap_sync` every N minutes: pull users/groups, soft-disable users missing from the directory (disable, don't delete); users in the directory group set as `LDAP_ADMIN_GROUP_DN` are added to `ih_admin`.
+- `ldap_sync` every N minutes: pull users/groups, soft-disable users missing from the directory (disable, don't delete); users in the directory group set as `LDAP_ADMIN_GROUP_DN` are added to `ih_admin`. `LDAP_ATTR_MAP=upstream:key,...` imports directory attributes into mapped custom keys (keys without a def are skipped; uncoercible values are dropped, never failing the sync).
 - Daily `session_cleanup`, `token_cleanup`.
 - `email_outbox`: failed second-factor notifications, MFA factor changes, password reset links.
 

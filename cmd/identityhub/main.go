@@ -95,6 +95,7 @@ type services struct {
 	audits        *usecaseaudit.Service
 	usersRepo     *postgres.UserRepository
 	groups        *postgres.GroupRepository
+	attrs         *postgres.UserAttrRepository
 	radiusClients *postgres.RADIUSClientRepository
 	registry      *postgres.SessionRegistryRepository
 	dir           domain.Directory // nil when LDAP_URL is unset
@@ -122,6 +123,7 @@ type services struct {
 func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *slog.Logger) (*services, error) {
 	users := postgres.NewUserRepository(db)
 	groups := postgres.NewGroupRepository(db)
+	userAttrs := postgres.NewUserAttrRepository(db)
 	auditRepo := postgres.NewAuditRepository(db)
 	passwords := postgres.NewPasswordRepository(db)
 	registry := postgres.NewSessionRegistryRepository(db)
@@ -151,6 +153,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 			URL: cfg.LDAP.URL, BindDN: cfg.LDAP.BindDN, BindPassword: cfg.LDAP.BindPassword,
 			BaseDN: cfg.LDAP.BaseDN, UserFilter: cfg.LDAP.UserFilter, GroupFilter: cfg.LDAP.GroupFilter,
 			AdminGroupDN: cfg.LDAP.AdminGroupDN, Timeout: cfg.LDAP.Timeout,
+			AttrMap: cfg.LDAP.AttrMap,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("wire ldapclient: %w", err)
@@ -221,24 +224,28 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
 		Sessions: registry, Audit: audits, Hasher: crypto.Hasher{},
 		Mailer: m, Directory: dir, MFAPolicy: mfaSvc, BaseURL: cfg.BaseURL,
+		Attrs: userAttrs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire auth: %w", err)
 	}
 	userSvc, err := usecaseuser.New(usecaseuser.Deps{
 		Users: users, Groups: groups, Sessions: registry, Audit: audits, Hasher: crypto.Hasher{},
+		Attrs: userAttrs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire user: %w", err)
 	}
 	oidcFlow, err := usecaseoidcflow.New(usecaseoidcflow.Deps{
 		Clients: oidcClients, Groups: groups, Consents: consents, Access: appSvc,
+		Attrs: userAttrs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire oidcflow: %w", err)
 	}
 	oidcProvider, err := oidc.New(ctx, db.Pool, oidcClients, oidc.Config{
 		Issuer: cfg.BaseURL, GlobalSecret: cfg.EncKey[:], SendDebug: !cfg.IsProduction(),
+		Attrs: userAttrs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire oidc: %w", err)
@@ -247,6 +254,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	samlRequests := postgres.NewSAMLRequestRepository(db)
 	samlFlow, err := usecasesamlflow.New(usecasesamlflow.Deps{
 		SPs: samlSPs, Groups: groups, Access: appSvc,
+		Attrs: userAttrs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire samlflow: %w", err)
@@ -273,7 +281,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	}
 	return &services{
 		auth: authSvc, users: userSvc, audits: audits, usersRepo: users,
-		groups: groups, radiusClients: postgres.NewRADIUSClientRepository(db),
+		groups: groups, attrs: userAttrs, radiusClients: postgres.NewRADIUSClientRepository(db),
 		registry: registry, dir: dir, oidc: oidcProvider, oidcFlow: oidcFlow,
 		challenges: challenges, oidcClients: oidcClients,
 		saml: samlProvider, samlFlow: samlFlow,
@@ -390,7 +398,7 @@ func startLDAPProvider(cfg config.Config, log *slog.Logger, svc *services) (*del
 		AllowedCIDRs: cfg.LDAPProvider.AllowedCIDRs,
 		TLSCertFile:  cfg.LDAPProvider.TLSCertFile,
 		TLSKeyFile:   cfg.LDAPProvider.TLSKeyFile,
-	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Log: log})
+	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Attrs: svc.attrs, Log: log})
 	if err != nil {
 		return nil, fmt.Errorf("ldap provider: %w", err)
 	}

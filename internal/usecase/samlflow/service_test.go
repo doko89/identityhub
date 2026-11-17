@@ -3,6 +3,7 @@ package samlflow
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -57,6 +58,10 @@ func (f *fakeGroups) List(_ context.Context, _, _ int) ([]domain.Group, int, err
 	return nil, 0, nil
 }
 
+func (f *fakeGroups) All(_ context.Context) ([]domain.Group, error) {
+	return nil, nil
+}
+
 func (f *fakeGroups) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 
 func (f *fakeGroups) AddMember(_ context.Context, _, _ uuid.UUID) error { return nil }
@@ -65,6 +70,10 @@ func (f *fakeGroups) RemoveMember(_ context.Context, _, _ uuid.UUID) error { ret
 
 func (f *fakeGroups) MemberIDs(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
 	return nil, nil
+}
+
+func (f *fakeGroups) MemberUsernamesByGroup(_ context.Context) (map[uuid.UUID][]string, error) {
+	return map[uuid.UUID][]string{}, nil
 }
 
 func (f *fakeGroups) GroupsOfUser(_ context.Context, _ uuid.UUID) ([]domain.Group, error) {
@@ -95,6 +104,41 @@ func testService() (*Service, *fakeSPs, *fakeGroups) {
 		panic(err)
 	}
 	return svc, sps, groups
+}
+
+type fakeAttrs struct {
+	defs   []domain.UserAttrDef
+	values map[uuid.UUID]map[string][]string
+	err    error
+}
+
+func (f *fakeAttrs) CreateDef(_ context.Context, d domain.UserAttrDef) (domain.UserAttrDef, error) {
+	return d, nil
+}
+
+func (f *fakeAttrs) ListDefs(_ context.Context) ([]domain.UserAttrDef, error) {
+	return f.defs, f.err
+}
+
+func (f *fakeAttrs) DeleteDef(_ context.Context, _ string) error { return nil }
+
+func (f *fakeAttrs) SetValues(_ context.Context, _ uuid.UUID, _ map[uuid.UUID][]string, _ domain.UserAttrSource) error {
+	return nil
+}
+
+func (f *fakeAttrs) ApplyUpstreamValues(_ context.Context, _ uuid.UUID, _ map[uuid.UUID][]string) error {
+	return nil
+}
+
+func (f *fakeAttrs) ValuesOfUser(_ context.Context, userID uuid.UUID) (map[string][]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.values[userID], nil
+}
+
+func (f *fakeAttrs) ValuesForUsers(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]map[string][]string, error) {
+	return map[uuid.UUID]map[string][]string{}, nil
 }
 
 func testUser() domain.User {
@@ -134,6 +178,32 @@ func TestEvaluateBuildsDecision(t *testing.T) {
 	}
 	if len(d.Groups) != 2 || d.Groups[0] != "eng" || d.Groups[1] != "ih_admin" {
 		t.Fatalf("Groups = %v, want [eng ih_admin]", d.Groups)
+	}
+}
+
+func TestEvaluateCarriesCustomAttributes(t *testing.T) {
+	svc, sps, groups := testService()
+	u := testUser()
+	attrs := &fakeAttrs{
+		defs: []domain.UserAttrDef{
+			{Key: "dept", Type: domain.UserAttrString},
+			{Key: "tags", Type: domain.UserAttrString, Multi: true},
+		},
+		values: map[uuid.UUID]map[string][]string{
+			u.ID: {"dept": {"eng"}, "tags": {"a", "b"}},
+		},
+	}
+	svc, err := New(Deps{SPs: sps, Groups: groups, Attrs: attrs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := svc.Evaluate(context.Background(), u, testRequest())
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	want := map[string][]string{"dept": {"eng"}, "tags": {"a", "b"}}
+	if !reflect.DeepEqual(d.Attributes, want) {
+		t.Fatalf("Attributes = %v, want %v", d.Attributes, want)
 	}
 }
 

@@ -67,6 +67,42 @@ func TestFilterMatch(t *testing.T) {
 	}
 }
 
+func TestShortCircuitUID(t *testing.T) {
+	cases := []struct {
+		filter string
+		uid    string
+		ok     bool
+	}{
+		{"(uid=ara)", "ara", true},
+		{"(UID=ARA)", "ARA", true}, // value keeps its case; lookup folds
+		{"(&(uid=ara)(mail=ara@example.com))", "ara", true},
+		{"(&(objectClass=inetOrgPerson)(uid=ara))", "ara", true},
+		{"(&(&(uid=ara)(cn=x))(mail=y))", "ara", true}, // nested AND
+		{"(&(uid=a)(uid=b))", "a", true},               // full match still rejects
+		{"(uid=*)", "", false},
+		{"(uid=ar*)", "", false},
+		{"(cn=ara)", "", false},
+		{"(|(uid=ara)(uid=bob))", "", false},
+		{"(!(uid=ara))", "", false},
+		{"(|(&(uid=ara)(cn=x))(uid=bob))", "", false},
+		{"(uid~=ara)", "ara", true}, // approximate degrades to equality
+		{"(uid>=ara)", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.filter, func(t *testing.T) {
+			f, err := parseFilter(tc.filter)
+			if err != nil {
+				t.Fatalf("parseFilter(%q) = %v", tc.filter, err)
+			}
+			uid, ok := shortCircuitUID(f)
+			if uid != tc.uid || ok != tc.ok {
+				t.Errorf("shortCircuitUID(%q) = (%q, %v), want (%q, %v)",
+					tc.filter, uid, ok, tc.uid, tc.ok)
+			}
+		})
+	}
+}
+
 func TestFilterParseErrors(t *testing.T) {
 	for _, s := range []string{
 		"",

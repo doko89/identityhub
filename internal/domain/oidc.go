@@ -40,6 +40,9 @@ type OIDCDecision struct {
 	Name          string // name claim
 	Groups        []string
 	GrantedScopes []string
+	// CustomAttrs carries custom attributes as typed claims
+	// (single-valued scalars, multi-valued arrays).
+	CustomAttrs map[string]any
 }
 
 // OIDCClientStore is the port for per-app OIDC client registration

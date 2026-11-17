@@ -7,6 +7,7 @@ import { AccountPage } from "@/features/account/pages/AccountPage";
 import { AccountPasswordPage } from "@/features/account/pages/AccountPasswordPage";
 import { AdminLayout } from "@/features/admin/components/AdminLayout";
 import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
+import { AdminAttrsPage } from "@/features/admin/pages/AdminAttrsPage";
 import { AdminAuditPage } from "@/features/admin/pages/AdminAuditPage";
 import { AdminBrandingPage } from "@/features/admin/pages/AdminBrandingPage";
 import { AdminGroupsPage } from "@/features/admin/pages/AdminGroupsPage";
@@ -44,6 +45,7 @@ export function App() {
               <Route index element={<Navigate to="users" replace />} />
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="groups" element={<AdminGroupsPage />} />
+              <Route path="attrs" element={<AdminAttrsPage />} />
               <Route path="apps" element={<AdminAppsPage />} />
               <Route path="providers" element={<AdminProvidersPage />} />
               <Route path="branding" element={<AdminBrandingPage />} />

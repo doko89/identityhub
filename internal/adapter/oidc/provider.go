@@ -41,6 +41,9 @@ type Config struct {
 	// SendDebug exposes fosite debug messages to clients. Development
 	// only — production must leave it false.
 	SendDebug bool
+	// Attrs feeds custom attribute keys into claims_supported.
+	// Nil serves the static built-in list.
+	Attrs domain.UserAttrStore
 }
 
 // Provider implements domain.OIDCProvider with fosite.
@@ -51,6 +54,7 @@ type Provider struct {
 	issuer string
 	key    *rsa.PrivateKey
 	kid    string
+	attrs  domain.UserAttrStore
 }
 
 // KeyGetter abstracts the RSA signing key source (keys.go).
@@ -111,6 +115,7 @@ func New(ctx context.Context, q Querier, clients domain.OIDCClientStore, cfg Con
 	return &Provider{
 		oauth2: inner, store: store, config: fc,
 		issuer: strings.TrimRight(cfg.Issuer, "/"), key: kg.Key, kid: kg.KID,
+		attrs: cfg.Attrs,
 	}, nil
 }
 
@@ -237,8 +242,15 @@ func (p *Provider) HandleUserinfo(ctx context.Context, w http.ResponseWriter, r 
 	writeJSON(w, http.StatusOK, out)
 }
 
+// baseClaimsSupported is the static claim list; custom attribute keys
+// append after it when the store is wired.
+var baseClaimsSupported = []string{
+	"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce",
+	"preferred_username", "email", "name", "groups",
+}
+
 // HandleDiscovery implements domain.OIDCProvider.
-func (p *Provider) HandleDiscovery(w http.ResponseWriter, _ *http.Request) {
+func (p *Provider) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer":                                p.issuer,
 		"authorization_endpoint":                p.issuer + "/oauth2/auth",
@@ -254,12 +266,28 @@ func (p *Provider) HandleDiscovery(w http.ResponseWriter, _ *http.Request) {
 			domain.ScopeGroups, domain.ScopeOfflineAccess,
 		},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
-		"claims_supported": []string{
-			"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce",
-			"preferred_username", "email", "name", "groups",
-		},
-		"code_challenge_methods_supported": []string{"S256", "plain"},
+		"claims_supported":                      p.claimsSupported(r.Context()),
+		"code_challenge_methods_supported":      []string{"S256", "plain"},
 	})
+}
+
+// claimsSupported lists the built-in claims plus custom attribute keys.
+// A def-list failure degrades to the static list: discovery metadata
+// must never fail because of the attribute store.
+func (p *Provider) claimsSupported(ctx context.Context) []string {
+	if p.attrs == nil {
+		return baseClaimsSupported
+	}
+	defs, err := p.attrs.ListDefs(ctx)
+	if err != nil {
+		return baseClaimsSupported
+	}
+	out := make([]string, 0, len(baseClaimsSupported)+len(defs))
+	out = append(out, baseClaimsSupported...)
+	for _, d := range defs {
+		out = append(out, d.Key)
+	}
+	return out
 }
 
 // HandleJWKS implements domain.OIDCProvider: the single active RSA key.
@@ -277,7 +305,9 @@ func (p *Provider) HandleJWKS(w http.ResponseWriter, _ *http.Request) {
 // newSession builds the fosite session from the login+consent decision.
 // Claims follow TECH_SPEC §6.2: sub = stable user UUID, plus
 // preferred_username/email/name/groups in both ID token and userinfo.
-// The kid header binds the token to the JWKS entry.
+// The kid header binds the token to the JWKS entry. Custom attributes
+// merge in first so the built-ins always win on collision (def keys
+// cannot be reserved names, this is defense in depth).
 func (p *Provider) newSession(d domain.OIDCDecision) *openid.DefaultSession {
 	s := openid.NewDefaultSession()
 	now := time.Now().UTC()
@@ -287,12 +317,15 @@ func (p *Provider) newSession(d domain.OIDCDecision) *openid.DefaultSession {
 	claims := s.IDTokenClaims()
 	claims.Subject = d.Subject
 	claims.AuthTime = now
-	claims.Extra = map[string]any{
-		"preferred_username": d.Username,
-		"email":              d.Email,
-		"name":               d.Name,
-		"groups":             d.Groups,
+	extra := make(map[string]any, len(d.CustomAttrs)+4)
+	for k, v := range d.CustomAttrs {
+		extra[k] = v
 	}
+	extra["preferred_username"] = d.Username
+	extra["email"] = d.Email
+	extra["name"] = d.Name
+	extra["groups"] = d.Groups
+	claims.Extra = extra
 	return s
 }
 

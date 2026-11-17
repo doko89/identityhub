@@ -35,6 +35,9 @@ const (
 	ActionBrandingUpdate     = "branding_update"
 	ActionAPIKeyCreate       = "api_key_create"
 	ActionAPIKeyRevoke       = "api_key_revoke"
+	ActionAttrDefCreate      = "attr_def_create"
+	ActionAttrDefDelete      = "attr_def_delete"
+	ActionUserAttrsUpdate    = "user_attrs_update"
 )
 
 // Service validates and persists audit entries.

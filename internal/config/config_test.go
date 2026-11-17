@@ -132,6 +132,52 @@ func TestLoadLDAPAndSMTP(t *testing.T) {
 	}
 }
 
+func TestLoadLDAPAttrMap(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_URL", "ldap://dir.example.com:389")
+	setEnv(t, "LDAP_BASE_DN", "dc=example,dc=com")
+	setEnv(t, "LDAP_ATTR_MAP", "department:dept, employeeID:employee-id")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.LDAP.AttrMap) != 2 || cfg.LDAP.AttrMap["department"] != "dept" ||
+		cfg.LDAP.AttrMap["employeeID"] != "employee-id" {
+		t.Errorf("AttrMap = %v", cfg.LDAP.AttrMap)
+	}
+}
+
+func TestLoadLDAPAttrMapFailures(t *testing.T) {
+	validURL := "postgres://localhost:5432/identityhub"
+	validKey := testEncKey(t)
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"missing colon", "department"},
+		{"empty key", "department:"},
+		{"empty upstream", ":dept"},
+		{"bad upstream", "dep artment:dept"},
+		{"uppercase key", "department:Dept"},
+		{"repeated upstream", "department:dept,department:other"},
+		{"two upstreams one key", "department:dept,ou:dept"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setEnv(t, "DATABASE_URL", validURL)
+			setEnv(t, "ENC_KEY", validKey)
+			setEnv(t, "LDAP_URL", "ldap://dir.example.com:389")
+			setEnv(t, "LDAP_BASE_DN", "dc=example,dc=com")
+			setEnv(t, "LDAP_ATTR_MAP", tc.raw)
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() = nil error, want failure")
+			}
+		})
+	}
+}
+
 func TestLoadLegacyProviderDefaults(t *testing.T) {
 	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
 	setEnv(t, "ENC_KEY", testEncKey(t))

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +56,7 @@ const (
 	envLDAPGroupFilter    = "LDAP_GROUP_FILTER"
 	envLDAPAdminGroupDN   = "LDAP_ADMIN_GROUP_DN"
 	envLDAPTimeout        = "LDAP_TIMEOUT"
+	envLDAPAttrMap        = "LDAP_ATTR_MAP"
 	envSMTPHost           = "SMTP_HOST"
 	envSMTPPort           = "SMTP_PORT"
 	envSMTPUsername       = "SMTP_USERNAME"
@@ -145,6 +147,10 @@ type LDAPConfig struct {
 	AdminGroupDN string
 	// Timeout bounds every dial/search/bind (PRD §5.1: never a hang).
 	Timeout time.Duration
+	// AttrMap maps upstream directory attributes to custom attribute
+	// keys (upstream -> key). Synced values populate the mapped keys;
+	// keys without a def are skipped. Nil disables the import.
+	AttrMap map[string]string
 }
 
 // Enabled reports whether the upstream connector is configured.
@@ -296,6 +302,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid %s %q: %v", envLDAPTimeout, raw, err)
 		}
 		cfg.LDAP.Timeout = d
+	}
+	if raw := strings.TrimSpace(os.Getenv(envLDAPAttrMap)); raw != "" {
+		m, err := parseAttrMap(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s: %w", envLDAPAttrMap, err)
+		}
+		cfg.LDAP.AttrMap = m
 	}
 	if raw := strings.TrimSpace(os.Getenv(envLDAPPort)); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -531,6 +544,47 @@ func parseCIDRList(raw string) ([]*net.IPNet, error) {
 			continue
 		}
 		return nil, fmt.Errorf("%q is not a CIDR or IP address", item)
+	}
+	return out, nil
+}
+
+var (
+	attrNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*$`)
+	attrKeyPattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+)
+
+// parseAttrMap parses "upstream:key,upstream2:key2" into an
+// upstream-attribute -> custom-key map. Upstream names follow LDAP
+// attribute spelling; keys must already look like def keys (lowercase).
+// Either side repeated (two upstreams feeding one key) is rejected:
+// sync could not pick a winner.
+func parseAttrMap(raw string) (map[string]string, error) {
+	out := map[string]string{}
+	seenKeys := map[string]string{}
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		upstream, key, ok := strings.Cut(item, ":")
+		upstream, key = strings.TrimSpace(upstream), strings.TrimSpace(key)
+		if !ok || upstream == "" || key == "" {
+			return nil, fmt.Errorf("%q must look like upstreamAttr:key", item)
+		}
+		if !attrNamePattern.MatchString(upstream) {
+			return nil, fmt.Errorf("%q is not an LDAP attribute name", upstream)
+		}
+		if len(key) > 64 || !attrKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("%q is not a custom attribute key (lowercase a-z, 0-9, '-')", key)
+		}
+		if prev, dup := out[upstream]; dup {
+			return nil, fmt.Errorf("upstream attribute %q maps twice (%q and %q)", upstream, prev, key)
+		}
+		if prev, dup := seenKeys[key]; dup {
+			return nil, fmt.Errorf("custom attribute %q is fed by two upstreams (%q and %q)", key, prev, upstream)
+		}
+		out[upstream] = key
+		seenKeys[key] = upstream
 	}
 	return out, nil
 }

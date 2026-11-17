@@ -27,16 +27,19 @@ type Service struct {
 	consents domain.OIDCConsentStore
 	access   AccessChecker
 	clock    domain.Clock
+	attrs    domain.UserAttrStore
 }
 
 // Deps wires a Service. Clients, Groups and Consents are required;
-// Access is optional (nil skips the binding check).
+// Access is optional (nil skips the binding check); Attrs is optional
+// (nil omits custom claims).
 type Deps struct {
 	Clients  domain.OIDCClientStore
 	Groups   domain.GroupStore
 	Consents domain.OIDCConsentStore
 	Access   AccessChecker
 	Clock    domain.Clock
+	Attrs    domain.UserAttrStore
 }
 
 // New validates Deps and builds a Service.
@@ -47,7 +50,7 @@ func New(d Deps) (*Service, error) {
 	if d.Clock == nil {
 		d.Clock = domain.SystemClock{}
 	}
-	return &Service{clients: d.Clients, groups: d.Groups, consents: d.Consents, access: d.Access, clock: d.Clock}, nil
+	return &Service{clients: d.Clients, groups: d.Groups, consents: d.Consents, access: d.Access, clock: d.Clock, attrs: d.Attrs}, nil
 }
 
 // Outcome is the evaluated authorize request: the claims to issue plus
@@ -106,6 +109,10 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.OID
 	} else if !errors.Is(err, domain.ErrNotFound) {
 		return Outcome{}, err
 	}
+	custom, err := s.customClaims(ctx, user.ID)
+	if err != nil {
+		return Outcome{}, err
+	}
 	return Outcome{
 		Decision: domain.OIDCDecision{
 			Subject:       user.ID.String(),
@@ -114,9 +121,30 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.OID
 			Name:          user.DisplayName,
 			Groups:        names,
 			GrantedScopes: granted,
+			CustomAttrs:   custom,
 		},
 		NeedConsent: needConsent,
 	}, nil
+}
+
+// customClaims renders the user's custom attributes as typed claims.
+// A nil store issues no custom claims.
+func (s *Service) customClaims(ctx context.Context, userID uuid.UUID) (map[string]any, error) {
+	if s.attrs == nil {
+		return nil, nil
+	}
+	defs, err := s.attrs.ListDefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(defs) == 0 {
+		return nil, nil
+	}
+	values, err := s.attrs.ValuesOfUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.TypedAttrValues(defs, values), nil
 }
 
 // GrantConsent remembers the user's scope grant after the consent page.

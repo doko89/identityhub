@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -233,39 +234,59 @@ func mapAuthnRequest(creq *csaml.IdpAuthnRequest) domain.SAMLAuthnRequest {
 // mapSession builds the crewjam session from the login decision
 // (TECH_SPEC §6.3): NameID = username; email, displayName and groups as
 // attributes. CustomAttributes guarantee the contract names regardless of
-// what the SP's AttributeConsumingService requests.
+// what the SP's AttributeConsumingService requests. Custom attributes
+// append after the built-ins, sorted by key for stable assertions.
 func mapSession(d domain.SAMLDecision) *csaml.Session {
 	groupValues := make([]csaml.AttributeValue, 0, len(d.Groups))
 	for _, g := range d.Groups {
 		groupValues = append(groupValues, csaml.AttributeValue{Type: "xs:string", Value: g})
 	}
+	attrs := []csaml.Attribute{
+		{
+			FriendlyName: domain.SAMLAttrEmail, Name: domain.SAMLAttrEmail,
+			NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+			Values:     []csaml.AttributeValue{{Type: "xs:string", Value: d.Email}},
+		},
+		{
+			FriendlyName: domain.SAMLAttrDisplayName, Name: domain.SAMLAttrDisplayName,
+			NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+			Values:     []csaml.AttributeValue{{Type: "xs:string", Value: d.DisplayName}},
+		},
+		{
+			FriendlyName: domain.SAMLAttrGroups, Name: domain.SAMLAttrGroups,
+			NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+			Values:     groupValues,
+		},
+	}
+	keys := make([]string, 0, len(d.Attributes))
+	for k, v := range d.Attributes {
+		if len(v) > 0 {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vals := make([]csaml.AttributeValue, 0, len(d.Attributes[k]))
+		for _, v := range d.Attributes[k] {
+			vals = append(vals, csaml.AttributeValue{Type: "xs:string", Value: v})
+		}
+		attrs = append(attrs, csaml.Attribute{
+			FriendlyName: k, Name: k,
+			NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+			Values:     vals,
+		})
+	}
 	index := uuid.NewString()
 	return &csaml.Session{
-		ID:             index,
-		Index:          index,
-		NameID:         d.NameID,
-		NameIDFormat:   "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified",
-		UserName:       d.NameID,
-		UserEmail:      d.Email,
-		UserCommonName: d.DisplayName,
-		Groups:         d.Groups,
-		CustomAttributes: []csaml.Attribute{
-			{
-				FriendlyName: domain.SAMLAttrEmail, Name: domain.SAMLAttrEmail,
-				NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
-				Values:     []csaml.AttributeValue{{Type: "xs:string", Value: d.Email}},
-			},
-			{
-				FriendlyName: domain.SAMLAttrDisplayName, Name: domain.SAMLAttrDisplayName,
-				NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
-				Values:     []csaml.AttributeValue{{Type: "xs:string", Value: d.DisplayName}},
-			},
-			{
-				FriendlyName: domain.SAMLAttrGroups, Name: domain.SAMLAttrGroups,
-				NameFormat: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
-				Values:     groupValues,
-			},
-		},
+		ID:               index,
+		Index:            index,
+		NameID:           d.NameID,
+		NameIDFormat:     "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified",
+		UserName:         d.NameID,
+		UserEmail:        d.Email,
+		UserCommonName:   d.DisplayName,
+		Groups:           d.Groups,
+		CustomAttributes: attrs,
 	}
 }
 

@@ -233,6 +233,26 @@ func unescapeFilterValue(s string) (string, error) {
 	return b.String(), nil
 }
 
+// shortCircuitUID extracts a uid equality from a filter when every match
+// must satisfy it: a bare (uid=x) or an AND (possibly nested)
+// containing one. It lets the search resolve one indexed row instead of
+// scanning the tree. OR, NOT and substring filters keep the full scan.
+func shortCircuitUID(f *filter) (string, bool) {
+	switch f.op {
+	case opEquality:
+		if f.attr == "uid" {
+			return f.value, true
+		}
+	case opAnd:
+		for _, k := range f.children {
+			if v, ok := shortCircuitUID(k); ok {
+				return v, ok
+			}
+		}
+	}
+	return "", false
+}
+
 // match reports whether the filter matches the entry. Attribute names
 // compare case-insensitively; string values use case-insensitive
 // equality (caseIgnoreMatch, the rule for uid/cn/mail).

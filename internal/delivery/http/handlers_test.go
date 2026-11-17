@@ -75,6 +75,18 @@ func (f *fakeUsers) ByUsername(_ context.Context, username string) (domain.User,
 	return u, nil
 }
 
+func (f *fakeUsers) ByUsernameFold(_ context.Context, username string) (domain.User, error) {
+	if u, ok := f.byUsername[username]; ok {
+		return u, nil
+	}
+	for name, u := range f.byUsername {
+		if strings.EqualFold(name, username) {
+			return u, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
 func (f *fakeUsers) ByEmail(_ context.Context, email string) (domain.User, error) {
 	u, ok := f.byEmail[email]
 	if !ok {
@@ -98,6 +110,16 @@ func (f *fakeUsers) List(_ context.Context, flt domain.UserFilter) ([]domain.Use
 		out = append(out, u)
 	}
 	return out, len(out), nil
+}
+
+func (f *fakeUsers) AllActive(_ context.Context) ([]domain.User, error) {
+	var out []domain.User
+	for _, u := range f.byID {
+		if u.IsActive {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeUsers) Update(_ context.Context, u domain.User) (domain.User, error) {
@@ -179,6 +201,14 @@ func (f *fakeGroups) List(_ context.Context, _, _ int) ([]domain.Group, int, err
 	return out, len(out), nil
 }
 
+func (f *fakeGroups) All(_ context.Context) ([]domain.Group, error) {
+	var out []domain.Group
+	for _, g := range f.byID {
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 func (f *fakeGroups) Delete(_ context.Context, id uuid.UUID) error {
 	g, ok := f.byID[id]
 	if !ok {
@@ -214,6 +244,10 @@ func (f *fakeGroups) MemberIDs(_ context.Context, groupID uuid.UUID) ([]uuid.UUI
 	return out, nil
 }
 
+func (f *fakeGroups) MemberUsernamesByGroup(_ context.Context) (map[uuid.UUID][]string, error) {
+	return map[uuid.UUID][]string{}, nil
+}
+
 func (f *fakeGroups) GroupsOfUser(_ context.Context, userID uuid.UUID) ([]domain.Group, error) {
 	var out []domain.Group
 	for gid, set := range f.members {
@@ -230,6 +264,98 @@ func (f *fakeGroups) IsMember(_ context.Context, userID uuid.UUID, groupName str
 		return false, nil
 	}
 	return f.members[g.ID][userID], nil
+}
+
+type fakeAttrs struct {
+	defs   map[string]domain.UserAttrDef
+	byID   map[uuid.UUID]domain.UserAttrDef
+	values map[uuid.UUID]map[uuid.UUID][]string
+}
+
+func newFakeAttrs() *fakeAttrs {
+	return &fakeAttrs{
+		defs: map[string]domain.UserAttrDef{}, byID: map[uuid.UUID]domain.UserAttrDef{},
+		values: map[uuid.UUID]map[uuid.UUID][]string{},
+	}
+}
+
+func (f *fakeAttrs) CreateDef(_ context.Context, d domain.UserAttrDef) (domain.UserAttrDef, error) {
+	if err := d.Validate(); err != nil {
+		return domain.UserAttrDef{}, err
+	}
+	if _, ok := f.defs[d.Key]; ok {
+		return domain.UserAttrDef{}, domain.ErrConflict
+	}
+	if d.ID == uuid.Nil {
+		d.ID = uuid.New()
+	}
+	f.defs[d.Key] = d
+	f.byID[d.ID] = d
+	return d, nil
+}
+
+func (f *fakeAttrs) ListDefs(_ context.Context) ([]domain.UserAttrDef, error) {
+	var out []domain.UserAttrDef
+	for _, d := range f.defs {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (f *fakeAttrs) DeleteDef(_ context.Context, key string) error {
+	d, ok := f.defs[key]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.defs, key)
+	delete(f.byID, d.ID)
+	for uid := range f.values {
+		delete(f.values[uid], d.ID)
+	}
+	return nil
+}
+
+func (f *fakeAttrs) SetValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string, _ domain.UserAttrSource) error {
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+	}
+	for id, vals := range values {
+		if len(vals) == 0 {
+			delete(f.values[userID], id)
+			continue
+		}
+		f.values[userID][id] = append([]string(nil), vals...)
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ApplyUpstreamValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string) error {
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+	}
+	for id, vals := range values {
+		f.values[userID][id] = vals
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ValuesOfUser(_ context.Context, userID uuid.UUID) (map[string][]string, error) {
+	out := map[string][]string{}
+	for id, vals := range f.values[userID] {
+		if d, ok := f.byID[id]; ok {
+			out[d.Key] = append([]string(nil), vals...)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAttrs) ValuesForUsers(_ context.Context, userIDs []uuid.UUID) (map[uuid.UUID]map[string][]string, error) {
+	out := map[uuid.UUID]map[string][]string{}
+	for _, uid := range userIDs {
+		m, _ := f.ValuesOfUser(context.Background(), uid)
+		out[uid] = m
+	}
+	return out, nil
 }
 
 type fakeResets struct {
@@ -416,6 +542,7 @@ type apiHarness struct {
 	mailer *fakeMailer
 	dir    *fakeDirectory
 	keys   *fakeAPIKeys
+	attrs  *fakeAttrs
 	admin  domain.Group
 }
 
@@ -429,6 +556,7 @@ func newAPI(t *testing.T, users ...domain.User) *apiHarness {
 		audits: &fakeAuditStore{},
 		mailer: &fakeMailer{},
 		dir:    &fakeDirectory{passwords: map[string]string{}},
+		attrs:  newFakeAttrs(),
 		admin:  admin,
 	}
 	audits := usecaseaudit.New(h.audits, nil)
@@ -442,7 +570,7 @@ func newAPI(t *testing.T, users ...domain.User) *apiHarness {
 	}
 	userSvc, err := usecaseuser.New(usecaseuser.Deps{
 		Users: h.users, Groups: h.groups, Sessions: &fakeRegistry{},
-		Audit: audits, Hasher: fakeHasher{},
+		Audit: audits, Hasher: fakeHasher{}, Attrs: h.attrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -488,7 +616,7 @@ func (h *apiHarness) withoutDirectory(t *testing.T) {
 	}
 	userSvc, err := usecaseuser.New(usecaseuser.Deps{
 		Users: h.users, Groups: h.groups, Sessions: &fakeRegistry{},
-		Audit: audits, Hasher: fakeHasher{},
+		Audit: audits, Hasher: fakeHasher{}, Attrs: h.attrs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -889,6 +1017,72 @@ func TestAdminUsers(t *testing.T) {
 	code, _ = h.do(http.MethodGet, "/api/admin/users/"+uuid.NewString(), nil)
 	if code != http.StatusNotFound {
 		t.Errorf("unknown user = %d, want 404", code)
+	}
+}
+
+func TestAdminUserAttrs(t *testing.T) {
+	root := localUser("root", "root-password-12")
+	ara := localUser("ara", "ara-password-123")
+	h := newAPI(t, root, ara)
+	_ = h.groups.AddMember(context.Background(), root.ID, h.admin.ID)
+	h.login(t, "root", "root-password-12")
+	araID := ara.ID.String()
+
+	code, out := h.do(http.MethodPost, "/api/admin/user-attrs", map[string]any{
+		"key": "dept", "type": "string", "multi": false,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create def = %d, %v", code, out)
+	}
+	code, _ = h.do(http.MethodPost, "/api/admin/user-attrs", map[string]any{
+		"key": "dept", "type": "string",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("duplicate def = %d, want 409", code)
+	}
+	code, _ = h.do(http.MethodPost, "/api/admin/user-attrs", map[string]any{
+		"key": "sub", "type": "string",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("reserved def = %d, want 400", code)
+	}
+	code, out = h.do(http.MethodGet, "/api/admin/user-attrs", nil)
+	if code != http.StatusOK || len(out["defs"].([]any)) != 1 {
+		t.Fatalf("list defs = %d, %v", code, out)
+	}
+
+	code, out = h.do(http.MethodPut, "/api/admin/users/"+araID+"/attrs", map[string]any{
+		"dept": "eng",
+	})
+	if code != http.StatusOK || out["attrs"].(map[string]any)["dept"] != "eng" {
+		t.Fatalf("set attrs = %d, %v", code, out)
+	}
+	code, _ = h.do(http.MethodPut, "/api/admin/users/"+araID+"/attrs", map[string]any{
+		"nosuch": "x",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown key = %d, want 400", code)
+	}
+	code, out = h.do(http.MethodGet, "/api/admin/users/"+araID+"/attrs", nil)
+	if code != http.StatusOK || out["attrs"].(map[string]any)["dept"] != "eng" {
+		t.Fatalf("get attrs = %d, %v", code, out)
+	}
+	code, _ = h.do(http.MethodGet, "/api/admin/users/"+uuid.NewString()+"/attrs", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("unknown user attrs = %d, want 404", code)
+	}
+	// Def delete cascades the values.
+	code, _ = h.do(http.MethodDelete, "/api/admin/user-attrs/dept", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("delete def = %d", code)
+	}
+	code, out = h.do(http.MethodGet, "/api/admin/users/"+araID+"/attrs", nil)
+	if code != http.StatusOK || len(out["attrs"].(map[string]any)) != 0 {
+		t.Fatalf("attrs after def delete = %d, %v", code, out)
+	}
+	code, _ = h.do(http.MethodDelete, "/api/admin/user-attrs/dept", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("second delete = %d, want 404", code)
 	}
 }
 

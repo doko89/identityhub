@@ -23,10 +23,6 @@ const (
 	scopeWholeSubtree = 2
 )
 
-// pageSize matches the repository list cap; directory listings walk all
-// pages so large directories are served completely.
-const pageSize = 200
-
 // handleBind verifies uid=<username>,ou=users,dc=identityhub + password
 // through usecase/auth. Anonymous binds and malformed DNs are protocol
 // rejections (not audited, like undecodable HTTP bodies); every real
@@ -107,7 +103,7 @@ func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	candidates, noSuch, err := s.collectEntries(ctx, base, scope)
+	candidates, noSuch, err := s.collectEntries(ctx, base, scope, f)
 	if err != nil {
 		s.log.Error("ldap search failed", "base", base, "error", err)
 		done(ldapserver.LDAPResultOperationsError)
@@ -174,12 +170,25 @@ func handleNotFound(w ldapserver.ResponseWriter, r *ldapserver.Message) {
 
 // collectEntries resolves base+scope to candidate entries. noSuch is
 // true when the base DN names nothing in the tree.
-func (s *Server) collectEntries(ctx context.Context, base string, scope int) (out []*entry, noSuch bool, err error) {
+func (s *Server) collectEntries(ctx context.Context, base string, scope int, f *filter) (out []*entry, noSuch bool, err error) {
 	if base == "" {
 		if scope == scopeBaseObject {
 			return []*entry{rootDSE()}, false, nil
 		}
 		return nil, true, nil
+	}
+	// Point lookups — a bare (uid=x) or an AND containing one — resolve
+	// to one indexed row instead of a full tree scan. Container entries
+	// carry no uid, so they could never match such a filter anyway.
+	if uid, ok := shortCircuitUID(f); ok && userEntriesInScope(base, scope) {
+		e, found, err := s.userEntryByName(ctx, uid)
+		if err != nil {
+			return nil, false, err
+		}
+		if !found {
+			return nil, false, nil
+		}
+		return []*entry{e}, false, nil
 	}
 	switch {
 	case sameDN(base, BaseDN):
@@ -192,14 +201,14 @@ func (s *Server) collectEntries(ctx context.Context, base string, scope int) (ou
 			return s.wholeTree(ctx)
 		}
 	case sameDN(base, UsersDN):
-		users, memberOf, err := s.activeUsers(ctx)
+		users, memberOf, custom, err := s.activeUsers(ctx)
 		if err != nil {
 			return nil, false, err
 		}
 		if scope == scopeBaseObject {
 			return []*entry{ouEntry("users")}, false, nil
 		}
-		entries := userEntries(users, memberOf)
+		entries := userEntries(users, memberOf, custom)
 		if scope == scopeWholeSubtree {
 			entries = append([]*entry{ouEntry("users")}, entries...)
 		}
@@ -228,6 +237,44 @@ func (s *Server) collectEntries(ctx context.Context, base string, scope int) (ou
 	}
 }
 
+// userEntriesInScope reports whether user entries can appear among the
+// candidates for base+scope (the (uid=...) short-circuit applies only
+// then; container-only scopes keep the generic path).
+func userEntriesInScope(base string, scope int) bool {
+	if sameDN(base, UsersDN) {
+		return scope != scopeBaseObject
+	}
+	return sameDN(base, BaseDN) && scope == scopeWholeSubtree
+}
+
+// userEntryByName resolves one username to its entry for the (uid=...)
+// short-circuit. Like the tree scan, inactive users do not exist.
+func (s *Server) userEntryByName(ctx context.Context, username string) (*entry, bool, error) {
+	u, err := s.users.ByUsernameFold(ctx, username)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && !u.IsActive) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	groups, err := s.groups.GroupsOfUser(ctx, u.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	var memberOf []string
+	for _, g := range groups {
+		memberOf = append(memberOf, GroupDN(g.Name))
+	}
+	var custom map[string][]string
+	if s.attrs != nil {
+		custom, err = s.attrs.ValuesOfUser(ctx, u.ID)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	return userEntry(u, memberOf, custom), true, nil
+}
+
 // leafEntry resolves a user or group DN to its entry for base-scope
 // reads. Inactive users do not exist in the tree.
 func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, error) {
@@ -247,7 +294,14 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 		for _, g := range groups {
 			memberOf = append(memberOf, GroupDN(g.Name))
 		}
-		return userEntry(u, memberOf), true, nil
+		var custom map[string][]string
+		if s.attrs != nil {
+			custom, err = s.attrs.ValuesOfUser(ctx, u.ID)
+			if err != nil {
+				return nil, false, err
+			}
+		}
+		return userEntry(u, memberOf, custom), true, nil
 	}
 	dn, err := parseGroupDN(base)
 	if err != nil {
@@ -269,7 +323,7 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 
 // wholeTree returns every entry under the base DN.
 func (s *Server) wholeTree(ctx context.Context) ([]*entry, bool, error) {
-	users, memberOf, err := s.activeUsers(ctx)
+	users, memberOf, custom, err := s.activeUsers(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -278,31 +332,49 @@ func (s *Server) wholeTree(ctx context.Context) ([]*entry, bool, error) {
 		return nil, false, err
 	}
 	out := []*entry{domainEntry(), ouEntry("users"), ouEntry("groups")}
-	out = append(out, userEntries(users, memberOf)...)
+	out = append(out, userEntries(users, memberOf, custom)...)
 	out = append(out, groupEntries(groups, members)...)
 	return out, false, nil
 }
 
 // activeUsers lists every active user plus a user-id → group-DN index
-// (inverted from group memberships, so no per-user query is needed).
-func (s *Server) activeUsers(ctx context.Context) ([]domain.User, map[string][]string, error) {
-	active := true
-	var users []domain.User
-	for offset := 0; ; offset += pageSize {
-		page, total, err := s.users.List(ctx, domain.UserFilter{Active: &active, Limit: pageSize, Offset: offset})
-		if err != nil {
-			return nil, nil, err
-		}
-		users = append(users, page...)
-		if len(users) >= total || len(page) == 0 {
-			break
-		}
+// and a user-id → custom-attributes index: users, groups, one
+// membership join and one attribute batch.
+func (s *Server) activeUsers(ctx context.Context) ([]domain.User, map[string][]string, map[string]map[string][]string, error) {
+	users, err := s.users.AllActive(ctx)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	groups, members, err := s.groupMembers(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return users, invertMembers(users, groups, members), nil
+	custom, err := s.customForUsers(ctx, users)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return users, invertMembers(users, groups, members), custom, nil
+}
+
+// customForUsers batch-loads custom attributes keyed by user-ID string.
+// A nil store serves no custom attributes.
+func (s *Server) customForUsers(ctx context.Context, users []domain.User) (map[string]map[string][]string, error) {
+	if s.attrs == nil || len(users) == 0 {
+		return nil, nil
+	}
+	ids := make([]uuid.UUID, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	byID, err := s.attrs.ValuesForUsers(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]map[string][]string, len(byID))
+	for id, vals := range byID {
+		out[id.String()] = vals
+	}
+	return out, nil
 }
 
 // invertMembers maps group-id → member user-DNs into user-id → group-DNs.
@@ -330,24 +402,23 @@ func invertMembers(users []domain.User, groups []domain.Group, members map[strin
 	return out
 }
 
-// groupMembers lists every group plus group-id → active-member user-DNs.
+// groupMembers lists every group plus group-id → active-member user-DNs
+// in two queries: the group list and one membership join.
 func (s *Server) groupMembers(ctx context.Context) ([]domain.Group, map[string][]string, error) {
-	var groups []domain.Group
-	for offset := 0; ; offset += pageSize {
-		page, total, err := s.groups.List(ctx, pageSize, offset)
-		if err != nil {
-			return nil, nil, err
-		}
-		groups = append(groups, page...)
-		if len(groups) >= total || len(page) == 0 {
-			break
-		}
+	groups, err := s.groups.All(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
-	members := map[string][]string{}
+	byGroup, err := s.groups.MemberUsernamesByGroup(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	members := make(map[string][]string, len(groups))
 	for _, g := range groups {
-		dns, err := s.memberDNs(ctx, g.ID)
-		if err != nil {
-			return nil, nil, err
+		names := byGroup[g.ID]
+		dns := make([]string, 0, len(names))
+		for _, n := range names {
+			dns = append(dns, UserDN(n))
 		}
 		members[g.ID.String()] = dns
 	}
@@ -355,7 +426,9 @@ func (s *Server) groupMembers(ctx context.Context) ([]domain.Group, map[string][
 }
 
 // memberDNs resolves a group's member ids to user DNs, skipping rows
-// that are missing or inactive (they have no entry in the tree).
+// that are missing or inactive (they have no entry in the tree). Only
+// base-scope group reads use it; subtree listings share the single
+// membership join in groupMembers.
 func (s *Server) memberDNs(ctx context.Context, groupID uuid.UUID) ([]string, error) {
 	ids, err := s.groups.MemberIDs(ctx, groupID)
 	if err != nil {
@@ -433,15 +506,15 @@ func ouEntry(name string) *entry {
 	}}
 }
 
-func userEntries(users []domain.User, memberOf map[string][]string) []*entry {
+func userEntries(users []domain.User, memberOf map[string][]string, custom map[string]map[string][]string) []*entry {
 	out := make([]*entry, 0, len(users))
 	for _, u := range users {
-		out = append(out, userEntry(u, memberOf[u.ID.String()]))
+		out = append(out, userEntry(u, memberOf[u.ID.String()], custom[u.ID.String()]))
 	}
 	return out
 }
 
-func userEntry(u domain.User, memberOf []string) *entry {
+func userEntry(u domain.User, memberOf []string, custom map[string][]string) *entry {
 	cn := u.DisplayName
 	if cn == "" {
 		cn = u.Username
@@ -458,6 +531,13 @@ func userEntry(u domain.User, memberOf []string) *entry {
 	}
 	if len(memberOf) > 0 {
 		attrs["memberof"] = memberOf
+	}
+	// Custom keys are lowercase LDAP-safe and never collide with the
+	// built-ins (reserved at def creation), so they merge directly.
+	for key, vals := range custom {
+		if len(vals) > 0 {
+			attrs[key] = vals
+		}
 	}
 	return &entry{dn: UserDN(u.Username), attrs: attrs}
 }

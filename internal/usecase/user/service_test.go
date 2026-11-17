@@ -3,6 +3,9 @@ package user
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +94,21 @@ func (f *fakeUsers) ByUsername(_ context.Context, username string) (domain.User,
 	return u, nil
 }
 
+func (f *fakeUsers) ByUsernameFold(_ context.Context, username string) (domain.User, error) {
+	if f.err != nil {
+		return domain.User{}, f.err
+	}
+	if u, ok := f.byUsername[username]; ok {
+		return u, nil
+	}
+	for name, u := range f.byUsername {
+		if strings.EqualFold(name, username) {
+			return u, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
 func (f *fakeUsers) ByEmail(_ context.Context, _ string) (domain.User, error) {
 	return domain.User{}, domain.ErrNotFound
 }
@@ -119,6 +137,19 @@ func (f *fakeUsers) List(_ context.Context, flt domain.UserFilter) ([]domain.Use
 		out = out[:flt.Limit]
 	}
 	return out, len(f.byID), nil
+}
+
+func (f *fakeUsers) AllActive(_ context.Context) ([]domain.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []domain.User
+	for _, u := range f.byID {
+		if u.IsActive {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeUsers) Update(_ context.Context, u domain.User) (domain.User, error) {
@@ -232,6 +263,14 @@ func (f *fakeGroups) List(_ context.Context, _, _ int) ([]domain.Group, int, err
 	return out, len(out), f.err
 }
 
+func (f *fakeGroups) All(_ context.Context) ([]domain.Group, error) {
+	var out []domain.Group
+	for _, g := range f.byID {
+		out = append(out, g)
+	}
+	return out, f.err
+}
+
 func (f *fakeGroups) Delete(_ context.Context, id uuid.UUID) error {
 	if f.err != nil {
 		return f.err
@@ -282,6 +321,16 @@ func (f *fakeGroups) MemberIDs(_ context.Context, groupID uuid.UUID) ([]uuid.UUI
 	return out, nil
 }
 
+func (f *fakeGroups) MemberUsernamesByGroup(_ context.Context) (map[uuid.UUID][]string, error) {
+	if f.memberIDsErr != nil {
+		return nil, f.memberIDsErr
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	return map[uuid.UUID][]string{}, nil
+}
+
 func (f *fakeGroups) GroupsOfUser(_ context.Context, userID uuid.UUID) ([]domain.Group, error) {
 	var out []domain.Group
 	for gid, set := range f.members {
@@ -301,6 +350,157 @@ func (f *fakeGroups) IsMember(_ context.Context, userID uuid.UUID, groupName str
 		return false, nil
 	}
 	return f.members[g.ID][userID], nil
+}
+
+type fakeAttrs struct {
+	defs    map[string]domain.UserAttrDef
+	byID    map[uuid.UUID]domain.UserAttrDef
+	values  map[uuid.UUID]map[uuid.UUID][]string
+	sources map[uuid.UUID]map[uuid.UUID]domain.UserAttrSource
+	err     error
+}
+
+func newFakeAttrs(defs ...domain.UserAttrDef) *fakeAttrs {
+	f := &fakeAttrs{
+		defs: map[string]domain.UserAttrDef{}, byID: map[uuid.UUID]domain.UserAttrDef{},
+		values:  map[uuid.UUID]map[uuid.UUID][]string{},
+		sources: map[uuid.UUID]map[uuid.UUID]domain.UserAttrSource{},
+	}
+	for _, d := range defs {
+		if d.ID == uuid.Nil {
+			d.ID = uuid.New()
+		}
+		f.defs[d.Key] = d
+		f.byID[d.ID] = d
+	}
+	return f
+}
+
+func (f *fakeAttrs) CreateDef(_ context.Context, d domain.UserAttrDef) (domain.UserAttrDef, error) {
+	if f.err != nil {
+		return domain.UserAttrDef{}, f.err
+	}
+	if err := d.Validate(); err != nil {
+		return domain.UserAttrDef{}, err
+	}
+	if _, ok := f.defs[d.Key]; ok {
+		return domain.UserAttrDef{}, domain.ErrConflict
+	}
+	if d.ID == uuid.Nil {
+		d.ID = uuid.New()
+	}
+	f.defs[d.Key] = d
+	f.byID[d.ID] = d
+	return d, nil
+}
+
+func (f *fakeAttrs) ListDefs(_ context.Context) ([]domain.UserAttrDef, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []domain.UserAttrDef
+	for _, d := range f.defs {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
+}
+
+func (f *fakeAttrs) DeleteDef(_ context.Context, key string) error {
+	if f.err != nil {
+		return f.err
+	}
+	d, ok := f.defs[key]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.defs, key)
+	delete(f.byID, d.ID)
+	for uid := range f.values {
+		delete(f.values[uid], d.ID)
+		delete(f.sources[uid], d.ID)
+	}
+	return nil
+}
+
+func (f *fakeAttrs) SetValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string, source domain.UserAttrSource) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+		f.sources[userID] = map[uuid.UUID]domain.UserAttrSource{}
+	}
+	for id, vals := range values {
+		if len(vals) == 0 {
+			delete(f.values[userID], id)
+			delete(f.sources[userID], id)
+			continue
+		}
+		f.values[userID][id] = append([]string(nil), vals...)
+		f.sources[userID][id] = source
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ApplyUpstreamValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+		f.sources[userID] = map[uuid.UUID]domain.UserAttrSource{}
+	}
+	for id, src := range f.sources[userID] {
+		if src == domain.UserAttrLDAP {
+			if _, keep := values[id]; !keep {
+				delete(f.values[userID], id)
+				delete(f.sources[userID], id)
+			}
+		}
+	}
+	for id, vals := range values {
+		if len(vals) == 0 {
+			delete(f.values[userID], id)
+			delete(f.sources[userID], id)
+			continue
+		}
+		f.values[userID][id] = append([]string(nil), vals...)
+		f.sources[userID][id] = domain.UserAttrLDAP
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ValuesOfUser(_ context.Context, userID uuid.UUID) (map[string][]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[string][]string{}
+	for id, vals := range f.values[userID] {
+		if d, ok := f.byID[id]; ok {
+			out[d.Key] = append([]string(nil), vals...)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAttrs) ValuesForUsers(_ context.Context, userIDs []uuid.UUID) (map[uuid.UUID]map[string][]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[uuid.UUID]map[string][]string{}
+	for _, uid := range userIDs {
+		if vals, ok := f.values[uid]; ok {
+			m := map[string][]string{}
+			for id, v := range vals {
+				if d, ok := f.byID[id]; ok {
+					m[d.Key] = append([]string(nil), v...)
+				}
+			}
+			out[uid] = m
+		}
+	}
+	return out, nil
 }
 
 type fakeSessions struct {
@@ -988,4 +1188,190 @@ func TestSyncErrorPaths(t *testing.T) {
 			t.Fatal("Sync = nil, want error")
 		}
 	})
+}
+
+func newAttrHarness(t *testing.T) (*harness, *fakeAttrs) {
+	t.Helper()
+	h := newHarness(t)
+	attrs := newFakeAttrs()
+	svc, err := New(Deps{
+		Users: h.users, Groups: h.groups, Sessions: h.sessions,
+		Audit: audit.New(h.audits, fixedClock{now: time.Now()}), Hasher: fakeHasher{},
+		Attrs: attrs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.svc = svc
+	return h, attrs
+}
+
+func TestAttrDefCRUD(t *testing.T) {
+	h, _ := newAttrHarness(t)
+	ctx := context.Background()
+	actor := uuid.New()
+
+	d, err := h.svc.CreateAttrDef(ctx, actor, "dept", domain.UserAttrString, false)
+	if err != nil {
+		t.Fatalf("CreateAttrDef: %v", err)
+	}
+	if d.Key != "dept" || d.Type != domain.UserAttrString || d.Multi {
+		t.Fatalf("def = %+v", d)
+	}
+	if _, err := h.svc.CreateAttrDef(ctx, actor, "dept", domain.UserAttrString, false); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("duplicate err = %v, want ErrConflict", err)
+	}
+	if _, err := h.svc.CreateAttrDef(ctx, actor, "sub", domain.UserAttrString, false); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("reserved err = %v, want ErrValidation", err)
+	}
+	if _, err := h.svc.CreateAttrDef(ctx, actor, "Bad Key", domain.UserAttrString, false); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("bad key err = %v, want ErrValidation", err)
+	}
+	defs, err := h.svc.ListAttrDefs(ctx)
+	if err != nil || len(defs) != 1 || defs[0].Key != "dept" {
+		t.Fatalf("ListDefs = %v, %v", defs, err)
+	}
+	if err := h.svc.DeleteAttrDef(ctx, actor, "dept"); err != nil {
+		t.Fatalf("DeleteAttrDef: %v", err)
+	}
+	if err := h.svc.DeleteAttrDef(ctx, actor, "dept"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("second delete err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetGetUserAttrs(t *testing.T) {
+	u := localUser("ara")
+	h, attrs := newAttrHarness(t)
+	h.users.put(u)
+	ctx := context.Background()
+	actor := uuid.New()
+	for _, d := range []domain.UserAttrDef{
+		{Key: "dept", Type: domain.UserAttrString},
+		{Key: "level", Type: domain.UserAttrNumber},
+		{Key: "vip", Type: domain.UserAttrBoolean},
+		{Key: "tags", Type: domain.UserAttrString, Multi: true},
+	} {
+		if _, err := attrs.CreateDef(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := h.svc.SetUserAttrs(ctx, actor, u.ID, map[string]any{
+		"dept": "eng", "level": 3.0, "vip": true, "tags": []any{"a", "b"},
+	})
+	if err != nil {
+		t.Fatalf("SetUserAttrs: %v", err)
+	}
+	want := map[string]any{"dept": "eng", "level": 3.0, "vip": true, "tags": []any{"a", "b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SetUserAttrs = %v, want %v", got, want)
+	}
+	if got, err := h.svc.GetUserAttrs(ctx, u.ID); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetUserAttrs = %v, %v", got, err)
+	}
+	// Null clears one key; unmentioned keys are untouched.
+	got, err = h.svc.SetUserAttrs(ctx, actor, u.ID, map[string]any{"tags": nil})
+	if err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if _, ok := got["tags"]; ok {
+		t.Fatalf("tags not cleared: %v", got)
+	}
+	if got["dept"] != "eng" {
+		t.Fatalf("unmentioned key touched: %v", got)
+	}
+	// Whole-write failures.
+	for name, input := range map[string]map[string]any{
+		"unknown key":     {"nosuch": "x"},
+		"bad number":      {"level": "abc"},
+		"bad bool":        {"vip": "yes"},
+		"multi on single": {"dept": []any{"a", "b"}},
+		"nested object":   {"dept": map[string]any{"x": 1}},
+	} {
+		if _, err := h.svc.SetUserAttrs(ctx, actor, u.ID, input); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	if _, err := h.svc.GetUserAttrs(ctx, uuid.New()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown user GetUserAttrs err = %v, want ErrNotFound", err)
+	}
+	if _, err := h.svc.SetUserAttrs(ctx, actor, uuid.New(), map[string]any{"dept": "x"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown user SetUserAttrs err = %v, want ErrNotFound", err)
+	}
+	// Def delete cascades values.
+	if err := h.svc.DeleteAttrDef(ctx, actor, "dept"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.svc.GetUserAttrs(ctx, u.ID); len(got) != 2 {
+		t.Fatalf("after def delete = %v, want 2 keys", got)
+	}
+}
+
+func TestSyncAppliesUpstreamAttrs(t *testing.T) {
+	u := ldapUser("dirara")
+	h, attrs := newAttrHarness(t)
+	h.users.put(u)
+	ctx := context.Background()
+	for _, d := range []domain.UserAttrDef{
+		{Key: "dept", Type: domain.UserAttrString},
+		{Key: "level", Type: domain.UserAttrNumber},
+		{Key: "note", Type: domain.UserAttrString},
+	} {
+		if _, err := attrs.CreateDef(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Admin-sourced value the sync must not touch.
+	byKey := func() map[string]domain.UserAttrDef {
+		defs, _ := attrs.ListDefs(ctx)
+		m := map[string]domain.UserAttrDef{}
+		for _, d := range defs {
+			m[d.Key] = d
+		}
+		return m
+	}
+	ids := byKey()
+	if err := attrs.SetValues(ctx, u.ID, map[uuid.UUID][]string{ids["note"].ID: {"keep"}}, domain.UserAttrAdmin); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := domain.DirectorySnapshot{
+		Users: []domain.LDAPUser{{
+			Username: "dirara", Email: "dirara@dir.example.com", DisplayName: "Dir",
+			DN:    "uid=dirara,ou=users,dc=example,dc=com",
+			Attrs: map[string][]string{"dept": {"eng"}, "level": {"abc"}, "nosuch": {"x"}},
+		}},
+	}
+	if _, err := h.svc.SyncFromDirectory(ctx, snap, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.svc.GetUserAttrs(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Valid value applied, garbage number dropped, unknown key skipped,
+	// admin-sourced key untouched.
+	want := map[string]any{"dept": "eng", "note": "keep"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after sync = %v, want %v", got, want)
+	}
+	// Empty snapshot map clears ldap-sourced keys only.
+	snap.Users[0].Attrs = map[string][]string{}
+	if _, err := h.svc.SyncFromDirectory(ctx, snap, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.svc.GetUserAttrs(ctx, u.ID); !reflect.DeepEqual(got, map[string]any{"note": "keep"}) {
+		t.Fatalf("after empty sync = %v", got)
+	}
+	// Nil map (no mapping configured) applies nothing.
+	snap.Users[0].Attrs = nil
+	if err := attrs.ApplyUpstreamValues(ctx, u.ID, map[uuid.UUID][]string{ids["dept"].ID: {"x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SyncFromDirectory(ctx, snap, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.svc.GetUserAttrs(ctx, u.ID); got["dept"] != "x" {
+		t.Fatalf("nil snapshot cleared ldap values: %v", got)
+	}
 }

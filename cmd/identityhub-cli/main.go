@@ -38,6 +38,7 @@ var commands = map[string]command{
 	"whoami":   {"show the API key owner", whoamiCmd},
 	"users":    {"list, inspect and manage users", usersCmd},
 	"groups":   {"list, inspect and manage groups", groupsCmd},
+	"attrs":    {"manage custom user attributes", attrsCmd},
 	"apps":     {"manage the application catalog", appsCmd},
 	"bindings": {"manage app access bindings", bindingsCmd},
 	"oidc":     {"manage OIDC clients", oidcCmd},
@@ -98,7 +99,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: identityhub-cli [--server URL] [--api-key KEY] [--json] <command> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "commands:")
-	names := []string{"whoami", "users", "groups", "apps", "bindings", "oidc", "saml", "radius", "audit", "ldap", "branding", "apikeys"}
+	names := []string{"whoami", "users", "groups", "attrs", "apps", "bindings", "oidc", "saml", "radius", "audit", "ldap", "branding", "apikeys"}
 	for _, n := range names {
 		fmt.Fprintf(w, "  %-10s %s\n", n, commands[n].short)
 	}

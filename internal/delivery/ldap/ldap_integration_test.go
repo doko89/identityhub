@@ -44,6 +44,7 @@ type ldapFixture struct {
 	auth   *usecaseauth.Service
 	users  *postgres.UserRepository
 	groups *postgres.GroupRepository
+	attrs  *postgres.UserAttrRepository
 	audits *postgres.AuditRepository
 	dir    *fakeDirectory
 	suffix string
@@ -112,6 +113,7 @@ func setupFixture(t *testing.T) *ldapFixture {
 	}
 	return &ldapFixture{
 		t: t, db: db, auth: authSvc, users: users, groups: groups,
+		attrs:  postgres.NewUserAttrRepository(db),
 		audits: auditRepo, dir: dir, suffix: uuid.NewString()[:8],
 	}
 }
@@ -205,7 +207,7 @@ func (fx *ldapFixture) startServer(mode string, cidrs []string, mut func(*Config
 		mut(&cfg)
 	}
 	srv, err := New(cfg, Deps{
-		Auth: fx.auth, Users: fx.users, Groups: fx.groups,
+		Auth: fx.auth, Users: fx.users, Groups: fx.groups, Attrs: fx.attrs,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
@@ -361,6 +363,63 @@ func TestLDAPBindAndSearch(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].IP != "127.0.0.1" {
 		t.Errorf("audit entries = %+v, want one ldap success from 127.0.0.1", entries)
+	}
+}
+
+func TestLDAPCustomAttrs(t *testing.T) {
+	fx := setupFixture(t)
+	ctx := context.Background()
+	alice := fx.createLocalUser("alice", "alice-password-1", true)
+	deptKey := "ldept-" + fx.suffix
+	dept, err := fx.attrs.CreateDef(ctx, domain.UserAttrDef{Key: deptKey, Type: domain.UserAttrString})
+	if err != nil {
+		t.Fatalf("create def: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = fx.attrs.DeleteDef(context.Background(), deptKey)
+	})
+	if err := fx.attrs.SetValues(ctx, alice.ID,
+		map[uuid.UUID][]string{dept.ID: {"eng"}}, domain.UserAttrAdmin); err != nil {
+		t.Fatalf("set values: %v", err)
+	}
+	srv := fx.startServer(ModePlain, []string{"127.0.0.0/8"}, nil)
+
+	c := fx.dial(srv.Addr().String())
+	if err := c.Bind(UserDN(alice.Username), "alice-password-1"); err != nil {
+		t.Fatalf("bind alice: %v", err)
+	}
+	// Point lookup carries the custom attribute.
+	res, err := c.Search(goldap.NewSearchRequest(
+		UsersDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"(uid="+alice.Username+")", []string{"uid", deptKey}, nil,
+	))
+	if err != nil {
+		t.Fatalf("point search: %v", err)
+	}
+	if len(res.Entries) != 1 || res.Entries[0].GetAttributeValue(deptKey) != "eng" {
+		t.Fatalf("point entries = %+v, want dept=eng", res.Entries)
+	}
+	// Custom attributes are searchable and the listing path agrees.
+	res, err = c.Search(goldap.NewSearchRequest(
+		UsersDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"("+deptKey+"=eng)", []string{"uid", deptKey}, nil,
+	))
+	if err != nil {
+		t.Fatalf("custom filter search: %v", err)
+	}
+	if len(res.Entries) != 1 || res.Entries[0].GetAttributeValue("uid") != alice.Username {
+		t.Fatalf("custom filter entries = %+v", res.Entries)
+	}
+	// Base-scope leaf read carries it too.
+	res, err = c.Search(goldap.NewSearchRequest(
+		UserDN(alice.Username), goldap.ScopeBaseObject, goldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=*)", []string{deptKey}, nil,
+	))
+	if err != nil {
+		t.Fatalf("leaf search: %v", err)
+	}
+	if len(res.Entries) != 1 || res.Entries[0].GetAttributeValue(deptKey) != "eng" {
+		t.Fatalf("leaf entries = %+v, want dept=eng", res.Entries)
 	}
 }
 

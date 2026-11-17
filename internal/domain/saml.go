@@ -36,6 +36,8 @@ type SAMLDecision struct {
 	Email       string
 	DisplayName string
 	Groups      []string
+	// Attributes carries custom attributes (all strings on the wire).
+	Attributes map[string][]string
 }
 
 // SAMLSPStore is the port for the per-app SP registry (PRD §6.4). SPs are

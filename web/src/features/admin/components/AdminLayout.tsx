@@ -8,6 +8,7 @@ import {
   Menu,
   Palette,
   ScrollText,
+  Tags,
   Users,
   UsersRound,
   type LucideIcon,
@@ -228,6 +229,7 @@ const groups: Array<{
     links: [
       { to: "/admin/users", label: "Users", Icon: Users },
       { to: "/admin/groups", label: "Groups", Icon: UsersRound },
+      { to: "/admin/attrs", label: "Attributes", Icon: Tags },
       { to: "/admin/apps", label: "Applications", Icon: LayoutGrid },
       { to: "/admin/providers", label: "Providers", Icon: KeyRound },
     ],

@@ -416,6 +416,39 @@ export function deleteRADIUSClient(nas: string): Promise<void> {
   return sendVoid(`/api/admin/radius/clients/${encodeURIComponent(nas)}`, "DELETE");
 }
 
+// ---------- custom attributes ----------
+
+export interface AttrDef {
+  key: string;
+  type: string;
+  multi: boolean;
+}
+
+export type AttrValue = string | number | boolean | Array<string | number | boolean>;
+
+export function listAttrDefs(): Promise<{ defs: AttrDef[] }> {
+  return getJSON("/api/admin/user-attrs");
+}
+
+export function createAttrDef(d: { key: string; type: string; multi: boolean }): Promise<{ def: AttrDef }> {
+  return sendJSON("/api/admin/user-attrs", "POST", d);
+}
+
+export function deleteAttrDef(key: string): Promise<void> {
+  return sendVoid(`/api/admin/user-attrs/${encodeURIComponent(key)}`, "DELETE");
+}
+
+export function getUserAttrs(id: string): Promise<{ attrs: Record<string, AttrValue> }> {
+  return getJSON(`/api/admin/users/${encodeURIComponent(id)}/attrs`);
+}
+
+export function setUserAttrs(
+  id: string,
+  attrs: Record<string, AttrValue | null>,
+): Promise<{ attrs: Record<string, AttrValue> }> {
+  return sendJSON(`/api/admin/users/${encodeURIComponent(id)}/attrs`, "PUT", attrs);
+}
+
 // ---------- LDAP upstream ----------
 
 export interface LDAPTestResult {

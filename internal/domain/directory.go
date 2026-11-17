@@ -9,13 +9,18 @@ import (
 
 // LDAPUser is one directory entry mapped to a local user row (PRD §6.2).
 // MemberOf carries the entry's group DNs and backs the LDAP_ADMIN_GROUP_DN
-// mapping (members auto-join ih_admin on sync).
+// mapping (members auto-join ih_admin on sync). Attrs carries the
+// LDAP_ATTR_MAP import keyed by custom attribute key; keys without a def
+// are skipped on sync. Attrs is nil when no mapping is configured —
+// only a non-nil (possibly empty) map applies, so an unmapped sync
+// never clears ldap-sourced values.
 type LDAPUser struct {
 	Username    string
 	Email       string
 	DisplayName string
 	DN          string
 	MemberOf    []string
+	Attrs       map[string][]string
 }
 
 // LDAPGroup is one directory group.

@@ -89,6 +89,11 @@ func (h *Handlers) mount(r *chi.Mux) {
 		r.Get("/audit", h.handleAdminListAudit)
 		r.Get("/audit/export", h.handleAdminExportAudit)
 		r.Post("/ldap/test", h.handleAdminLDAPTest)
+		r.Get("/user-attrs", h.handleAdminListAttrDefs)
+		r.Post("/user-attrs", h.handleAdminCreateAttrDef)
+		r.Delete("/user-attrs/{key}", h.handleAdminDeleteAttrDef)
+		r.Get("/users/{id}/attrs", h.handleAdminGetUserAttrs)
+		r.Put("/users/{id}/attrs", h.handleAdminSetUserAttrs)
 		if h.mfa != nil {
 			r.Post("/users/{id}/mfa/reset", h.handleAdminMFAReset)
 		}

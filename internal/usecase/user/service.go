@@ -27,9 +27,12 @@ type Service struct {
 	audit    *audit.Service
 	hasher   domain.PasswordHasher
 	clock    domain.Clock
+	attrs    domain.UserAttrStore
 }
 
-// Deps wires a Service. All fields are required.
+// Deps wires a Service. Users, Groups, Sessions, Audit and Hasher are
+// required; Attrs is optional (nil skips upstream attribute application
+// and fails the schema methods closed).
 type Deps struct {
 	Users    domain.UserStore
 	Groups   domain.GroupStore
@@ -37,6 +40,7 @@ type Deps struct {
 	Audit    *audit.Service
 	Hasher   domain.PasswordHasher
 	Clock    domain.Clock
+	Attrs    domain.UserAttrStore
 }
 
 // New validates Deps and builds a Service.
@@ -47,7 +51,7 @@ func New(d Deps) (*Service, error) {
 	if d.Clock == nil {
 		d.Clock = domain.SystemClock{}
 	}
-	return &Service{users: d.Users, groups: d.Groups, sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock}, nil
+	return &Service{users: d.Users, groups: d.Groups, sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock, attrs: d.Attrs}, nil
 }
 
 // NewUser carries admin-created user fields. Password is required for
@@ -305,6 +309,8 @@ type SyncReport struct {
 func (s *Service) SyncFromDirectory(ctx context.Context, snap domain.DirectorySnapshot, adminGroupDN string) (SyncReport, error) {
 	var rep SyncReport
 	seen := make(map[string]bool, len(snap.Users))
+	var defs []domain.UserAttrDef
+	defsLoaded := false
 	for _, lu := range snap.Users {
 		if lu.Username == "" {
 			continue
@@ -345,6 +351,19 @@ func (s *Service) SyncFromDirectory(ctx context.Context, snap domain.DirectorySn
 			}
 			rep.Updated++
 		}
+		if lu.Attrs != nil && s.attrs != nil {
+			if !defsLoaded {
+				var err error
+				defs, err = s.attrs.ListDefs(ctx)
+				if err != nil {
+					return rep, fmt.Errorf("user: sync list attr defs: %w", err)
+				}
+				defsLoaded = true
+			}
+			if err := s.attrs.ApplyUpstreamValues(ctx, existing.ID, domain.UpstreamAttrValues(defs, lu.Attrs)); err != nil {
+				return rep, fmt.Errorf("user: sync attrs %q: %w", lu.Username, err)
+			}
+		}
 		if err := s.applyAdminMapping(ctx, existing, lu, adminGroupDN, &rep); err != nil {
 			return rep, err
 		}
@@ -356,6 +375,114 @@ func (s *Service) SyncFromDirectory(ctx context.Context, snap domain.DirectorySn
 		return rep, err
 	}
 	return rep, nil
+}
+
+// CreateAttrDef registers a custom attribute. Keys double as the wire
+// names on LDAP, OIDC and SAML; validation rejects reserved names.
+func (s *Service) CreateAttrDef(ctx context.Context, actorID uuid.UUID, key string, typ domain.UserAttrType, multi bool) (domain.UserAttrDef, error) {
+	if s.attrs == nil {
+		return domain.UserAttrDef{}, errors.New("user: attribute store is not configured")
+	}
+	d, err := s.attrs.CreateDef(ctx, domain.UserAttrDef{Key: key, Type: typ, Multi: multi})
+	if err != nil {
+		return domain.UserAttrDef{}, err
+	}
+	_ = s.audit.Record(ctx, domain.AuditEntry{
+		ActorUserID: &actorID, Method: domain.MethodPassword, Result: domain.ResultSuccess,
+		Detail: map[string]any{"action": audit.ActionAttrDefCreate, "key": key},
+	})
+	return d, nil
+}
+
+// ListAttrDefs returns every attribute def ordered by key.
+func (s *Service) ListAttrDefs(ctx context.Context) ([]domain.UserAttrDef, error) {
+	if s.attrs == nil {
+		return nil, errors.New("user: attribute store is not configured")
+	}
+	return s.attrs.ListDefs(ctx)
+}
+
+// DeleteAttrDef drops a def; its values cascade across all users.
+func (s *Service) DeleteAttrDef(ctx context.Context, actorID uuid.UUID, key string) error {
+	if s.attrs == nil {
+		return errors.New("user: attribute store is not configured")
+	}
+	if err := s.attrs.DeleteDef(ctx, key); err != nil {
+		return err
+	}
+	_ = s.audit.Record(ctx, domain.AuditEntry{
+		ActorUserID: &actorID, Method: domain.MethodPassword, Result: domain.ResultSuccess,
+		Detail: map[string]any{"action": audit.ActionAttrDefDelete, "key": key},
+	})
+	return nil
+}
+
+// GetUserAttrs returns one user's custom attributes as typed values:
+// single-valued defs are scalars, multi-valued defs are arrays.
+func (s *Service) GetUserAttrs(ctx context.Context, userID uuid.UUID) (map[string]any, error) {
+	if s.attrs == nil {
+		return nil, errors.New("user: attribute store is not configured")
+	}
+	if _, err := s.users.ByID(ctx, userID); err != nil {
+		return nil, err
+	}
+	defs, err := s.attrs.ListDefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values, err := s.attrs.ValuesOfUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.TypedAttrValues(defs, values), nil
+}
+
+// SetUserAttrs replaces the given keys (scalar or array per key, null
+// clears) and returns the user's full typed map. Unknown keys and type
+// violations fail the whole write; unmentioned keys are untouched.
+func (s *Service) SetUserAttrs(ctx context.Context, actorID, userID uuid.UUID, input map[string]any) (map[string]any, error) {
+	if s.attrs == nil {
+		return nil, errors.New("user: attribute store is not configured")
+	}
+	if _, err := s.users.ByID(ctx, userID); err != nil {
+		return nil, err
+	}
+	defs, err := s.attrs.ListDefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := domain.NormalizeAttrInput(input)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := domain.ValidateAttrValues(defs, raw)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]domain.UserAttrDef, len(defs))
+	for _, d := range defs {
+		byKey[d.Key] = d
+	}
+	byID := make(map[uuid.UUID][]string, len(canonical))
+	keys := make([]string, 0, len(canonical))
+	for key, vals := range canonical {
+		byID[byKey[key].ID] = vals
+		keys = append(keys, key)
+	}
+	if err := s.attrs.SetValues(ctx, userID, byID, domain.UserAttrAdmin); err != nil {
+		return nil, err
+	}
+	_ = s.audit.Record(ctx, domain.AuditEntry{
+		ActorUserID: &actorID, Method: domain.MethodPassword, Result: domain.ResultSuccess,
+		Detail: map[string]any{
+			"action": audit.ActionUserAttrsUpdate, "target_user_id": userID.String(), "keys": keys,
+		},
+	})
+	values, err := s.attrs.ValuesOfUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.TypedAttrValues(defs, values), nil
 }
 
 // applyAdminMapping adds synced directory members of adminGroupDN to

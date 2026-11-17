@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,9 @@ type Config struct {
 	// TLSConfig overrides the default TLS client config for ldaps://
 	// (tests inject an insecure config; production uses system roots).
 	TLSConfig *tls.Config
+	// AttrMap imports upstream directory attributes into custom
+	// attribute keys (upstream -> key). Nil disables the import.
+	AttrMap map[string]string
 }
 
 func (c *Config) withDefaults() Config {
@@ -230,11 +234,23 @@ func (c *Client) Authenticate(ctx context.Context, username, password string) (d
 	return c.mapUser(entry), nil
 }
 
+// userAttributes lists the requested user-entry attributes: the core
+// mapping plus the LDAP_ATTR_MAP import, sorted for stable requests.
+func (c *Client) userAttributes() []string {
+	attrs := []string{c.cfg.UserAttr, c.cfg.MailAttr, c.cfg.DisplayNameAttr, DefaultDisplayFallback, c.cfg.MemberOfAttr}
+	upstream := make([]string, 0, len(c.cfg.AttrMap))
+	for name := range c.cfg.AttrMap {
+		upstream = append(upstream, name)
+	}
+	sort.Strings(upstream)
+	return append(attrs, upstream...)
+}
+
 func (c *Client) findUser(conn *ldap.Conn, username string) (*ldap.Entry, error) {
 	req := ldap.NewSearchRequest(c.cfg.BaseDN, ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases, 2, c.searchTimeout(), false,
 		c.userFilter(username),
-		[]string{c.cfg.UserAttr, c.cfg.MailAttr, c.cfg.DisplayNameAttr, DefaultDisplayFallback, c.cfg.MemberOfAttr},
+		c.userAttributes(),
 		nil)
 	res, err := conn.Search(req)
 	if err != nil {
@@ -277,7 +293,7 @@ func (c *Client) searchUsers(conn *ldap.Conn) ([]domain.LDAPUser, error) {
 	req := ldap.NewSearchRequest(c.cfg.BaseDN, ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases, 0, c.searchTimeout(), false,
 		c.allUsersFilter(),
-		[]string{c.cfg.UserAttr, c.cfg.MailAttr, c.cfg.DisplayNameAttr, DefaultDisplayFallback, c.cfg.MemberOfAttr},
+		c.userAttributes(),
 		nil)
 	res, err := conn.Search(req)
 	if err != nil {
@@ -324,12 +340,22 @@ func (c *Client) mapUser(e *ldap.Entry) domain.LDAPUser {
 	if name == "" {
 		name = e.GetAttributeValue(DefaultDisplayFallback)
 	}
+	var attrs map[string][]string
+	if len(c.cfg.AttrMap) > 0 {
+		attrs = map[string][]string{}
+		for upstream, key := range c.cfg.AttrMap {
+			if vals := e.GetAttributeValues(upstream); len(vals) > 0 {
+				attrs[key] = vals
+			}
+		}
+	}
 	return domain.LDAPUser{
 		Username:    e.GetAttributeValue(c.cfg.UserAttr),
 		Email:       e.GetAttributeValue(c.cfg.MailAttr),
 		DisplayName: name,
 		DN:          e.DN,
 		MemberOf:    e.GetAttributeValues(c.cfg.MemberOfAttr),
+		Attrs:       attrs,
 	}
 }
 

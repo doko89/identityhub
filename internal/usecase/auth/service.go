@@ -71,6 +71,7 @@ type Service struct {
 	mfa      LegacyMFAPolicy
 	baseURL  string
 	tokenGen func(n int) ([]byte, error)
+	attrs    domain.UserAttrStore
 }
 
 // Deps wires a Service. Users, Resets, History, Sessions, Audit, Hasher
@@ -94,6 +95,9 @@ type Deps struct {
 	BaseURL string
 	// TokenGen overrides crypto/rand in tests.
 	TokenGen func(n int) ([]byte, error)
+	// Attrs is optional (nil skips upstream attribute application on
+	// just-in-time provisioning).
+	Attrs domain.UserAttrStore
 }
 
 // New validates Deps and builds a Service.
@@ -118,7 +122,7 @@ func New(d Deps) (*Service, error) {
 		sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock,
 		mailer: d.Mailer, dir: d.Directory, mfa: d.MFAPolicy,
 		baseURL:  strings.TrimRight(d.BaseURL, "/"),
-		tokenGen: gen,
+		tokenGen: gen, attrs: d.Attrs,
 	}, nil
 }
 
@@ -310,6 +314,17 @@ func (s *Service) checkUnknownUser(ctx context.Context, username, password strin
 	if !u.IsActive {
 		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
 			reason: "account disabled", err: fmt.Errorf("%w: account disabled", domain.ErrForbidden)}
+	}
+	// Mapped upstream attributes land on the provisioned row; a nil map
+	// means no mapping is configured and skips the write.
+	if lu.Attrs != nil && s.attrs != nil {
+		defs, err := s.attrs.ListDefs(ctx)
+		if err != nil {
+			return credentialCheck{infra: true, err: fmt.Errorf("auth: provision list attr defs: %w", err)}
+		}
+		if err := s.attrs.ApplyUpstreamValues(ctx, u.ID, domain.UpstreamAttrValues(defs, lu.Attrs)); err != nil {
+			return credentialCheck{infra: true, err: fmt.Errorf("auth: provision attrs: %w", err)}
+		}
 	}
 	return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP}
 }

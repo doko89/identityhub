@@ -66,6 +66,12 @@ curl -b jar -X POST localhost:8080/api/admin/users/<id>/password \
 curl -b jar localhost:8080/api/admin/groups
 curl -b jar localhost:8080/api/admin/audit?result=failure
 curl -b jar -X POST localhost:8080/api/admin/ldap/test
+
+# Custom attributes (schema + values; ride LDAP/OIDC/SAML under their key)
+curl -b jar -X POST localhost:8080/api/admin/user-attrs \
+  -d '{"key":"dept","type":"string"}'
+curl -b jar -X PUT localhost:8080/api/admin/users/<id>/attrs \
+  -d '{"dept":"eng"}'
 ```
 
 Every login — success, failure, or rate-limited — lands in `audit_log`
@@ -75,7 +81,7 @@ Every login — success, failure, or rate-limited — lands in `audit_log`
 
 Provider endpoints (authorization code + PKCE for public clients,
 `client_secret_basic`/`_post` for confidential ones, refresh rotation,
-`sub` = user UUID, claims `preferred_username`/`email`/`name`/`groups`):
+`sub` = user UUID, claims `preferred_username`/`email`/`name`/`groups` + custom attributes):
 
 ```sh
 curl localhost:8080/.well-known/openid-configuration
@@ -97,7 +103,7 @@ Postgres repository are already in place.
 ## SAML (M3)
 
 IdP endpoints (crewjam/saml behind `domain.SAMLProvider`; NameID =
-username; attributes `email`/`displayName`/`groups`; assertion and
+username; attributes `email`/`displayName`/`groups` + custom attributes; assertion and
 response both signed; AuthnRequests verified when signed, replay-checked
 by request ID):
 
@@ -138,7 +144,7 @@ per-app MFA policy for regular users arrives with the app catalog.
 #   uid=<username>,ou=users,dc=identityhub
 # Plaintext refuses to boot without LDAP_ALLOWED_CIDRS, enforced in
 # OnNewConnection before any LDAP bytes are parsed. Search serves
-# ou=users (inetOrgPerson: uid/cn/sn/mail/memberOf) and ou=groups
+# ou=users (inetOrgPerson: uid/cn/sn/mail/memberOf + custom attrs) and ou=groups
 # (groupOfNames: cn/member) to bound connections only.
 ldapsearch -H ldap://localhost:1389 -x \
   -D uid=ara,ou=users,dc=identityhub -w '...' \

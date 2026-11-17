@@ -40,7 +40,10 @@ type Deps struct {
 	Auth   *usecaseauth.Service
 	Users  domain.UserStore
 	Groups domain.GroupStore
-	Log    *slog.Logger
+	// Attrs serves custom attributes; nil omits them (tests that
+	// predate the schema).
+	Attrs domain.UserAttrStore
+	Log   *slog.Logger
 }
 
 // Server is one in-process LDAP listener. It is single-use: call Serve
@@ -52,6 +55,7 @@ type Server struct {
 	auth       *usecaseauth.Service
 	users      domain.UserStore
 	groups     domain.GroupStore
+	attrs      domain.UserAttrStore
 	log        *slog.Logger
 	tlsConfig  *tls.Config
 	ready      chan struct{}
@@ -101,7 +105,7 @@ func New(cfg Config, d Deps) (*Server, error) {
 	}
 	s := &Server{
 		mode: cfg.Mode, addr: cfg.Addr,
-		auth: d.Auth, users: d.Users, groups: d.Groups, log: log,
+		auth: d.Auth, users: d.Users, groups: d.Groups, attrs: d.Attrs, log: log,
 		ready: make(chan struct{}),
 		binds: map[any]boundConn{},
 	}

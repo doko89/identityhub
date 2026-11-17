@@ -40,6 +40,9 @@ type GroupStore interface {
 	ByID(ctx context.Context, id uuid.UUID) (Group, error)
 	ByName(ctx context.Context, name string) (Group, error)
 	List(ctx context.Context, limit, offset int) ([]Group, int, error)
+	// All lists every group in one query (LDAP tree serving);
+	// paginated views keep using List.
+	All(ctx context.Context) ([]Group, error)
 	// Delete refuses the reserved ih_admin group (enforced in usecase AND
 	// at the SQL level via a trigger/rule in later milestones; the
 	// repository returns ErrForbidden for defense in depth).
@@ -47,6 +50,9 @@ type GroupStore interface {
 	AddMember(ctx context.Context, userID, groupID uuid.UUID) error
 	RemoveMember(ctx context.Context, userID, groupID uuid.UUID) error
 	MemberIDs(ctx context.Context, groupID uuid.UUID) ([]uuid.UUID, error)
+	// MemberUsernamesByGroup maps every group id to the usernames of
+	// its active members in one query (LDAP tree serving).
+	MemberUsernamesByGroup(ctx context.Context) (map[uuid.UUID][]string, error)
 	GroupsOfUser(ctx context.Context, userID uuid.UUID) ([]Group, error)
 	IsMember(ctx context.Context, userID uuid.UUID, groupName string) (bool, error)
 }

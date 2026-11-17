@@ -85,6 +85,21 @@ func (f *fakeUsers) ByUsername(_ context.Context, username string) (domain.User,
 	return u, nil
 }
 
+func (f *fakeUsers) ByUsernameFold(_ context.Context, username string) (domain.User, error) {
+	if f.err != nil {
+		return domain.User{}, f.err
+	}
+	if u, ok := f.byUsername[username]; ok {
+		return u, nil
+	}
+	for name, u := range f.byUsername {
+		if strings.EqualFold(name, username) {
+			return u, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
 func (f *fakeUsers) ByEmail(_ context.Context, email string) (domain.User, error) {
 	if f.err != nil {
 		return domain.User{}, f.err
@@ -98,6 +113,19 @@ func (f *fakeUsers) ByEmail(_ context.Context, email string) (domain.User, error
 
 func (f *fakeUsers) List(_ context.Context, _ domain.UserFilter) ([]domain.User, int, error) {
 	return nil, 0, nil
+}
+
+func (f *fakeUsers) AllActive(_ context.Context) ([]domain.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []domain.User
+	for _, u := range f.byID {
+		if u.IsActive {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeUsers) Update(_ context.Context, u domain.User) (domain.User, error) {
@@ -155,6 +183,9 @@ func (f *fakeGroups) ByName(_ context.Context, name string) (domain.Group, error
 func (f *fakeGroups) List(_ context.Context, _, _ int) ([]domain.Group, int, error) {
 	return nil, 0, nil
 }
+func (f *fakeGroups) All(_ context.Context) ([]domain.Group, error) {
+	return nil, nil
+}
 func (f *fakeGroups) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeGroups) AddMember(_ context.Context, userID, _ uuid.UUID) error {
 	if f.members == nil {
@@ -165,6 +196,9 @@ func (f *fakeGroups) AddMember(_ context.Context, userID, _ uuid.UUID) error {
 func (f *fakeGroups) RemoveMember(_ context.Context, _, _ uuid.UUID) error { return nil }
 func (f *fakeGroups) MemberIDs(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
 	return nil, nil
+}
+func (f *fakeGroups) MemberUsernamesByGroup(_ context.Context) (map[uuid.UUID][]string, error) {
+	return map[uuid.UUID][]string{}, nil
 }
 func (f *fakeGroups) GroupsOfUser(_ context.Context, _ uuid.UUID) ([]domain.Group, error) {
 	return nil, nil
@@ -384,6 +418,109 @@ func (f *fakeDirectory) Snapshot(_ context.Context) (domain.DirectorySnapshot, e
 
 func (f *fakeDirectory) Ping(_ context.Context) error { return f.err }
 
+type fakeAttrs struct {
+	defs   map[string]domain.UserAttrDef
+	byID   map[uuid.UUID]domain.UserAttrDef
+	values map[uuid.UUID]map[uuid.UUID][]string
+	err    error
+}
+
+func newFakeAttrs(defs ...domain.UserAttrDef) *fakeAttrs {
+	f := &fakeAttrs{
+		defs: map[string]domain.UserAttrDef{}, byID: map[uuid.UUID]domain.UserAttrDef{},
+		values: map[uuid.UUID]map[uuid.UUID][]string{},
+	}
+	for _, d := range defs {
+		if d.ID == uuid.Nil {
+			d.ID = uuid.New()
+		}
+		f.defs[d.Key] = d
+		f.byID[d.ID] = d
+	}
+	return f
+}
+
+func (f *fakeAttrs) CreateDef(_ context.Context, d domain.UserAttrDef) (domain.UserAttrDef, error) {
+	if f.err != nil {
+		return domain.UserAttrDef{}, f.err
+	}
+	if err := d.Validate(); err != nil {
+		return domain.UserAttrDef{}, err
+	}
+	if _, ok := f.defs[d.Key]; ok {
+		return domain.UserAttrDef{}, domain.ErrConflict
+	}
+	if d.ID == uuid.Nil {
+		d.ID = uuid.New()
+	}
+	f.defs[d.Key] = d
+	f.byID[d.ID] = d
+	return d, nil
+}
+
+func (f *fakeAttrs) ListDefs(_ context.Context) ([]domain.UserAttrDef, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []domain.UserAttrDef
+	for _, d := range f.defs {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (f *fakeAttrs) DeleteDef(_ context.Context, key string) error {
+	d, ok := f.defs[key]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.defs, key)
+	delete(f.byID, d.ID)
+	return nil
+}
+
+func (f *fakeAttrs) SetValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string, _ domain.UserAttrSource) error {
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+	}
+	for id, vals := range values {
+		f.values[userID][id] = vals
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ApplyUpstreamValues(_ context.Context, userID uuid.UUID, values map[uuid.UUID][]string) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.values[userID] == nil {
+		f.values[userID] = map[uuid.UUID][]string{}
+	}
+	for id, vals := range values {
+		f.values[userID][id] = vals
+	}
+	return nil
+}
+
+func (f *fakeAttrs) ValuesOfUser(_ context.Context, userID uuid.UUID) (map[string][]string, error) {
+	out := map[string][]string{}
+	for id, vals := range f.values[userID] {
+		if d, ok := f.byID[id]; ok {
+			out[d.Key] = vals
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAttrs) ValuesForUsers(_ context.Context, userIDs []uuid.UUID) (map[uuid.UUID]map[string][]string, error) {
+	out := map[uuid.UUID]map[string][]string{}
+	for _, uid := range userIDs {
+		m, _ := f.ValuesOfUser(context.Background(), uid)
+		out[uid] = m
+	}
+	return out, nil
+}
+
 // ---------- harness ----------
 
 type harness struct {
@@ -597,6 +734,37 @@ func TestLoginJITProvisionsUnknownDirectoryUser(t *testing.T) {
 	}
 	if a := lastAudit(h); a.Method != domain.MethodLDAP || a.Result != domain.ResultSuccess {
 		t.Errorf("audit = %+v", a)
+	}
+}
+
+func TestLoginJITAppliesUpstreamAttrs(t *testing.T) {
+	h := newHarness(t)
+	attrs := newFakeAttrs(domain.UserAttrDef{Key: "dept", Type: domain.UserAttrString})
+	svc, err := New(Deps{
+		Users: h.users, Groups: h.groups, Resets: h.resets, History: h.history,
+		Sessions: h.sessions, Audit: audit.New(h.audits, fixedClock{now: h.now}),
+		Hasher: fakeHasher{}, Clock: fixedClock{now: h.now}, Mailer: h.mailer,
+		Directory: h.dir, BaseURL: "https://idp.example.com", Attrs: attrs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.dir.passwords["fresh"] = "fresh-secret-pw"
+	h.dir.profiles["fresh"] = domain.LDAPUser{
+		Username: "fresh", Email: "fresh@dir.example.com", DisplayName: "fresh",
+		DN:    "uid=fresh,ou=users,dc=example,dc=com",
+		Attrs: map[string][]string{"dept": {"eng"}, "nosuch": {"x"}},
+	}
+	got, err := svc.Login(context.Background(), LoginInput{Username: "fresh", Password: "fresh-secret-pw"})
+	if err != nil {
+		t.Fatalf("Login = %v", err)
+	}
+	vals, err := attrs.ValuesOfUser(context.Background(), got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vals) != 1 || len(vals["dept"]) != 1 || vals["dept"][0] != "eng" {
+		t.Fatalf("provisioned attrs = %v", vals)
 	}
 }
 

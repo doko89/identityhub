@@ -73,6 +73,30 @@ func (r *UserRepository) ByUsername(ctx context.Context, username string) (domai
 	return u, nil
 }
 
+// ByUsernameFold loads a user by case-insensitive exact username (LDAP
+// uid matching is caseIgnoreMatch while the column stays
+// case-sensitive). Usernames differing only by case must not be
+// created; the lowest id wins.
+func (r *UserRepository) ByUsernameFold(ctx context.Context, username string) (domain.User, error) {
+	const q = `SELECT ` + userColumns + ` FROM users WHERE lower(username) = lower($1) ORDER BY id LIMIT 1`
+	u, err := scanUser(r.db.Pool.QueryRow(ctx, q, username))
+	if err != nil {
+		return domain.User{}, mapReadError(err)
+	}
+	return u, nil
+}
+
+// AllActive lists every active user in one query (LDAP tree serving).
+func (r *UserRepository) AllActive(ctx context.Context) ([]domain.User, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT `+userColumns+` FROM users WHERE is_active ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.User, error) {
+		return scanUser(row)
+	})
+}
+
 // ByEmail loads the most recently created user with this email.
 func (r *UserRepository) ByEmail(ctx context.Context, email string) (domain.User, error) {
 	const q = `SELECT ` + userColumns + ` FROM users WHERE email = $1 ORDER BY created_at DESC LIMIT 1`

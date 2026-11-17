@@ -77,6 +77,19 @@ func (r *GroupRepository) List(ctx context.Context, limit, offset int) ([]domain
 	return groups, total, nil
 }
 
+// All lists every group in one query (LDAP tree serving).
+func (r *GroupRepository) All(ctx context.Context) ([]domain.Group, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT id, name, description FROM groups ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Group, error) {
+		var g domain.Group
+		err := row.Scan(&g.ID, &g.Name, &g.Description)
+		return g, err
+	})
+}
+
 // Delete removes a group. Deleting ih_admin is refused here (defense in
 // depth — the database trigger refuses it too).
 func (r *GroupRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -114,6 +127,31 @@ func (r *GroupRepository) MemberIDs(ctx context.Context, groupID uuid.UUID) ([]u
 		err := row.Scan(&id)
 		return id, err
 	})
+}
+
+// MemberUsernamesByGroup maps every group id to the usernames of its
+// active members in one query (LDAP tree serving). Usernames arrive
+// ordered so member attributes are deterministic.
+func (r *GroupRepository) MemberUsernamesByGroup(ctx context.Context) (map[uuid.UUID][]string, error) {
+	rows, err := r.db.Pool.Query(ctx, `SELECT ug.group_id, u.username FROM user_groups ug
+		JOIN users u ON u.id = ug.user_id WHERE u.is_active ORDER BY ug.group_id, u.username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID][]string{}
+	for rows.Next() {
+		var gid uuid.UUID
+		var name string
+		if err := rows.Scan(&gid, &name); err != nil {
+			return nil, err
+		}
+		out[gid] = append(out[gid], name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GroupsOfUser lists the groups a user belongs to.

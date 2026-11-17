@@ -26,15 +26,18 @@ type Service struct {
 	groups domain.GroupStore
 	access AccessChecker
 	clock  domain.Clock
+	attrs  domain.UserAttrStore
 }
 
 // Deps wires a Service. SPs and Groups are required; Access is optional
-// (nil skips the binding check).
+// (nil skips the binding check); Attrs is optional (nil omits custom
+// attributes).
 type Deps struct {
 	SPs    domain.SAMLSPStore
 	Groups domain.GroupStore
 	Access AccessChecker
 	Clock  domain.Clock
+	Attrs  domain.UserAttrStore
 }
 
 // New validates Deps and builds a Service.
@@ -45,7 +48,7 @@ func New(d Deps) (*Service, error) {
 	if d.Clock == nil {
 		d.Clock = domain.SystemClock{}
 	}
-	return &Service{sps: d.SPs, groups: d.Groups, access: d.Access, clock: d.Clock}, nil
+	return &Service{sps: d.SPs, groups: d.Groups, access: d.Access, clock: d.Clock, attrs: d.Attrs}, nil
 }
 
 // Evaluate checks an AuthnRequest for an authenticated user: the account
@@ -84,10 +87,31 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAM
 	for _, g := range groups {
 		names = append(names, g.Name)
 	}
+	custom, err := s.customAttributes(ctx, user.ID)
+	if err != nil {
+		return domain.SAMLDecision{}, err
+	}
 	return domain.SAMLDecision{
 		NameID:      user.Username,
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
 		Groups:      names,
+		Attributes:  custom,
 	}, nil
+}
+
+// customAttributes loads the user's custom attributes for the
+// assertion. A nil store (or no defs) issues no custom attributes.
+func (s *Service) customAttributes(ctx context.Context, userID uuid.UUID) (map[string][]string, error) {
+	if s.attrs == nil {
+		return nil, nil
+	}
+	defs, err := s.attrs.ListDefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(defs) == 0 {
+		return nil, nil
+	}
+	return s.attrs.ValuesOfUser(ctx, userID)
 }
