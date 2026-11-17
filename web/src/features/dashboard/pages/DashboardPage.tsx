@@ -4,6 +4,12 @@ import { Search, ShieldCheck } from "lucide-react";
 import { BrandMark } from "@/features/branding/BrandMark";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { ThemeToggle } from "@/features/branding/ThemeToggle";
+import { Wallpaper, WallpaperPicker } from "../components/Wallpaper";
+import {
+  loadWallpaper,
+  saveWallpaper,
+  type WallpaperChoice,
+} from "../components/wallpaper";
 import { signOut as endSession } from "@/shared/api/session";
 import { useSessionStore } from "@/shared/stores/session";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -47,6 +53,12 @@ export function DashboardPage() {
   const [apps, setApps] = useState<AppEntry[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [wallpaper, setWallpaper] = useState<WallpaperChoice>(loadWallpaper);
+
+  function changeWallpaper(next: WallpaperChoice) {
+    setWallpaper(next);
+    saveWallpaper(next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +142,7 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen">
+      <Wallpaper choice={wallpaper} />
       <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-2.5">
@@ -149,6 +162,7 @@ export function DashboardPage() {
             </div>
           </div>
           <nav className="flex items-center gap-2" aria-label="User">
+            <WallpaperPicker value={wallpaper} onChange={changeWallpaper} />
             <ThemeToggle />
             {me?.is_admin === true && (
               <Button variant="ghost" size="sm" asChild>
