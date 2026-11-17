@@ -1,5 +1,5 @@
-# Go
-identityhub
+# Go (root-level binary only; must not match cmd/identityhub/)
+/identityhub
 /bin/
 /dist/
 *.test
