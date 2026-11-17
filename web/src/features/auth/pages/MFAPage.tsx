@@ -1,5 +1,12 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
+import { Spinner } from "@/shared/ui/spinner";
 
 // Second login step (PRD §6.6): TOTP code or recovery code. Renders in
 // three modes from the query string:
@@ -57,54 +64,79 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <h1 style={titleStyle}>Two-step verification</h1>
-        <p style={subStyle}>
-          {stepup ? "This app needs a second factor." : "Enter the code from your authenticator app."}
-        </p>
-        <form onSubmit={(e) => void submit(e)}>
-          <label style={{ display: "block", fontSize: 14, marginBottom: 16 }}>
-            {recovery ? "Recovery code" : "6-digit code"}
-            <input
-              name="code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              autoComplete="one-time-code"
-              inputMode={recovery ? "text" : "numeric"}
-              placeholder={recovery ? "XXXX-XXXX-XXXX-XXXX" : "123456"}
-              style={inputStyle}
-              required
-            />
-          </label>
-          <button type="submit" style={buttonStyle} disabled={busy}>
-            {busy ? "Verifying…" : "Verify"}
-          </button>
-        </form>
-        <p style={{ fontSize: 13 }}>
-          <button
-            type="button"
-            onClick={() => {
-              setRecovery(!recovery);
-              setCode("");
-              setNotice(null);
-            }}
-            style={linkStyle}
-          >
-            {recovery ? "Use an authenticator code instead" : "Use a recovery code instead"}
-          </button>
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <button type="button" onClick={onSetup} style={linkStyle}>
-            Set up a new authenticator instead
-          </button>
-        </p>
-        {notice !== null && (
-          <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-            {notice}
-          </p>
-        )}
-      </div>
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Two-step verification</CardTitle>
+          <CardDescription>
+            {stepup ? "This app needs a second factor." : "Enter the code from your authenticator app."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={(e) => void submit(e)}>
+            <FieldGroup>
+              {notice !== null && (
+                <Alert variant="destructive">
+                  <AlertTitle>Verification failed</AlertTitle>
+                  <AlertDescription>{notice}</AlertDescription>
+                </Alert>
+              )}
+              <Field>
+                <FieldLabel htmlFor="mfa-code">{recovery ? "Recovery code" : "6-digit code"}</FieldLabel>
+                {recovery ? (
+                  <Input
+                    id="mfa-code"
+                    name="code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    autoComplete="one-time-code"
+                    inputMode="text"
+                    placeholder="XXXX-XXXX-XXXX-XXXX"
+                    required
+                  />
+                ) : (
+                  <InputOTP id="mfa-code" maxLength={6} value={code} onChange={setCode} required>
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                )}
+              </Field>
+              <Button type="submit" className="w-full" disabled={busy}>
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                {busy ? "Verifying…" : "Verify"}
+              </Button>
+            </FieldGroup>
+          </form>
+          <div className="mt-3 flex flex-col gap-2 text-sm">
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto justify-start p-0"
+              onClick={() => {
+                setRecovery(!recovery);
+                setCode("");
+                setNotice(null);
+              }}
+            >
+              {recovery ? "Use an authenticator code instead" : "Use a recovery code instead"}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto justify-start p-0"
+              onClick={onSetup}
+            >
+              Set up a new authenticator instead
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }
@@ -169,77 +201,97 @@ function EnrollFlow({ next }: { next: string }) {
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={{ ...cardStyle, maxWidth: 460 }}>
-        <h1 style={titleStyle}>Set up two-step verification</h1>
-        {!started && (
-          <>
-            <p style={subStyle}>You will scan a QR code with your authenticator app.</p>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={() => void start()}>
-              {busy ? "Starting…" : "Start setup"}
-            </button>
-          </>
-        )}
-        {started && codes === null && data !== null && (
-          <>
-            <p style={subStyle}>Scan this code, then enter the 6-digit code it shows.</p>
-            <img
-              src={data.qr_png}
-              alt="TOTP enrollment QR code"
-              width={200}
-              height={200}
-              style={{ display: "block", margin: "0 auto 12px", border: "1px solid var(--border)" }}
-            />
-            <p style={{ fontSize: 12, color: "var(--muted-foreground)", wordBreak: "break-all" }}>
-              Can&apos;t scan? Enter this secret manually: <code>{data.secret}</code>
-            </p>
-            <form onSubmit={(e) => void finish(e)}>
-              <label style={{ display: "block", fontSize: 14, marginBottom: 16 }}>
-                6-digit code
-                <input
-                  name="code"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  style={inputStyle}
-                  required
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Set up two-step verification</CardTitle>
+          {!started && (
+            <CardDescription>You will scan a QR code with your authenticator app.</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            {notice !== null && (
+              <Alert variant="destructive">
+                <AlertTitle>Setup failed</AlertTitle>
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
+            )}
+            {!started && (
+              <Button type="button" className="w-full" disabled={busy} onClick={() => void start()}>
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                {busy ? "Starting…" : "Start setup"}
+              </Button>
+            )}
+            {started && codes === null && data !== null && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Scan this code, then enter the 6-digit code it shows.
+                </p>
+                <img
+                  src={data.qr_png}
+                  alt="TOTP enrollment QR code"
+                  width={200}
+                  height={200}
+                  className="mx-auto mb-3 block border"
                 />
-              </label>
-              <button type="submit" style={buttonStyle} disabled={busy}>
-                {busy ? "Confirming…" : "Confirm"}
-              </button>
-            </form>
-          </>
-        )}
-        {codes !== null && (
-          <>
-            <p style={subStyle}>
-              Save these recovery codes somewhere safe. Each works once, and they are never shown
-              again.
-            </p>
-            <ul style={{ fontSize: 13, fontFamily: "monospace", paddingLeft: 20 }}>
-              {codes.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              style={buttonStyle}
-              onClick={() => {
-                window.location.href = next;
-              }}
-            >
-              I saved my codes — continue
-            </button>
-          </>
-        )}
-        {notice !== null && (
-          <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-            {notice}
-          </p>
-        )}
-      </div>
+                <p className="text-xs break-all text-muted-foreground">
+                  Can&apos;t scan? Enter this secret manually: <code>{data.secret}</code>
+                </p>
+                <form onSubmit={(e) => void finish(e)}>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="enroll-code">6-digit code</FieldLabel>
+                      <InputOTP
+                        id="enroll-code"
+                        maxLength={6}
+                        value={confirm}
+                        onChange={setConfirm}
+                        required
+                      >
+                        <InputOTPGroup>
+                          <InputOTPSlot index={0} />
+                          <InputOTPSlot index={1} />
+                          <InputOTPSlot index={2} />
+                          <InputOTPSlot index={3} />
+                          <InputOTPSlot index={4} />
+                          <InputOTPSlot index={5} />
+                        </InputOTPGroup>
+                      </InputOTP>
+                    </Field>
+                    <Button type="submit" className="w-full" disabled={busy}>
+                      {busy ? <Spinner data-icon="inline-start" /> : null}
+                      {busy ? "Confirming…" : "Confirm"}
+                    </Button>
+                  </FieldGroup>
+                </form>
+              </>
+            )}
+            {codes !== null && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Save these recovery codes somewhere safe. Each works once, and they are never
+                  shown again.
+                </p>
+                <ul className="font-mono text-sm">
+                  {codes.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    window.location.href = next;
+                  }}
+                >
+                  I saved my codes — continue
+                </Button>
+              </>
+            )}
+          </FieldGroup>
+        </CardContent>
+      </Card>
     </main>
   );
 }
@@ -250,63 +302,3 @@ function safeNext(next: string | null): string {
   }
   return "/";
 }
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 16,
-  background: "radial-gradient(60rem 30rem at 50% -10%, var(--accent), transparent)",
-};
-
-const cardStyle: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 380,
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  background: "var(--background)",
-  padding: 24,
-};
-
-const titleStyle: React.CSSProperties = { fontSize: 20, fontWeight: 600, margin: "0 0 4px" };
-
-const subStyle: React.CSSProperties = {
-  fontSize: 14,
-  color: "var(--muted-foreground)",
-  margin: "0 0 16px",
-};
-
-const inputStyle: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  boxSizing: "border-box",
-  marginTop: 4,
-  padding: "8px 12px",
-  border: "1px solid var(--input)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--background)",
-  color: "var(--foreground)",
-  fontSize: 14,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  border: "none",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--primary)",
-  color: "var(--primary-foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const linkStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "var(--primary)",
-  fontSize: 13,
-  cursor: "pointer",
-};
