@@ -80,8 +80,56 @@ describe("AdminAppsPage", () => {
     const sheet = getByRole("dialog", { name: "Add application" });
     fireEvent.change(within(sheet).getByLabelText("Slug"), { target: { value: "crm" } });
     fireEvent.change(within(sheet).getByLabelText("Name"), { target: { value: "CRM" } });
+    fireEvent.click(within(sheet).getByLabelText("Open in new tab"));
     fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
     await waitFor(() => expect(getByText("CRM")).toBeDefined());
-    expect(posted).toMatchObject({ slug: "crm", name: "CRM", provider_type: "oidc" });
+    expect(posted).toMatchObject({ slug: "crm", name: "CRM", provider_type: "oidc", open_in_new_tab: true });
+  });
+
+  it("uploads a dropped icon and sends its URL on create", async () => {
+    const created = {
+      ...wiki,
+      id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      slug: "crm",
+      name: "CRM",
+      icon_url: "/uploads/app_logo/9.webp",
+    };
+    let posted: unknown = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === "/api/uploads" && init?.method === "POST") {
+          return Response.json(
+            { id: "9", url: "/uploads/app_logo/9.webp", width: 100, height: 100, byte_size: 42 },
+            { status: 201 },
+          );
+        }
+        if (init?.method === "POST") {
+          posted = JSON.parse(String(init.body)) as unknown;
+          return Response.json({ app: created }, { status: 201 });
+        }
+        return Response.json({ apps: [wiki], total: 1 });
+      }),
+    );
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Add application" }));
+    const sheet = getByRole("dialog", { name: "Add application" });
+    fireEvent.change(within(sheet).getByLabelText("Slug"), { target: { value: "crm" } });
+    fireEvent.change(within(sheet).getByLabelText("Name"), { target: { value: "CRM" } });
+    const zone = sheet.querySelector('div[aria-label="Upload app icon"]') as HTMLElement;
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File([new Uint8Array(10)], "icon.png", { type: "image/png" })] },
+    });
+    await waitFor(() =>
+      expect(sheet.querySelector('img[src="/uploads/app_logo/9.webp"]')).not.toBeNull(),
+    );
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    expect(posted).toMatchObject({ slug: "crm", icon_url: "/uploads/app_logo/9.webp" });
   });
 });

@@ -42,6 +42,7 @@ afterEach(() => {
   document.documentElement.style.removeProperty("--primary");
   document.documentElement.style.removeProperty("--ring");
   document.getElementById("ih-custom-css")?.remove();
+  document.getElementById("ih-favicon")?.remove();
   document.title = "";
   localStorage.clear();
   vi.unstubAllGlobals();
@@ -126,6 +127,28 @@ describe("applyBrand", () => {
     setStoredTheme("dark");
     applyBrand({ ...brand, theme: "light" });
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+
+  it("points the tab icon at the brand favicon", () => {
+    mockMatchMedia(false);
+    applyBrand({ ...brand, favicon_url: "/uploads/app_logo/9.webp" });
+    const link = document.getElementById("ih-favicon");
+    expect(link?.getAttribute("rel")).toBe("icon");
+    expect(link?.getAttribute("href")).toBe("/uploads/app_logo/9.webp");
+    // Re-applying reuses the same element instead of adding another.
+    applyBrand({ ...brand, favicon_url: "/uploads/app_logo/10.webp" });
+    expect(document.querySelectorAll("#ih-favicon")).toHaveLength(1);
+    expect(document.getElementById("ih-favicon")?.getAttribute("href")).toBe(
+      "/uploads/app_logo/10.webp",
+    );
+  });
+
+  it("removes the tab icon when the brand has no favicon", () => {
+    mockMatchMedia(false);
+    applyBrand({ ...brand, favicon_url: "/uploads/app_logo/9.webp" });
+    expect(document.getElementById("ih-favicon")).not.toBeNull();
+    applyBrand({ ...brand, favicon_url: "" });
+    expect(document.getElementById("ih-favicon")).toBeNull();
   });
 });
 

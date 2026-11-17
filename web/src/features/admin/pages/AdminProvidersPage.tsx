@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, Plus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -11,6 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import {
@@ -57,10 +64,12 @@ import { Notice, toNotice, type AdminNotice } from "../components/adminUi";
 
 // Admin providers console (M7): protocol credentials per catalog app —
 // OIDC clients, SAML service providers (metadata import), RADIUS NAS
-// clients. Plaintext secrets are shown once at registration.
+// clients. Plaintext secrets are shown once at registration. One
+// "Add provider" menu opens the per-protocol sheet in its section.
 export function AdminProvidersPage() {
   const [apps, setApps] = useState<AdminApp[] | null>(null);
   const [notice, setNotice] = useState<AdminNotice | null>(null);
+  const [form, setForm] = useState<ProviderForm | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -75,7 +84,27 @@ export function AdminProvidersPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Providers</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-semibold">Providers</h1>
+        <div className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" disabled={apps === null}>
+                <Plus className="size-4" />
+                Add provider
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setForm("oidc")}>OIDC client</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setForm("saml")}>
+                SAML service provider
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setForm("radius")}>RADIUS client</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
       <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Protocol credentials bound to catalog applications.
       </p>
@@ -88,14 +117,32 @@ export function AdminProvidersPage() {
       )}
       {apps !== null && (
         <>
-          <OIDCSection apps={apps} onError={setNotice} />
-          <SAMLSection apps={apps} onError={setNotice} />
-          <RADIUSSection apps={apps} onError={setNotice} />
+          <OIDCSection
+            apps={apps}
+            onError={setNotice}
+            showForm={form === "oidc"}
+            onOpenChange={(open) => setForm(open ? "oidc" : null)}
+          />
+          <SAMLSection
+            apps={apps}
+            onError={setNotice}
+            showForm={form === "saml"}
+            onOpenChange={(open) => setForm(open ? "saml" : null)}
+          />
+          <RADIUSSection
+            apps={apps}
+            onError={setNotice}
+            showForm={form === "radius"}
+            onOpenChange={(open) => setForm(open ? "radius" : null)}
+          />
         </>
       )}
     </div>
   );
 }
+
+// ProviderForm names the sheet the Add provider menu opens; null closes all.
+type ProviderForm = "oidc" | "saml" | "radius";
 
 function AppSelect({
   apps,
@@ -150,9 +197,18 @@ function RowButton({
   );
 }
 
-function OIDCSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNotice) => void }) {
+function OIDCSection({
+  apps,
+  onError,
+  showForm,
+  onOpenChange,
+}: {
+  apps: AdminApp[];
+  onError: (n: AdminNotice) => void;
+  showForm: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [clients, setClients] = useState<OIDCClient[] | null>(null);
-  const [showForm, setShowForm] = useState(false);
   const [secret, setSecret] = useState<{ clientId: string; value: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<OIDCClient | null>(null);
@@ -233,20 +289,20 @@ function OIDCSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNo
           </Table>
         </div>
       )}
-      <Button type="button" variant="outline" onClick={() => setShowForm(true)}>
-        Register OIDC client
-      </Button>
-      <Sheet open={showForm} onOpenChange={setShowForm}>
-        <SheetContent>
-          <SheetHeader>
+      {clients !== null && clients.length === 0 && (
+        <p className="mb-3 text-sm text-muted-foreground">No OIDC clients yet.</p>
+      )}
+      <Sheet open={showForm} onOpenChange={onOpenChange}>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Register OIDC client</SheetTitle>
             <SheetDescription>One client per application; the secret shows once.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <OIDCForm
               apps={apps}
               onDone={(clientId, clientSecret) => {
-                setShowForm(false);
+                onOpenChange(false);
                 if (clientSecret !== undefined) {
                   setSecret({ clientId, value: clientSecret });
                 }
@@ -332,17 +388,28 @@ function OIDCForm({
           <Checkbox id="oidc-public" checked={isPublic} onCheckedChange={(v) => setIsPublic(v === true)} />
           <FieldLabel htmlFor="oidc-public">Public client (no secret, PKCE)</FieldLabel>
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Registering…" : "Register client"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }
 
-function SAMLSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNotice) => void }) {
+function SAMLSection({
+  apps,
+  onError,
+  showForm,
+  onOpenChange,
+}: {
+  apps: AdminApp[];
+  onError: (n: AdminNotice) => void;
+  showForm: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [sps, setSps] = useState<SAMLSP[] | null>(null);
-  const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<SAMLSP | null>(null);
 
@@ -402,20 +469,20 @@ function SAMLSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNo
           </Table>
         </div>
       )}
-      <Button type="button" variant="outline" onClick={() => setShowForm(true)}>
-        Import SAML SP
-      </Button>
-      <Sheet open={showForm} onOpenChange={setShowForm}>
-        <SheetContent>
-          <SheetHeader>
+      {sps !== null && sps.length === 0 && (
+        <p className="mb-3 text-sm text-muted-foreground">No SAML service providers yet.</p>
+      )}
+      <Sheet open={showForm} onOpenChange={onOpenChange}>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Import SAML SP</SheetTitle>
             <SheetDescription>Paste the app&apos;s SP metadata XML.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <SAMLForm
               apps={apps}
               onDone={() => {
-                setShowForm(false);
+                onOpenChange(false);
                 void load();
               }}
               onError={onError}
@@ -475,17 +542,28 @@ function SAMLForm({
             required
           />
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Importing…" : "Import SP"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }
 
-function RADIUSSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNotice) => void }) {
+function RADIUSSection({
+  apps,
+  onError,
+  showForm,
+  onOpenChange,
+}: {
+  apps: AdminApp[];
+  onError: (n: AdminNotice) => void;
+  showForm: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [clients, setClients] = useState<RADIUSClient[] | null>(null);
-  const [showForm, setShowForm] = useState(false);
   const [secret, setSecret] = useState<{ nas: string; value: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<RADIUSClient | null>(null);
@@ -556,20 +634,20 @@ function RADIUSSection({ apps, onError }: { apps: AdminApp[]; onError: (n: Admin
           </Table>
         </div>
       )}
-      <Button type="button" variant="outline" onClick={() => setShowForm(true)}>
-        Register RADIUS client
-      </Button>
-      <Sheet open={showForm} onOpenChange={setShowForm}>
-        <SheetContent>
-          <SheetHeader>
+      {clients !== null && clients.length === 0 && (
+        <p className="text-sm text-muted-foreground">No RADIUS clients yet.</p>
+      )}
+      <Sheet open={showForm} onOpenChange={onOpenChange}>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Register RADIUS client</SheetTitle>
             <SheetDescription>One NAS device per application.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <RADIUSForm
               apps={apps}
               onDone={(nas, value) => {
-                setShowForm(false);
+                onOpenChange(false);
                 setSecret({ nas, value });
                 void load();
               }}
@@ -639,10 +717,12 @@ function RADIUSForm({
             required
           />
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Registering…" : "Register client"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }

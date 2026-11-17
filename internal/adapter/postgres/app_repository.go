@@ -19,13 +19,13 @@ func NewApplicationRepository(db *DB) *ApplicationRepository {
 	return &ApplicationRepository{db: db}
 }
 
-const appColumns = `id, slug, name, description, icon_url, launch_url, group_label, provider_type, is_visible, sort_order, mfa_required`
+const appColumns = `id, slug, name, description, icon_url, launch_url, group_label, provider_type, is_visible, sort_order, mfa_required, open_in_new_tab`
 
 func scanApplication(row pgx.Row) (domain.Application, error) {
 	var a domain.Application
 	var provider string
 	err := row.Scan(&a.ID, &a.Slug, &a.Name, &a.Description, &a.IconURL,
-		&a.LaunchURL, &a.GroupLabel, &provider, &a.IsVisible, &a.SortOrder, &a.MFARequired)
+		&a.LaunchURL, &a.GroupLabel, &provider, &a.IsVisible, &a.SortOrder, &a.MFARequired, &a.OpenInNewTab)
 	if err != nil {
 		return domain.Application{}, err
 	}
@@ -41,12 +41,12 @@ func (r *ApplicationRepository) Create(ctx context.Context, a domain.Application
 	if a.ID == uuid.Nil {
 		a.ID = uuid.New()
 	}
-	const q = `INSERT INTO applications (id, slug, name, description, icon_url, launch_url, group_label, provider_type, is_visible, sort_order, mfa_required)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	const q = `INSERT INTO applications (id, slug, name, description, icon_url, launch_url, group_label, provider_type, is_visible, sort_order, mfa_required, open_in_new_tab)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING ` + appColumns
 	created, err := scanApplication(r.db.Pool.QueryRow(ctx, q, a.ID, a.Slug, a.Name,
 		a.Description, a.IconURL, a.LaunchURL, a.GroupLabel, string(a.ProviderType),
-		a.IsVisible, a.SortOrder, a.MFARequired))
+		a.IsVisible, a.SortOrder, a.MFARequired, a.OpenInNewTab))
 	if err != nil {
 		return domain.Application{}, mapWriteError(err)
 	}
@@ -102,11 +102,11 @@ func (r *ApplicationRepository) Update(ctx context.Context, a domain.Application
 	}
 	const q = `UPDATE applications
 		SET slug=$2, name=$3, description=$4, icon_url=$5, launch_url=$6,
-		    group_label=$7, provider_type=$8, is_visible=$9, sort_order=$10, mfa_required=$11
+		    group_label=$7, provider_type=$8, is_visible=$9, sort_order=$10, mfa_required=$11, open_in_new_tab=$12
 		WHERE id=$1 RETURNING ` + appColumns
 	updated, err := scanApplication(r.db.Pool.QueryRow(ctx, q, a.ID, a.Slug, a.Name,
 		a.Description, a.IconURL, a.LaunchURL, a.GroupLabel, string(a.ProviderType),
-		a.IsVisible, a.SortOrder, a.MFARequired))
+		a.IsVisible, a.SortOrder, a.MFARequired, a.OpenInNewTab))
 	if err != nil {
 		return domain.Application{}, mapWriteError(mapReadError(err))
 	}

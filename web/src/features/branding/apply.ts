@@ -51,8 +51,9 @@ export function applyTheme(theme: string): void {
 }
 
 // applyBrand pushes one brand row into the document: shadcn CSS
-// variables, the theme class, the tab title, and the admin's custom_css
-// (already sanitized server-side: no @import/url(</style>, max 10 KB).
+// variables, the theme class, the tab title, the favicon, and the
+// admin's custom_css (already sanitized server-side:
+// no @import/url(</style>, max 10 KB).
 export function applyBrand(b: Branding): void {
   const root = document.documentElement;
   if (/^#[0-9a-fA-F]{6}$/.test(b.primary_color)) {
@@ -61,6 +62,7 @@ export function applyBrand(b: Branding): void {
   }
   applyTheme(resolveTheme(b.theme));
   document.title = b.org_name !== "" ? b.org_name : "IdentityHub";
+  applyFavicon(b.favicon_url);
   const existing = document.getElementById("ih-custom-css");
   if (b.custom_css !== "") {
     const el = existing ?? document.createElement("style");
@@ -71,5 +73,27 @@ export function applyBrand(b: Branding): void {
     }
   } else {
     existing?.remove();
+  }
+}
+
+// FAVICON_ID marks the link element applyBrand manages, so clearing the
+// brand file removes only our link and never a default one.
+const FAVICON_ID = "ih-favicon";
+
+// applyFavicon points the tab icon at the brand file. An empty URL
+// removes our link, revealing the default icon again.
+function applyFavicon(faviconUrl: string): void {
+  const href = faviconUrl.trim();
+  const existing = document.getElementById(FAVICON_ID);
+  if (href === "") {
+    existing?.remove();
+    return;
+  }
+  const el = (existing ?? document.createElement("link")) as HTMLLinkElement;
+  el.id = FAVICON_ID;
+  el.rel = "icon";
+  el.href = href;
+  if (existing === null) {
+    document.head.appendChild(el);
   }
 }

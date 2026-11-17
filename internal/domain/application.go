@@ -40,6 +40,9 @@ type Application struct {
 	// MFARequired marks apps whose non-admin users must pass a second
 	// factor (PRD §6.6). Admins always require MFA regardless.
 	MFARequired bool
+	// OpenInNewTab makes the dashboard launch the app in a new tab
+	// instead of navigating away.
+	OpenInNewTab bool
 }
 
 // Validate checks constructor-level invariants shared by all writers.

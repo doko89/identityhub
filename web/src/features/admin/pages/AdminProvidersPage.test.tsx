@@ -8,6 +8,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Radix opens the dropdown on pointerdown, not click.
+function openMenu(trigger: HTMLElement): void {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+}
+
 const appId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const app = {
   id: appId, slug: "wiki", name: "Wiki", description: "", icon_url: "", launch_url: "",
@@ -73,14 +78,15 @@ describe("AdminProvidersPage", () => {
 
   it("registers an OIDC client and shows the secret once", async () => {
     const { calls } = stubAll();
-    const { getByRole, getByText } = render(
+    const { findByRole, getByRole, getByText } = render(
       <MemoryRouter>
         <AdminProvidersPage />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(getByRole("button", { name: "Register OIDC client" })).toBeDefined());
-    fireEvent.click(getByRole("button", { name: "Register OIDC client" }));
-    const sheet = getByRole("dialog", { name: "Register OIDC client" });
+    await waitFor(() => expect(getByRole("button", { name: "Add provider" })).toBeDefined());
+    openMenu(getByRole("button", { name: "Add provider" }));
+    fireEvent.click(await findByRole("menuitem", { name: "OIDC client" }));
+    const sheet = await findByRole("dialog", { name: "Register OIDC client" });
     fireEvent.change(within(sheet).getByLabelText("Client ID"), { target: { value: "wiki-web" } });
     fireEvent.change(within(sheet).getByLabelText("Redirect URIs (space or comma separated)"), {
       target: { value: "https://wiki.example.com/cb" },
@@ -100,5 +106,33 @@ describe("AdminProvidersPage", () => {
         public: false,
       }),
     );
+  });
+
+  it("opens each protocol sheet from the Add provider menu", async () => {
+    stubAll();
+    const { findByRole, getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminProvidersPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(getByText("No OIDC clients yet.")).toBeDefined();
+      expect(getByText("No SAML service providers yet.")).toBeDefined();
+      expect(getByText("No RADIUS clients yet.")).toBeDefined();
+    });
+    const pairs: Array<[string, string]> = [
+      ["OIDC client", "Register OIDC client"],
+      ["SAML service provider", "Import SAML SP"],
+      ["RADIUS client", "Register RADIUS client"],
+    ];
+    for (const [item, title] of pairs) {
+      openMenu(getByRole("button", { name: "Add provider" }));
+      fireEvent.click(await findByRole("menuitem", { name: item }));
+      const sheet = await findByRole("dialog", { name: title });
+      expect(sheet).toBeDefined();
+      // The open sheet is modal, so close it before opening the next one.
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(getByRole("button", { name: "Add provider" })).toBeDefined());
+    }
   });
 });

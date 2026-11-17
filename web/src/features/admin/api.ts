@@ -44,6 +44,7 @@ export interface AdminApp {
   is_visible: boolean;
   sort_order: number;
   mfa_required: boolean;
+  open_in_new_tab: boolean;
 }
 
 export interface AppBinding {
@@ -295,6 +296,7 @@ export interface AppPatch {
   is_visible?: boolean;
   sort_order?: number;
   mfa_required?: boolean;
+  open_in_new_tab?: boolean;
 }
 
 export function createApp(a: AppPatch): Promise<{ app: AdminApp }> {

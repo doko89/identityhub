@@ -103,12 +103,12 @@ export function AdminGroupsPage() {
       <Notice value={notice} />
 
       <Sheet open={showCreate} onOpenChange={setShowCreate}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Add group</SheetTitle>
             <SheetDescription>Groups collect users for app access and admin grants.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <CreateGroupForm
               onDone={(g) => {
                 setShowCreate(false);
@@ -201,12 +201,12 @@ export function AdminGroupsPage() {
       )}
 
       <Sheet open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Members of {selected?.name}</SheetTitle>
             <SheetDescription>Add users by username, email, or ID.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {selected !== null && (
               <GroupMembers
                 key={selected.id}
@@ -265,10 +265,12 @@ function CreateGroupForm({
           <FieldLabel htmlFor="new-group-description">Description</FieldLabel>
           <Input id="new-group-description" name="description" />
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Creating…" : "Create group"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }

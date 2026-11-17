@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react";
 import { fetchBranding, type Branding } from "@/features/branding/api";
 import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import {
@@ -76,6 +77,11 @@ export function AdminBrandingPage() {
     setBrand((prev) => (prev === null ? prev : { ...prev, [key]: value }));
   }
 
+  // Mirrors the server rule (domain/branding.go): empty keeps the
+  // default, otherwise the color must be #rrggbb.
+  const colorInvalid =
+    brand !== null && brand.primary_color !== "" && !isHexColor(brand.primary_color);
+
   return (
     <div>
       <h1 className="text-xl font-semibold">Branding</h1>
@@ -97,19 +103,31 @@ export function AdminBrandingPage() {
       )}
       {brand !== null && (
         <div className="flex flex-wrap items-start gap-6">
-          <Card className="min-w-80 flex-1">
-            <CardContent>
-              <form onSubmit={(e) => void submit(e)}>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="brand-org">Organization name</FieldLabel>
-                    <Input
-                      id="brand-org"
-                      name="org_name"
-                      value={brand.org_name}
-                      onChange={(e) => set("org_name", e.target.value)}
-                    />
-                  </Field>
+          <form onSubmit={(e) => void submit(e)} className="grid min-w-80 flex-1 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Organization</CardTitle>
+                <CardDescription>The name shown on login and across the app.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Field>
+                  <FieldLabel htmlFor="brand-org">Organization name</FieldLabel>
+                  <Input
+                    id="brand-org"
+                    name="org_name"
+                    value={brand.org_name}
+                    onChange={(e) => set("org_name", e.target.value)}
+                  />
+                </Field>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Logo and favicon</CardTitle>
+                <CardDescription>Shown on login, the dashboard, and the browser tab.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel htmlFor="logo-upload">Logo</FieldLabel>
                     <ImageDropzone
@@ -120,9 +138,9 @@ export function AdminBrandingPage() {
                       onUploaded={(url) => set("logo_url", url)}
                     >
                       {brand.logo_url !== "" ? (
-                        <img src={brand.logo_url} alt="" className="h-12 w-48 border object-contain" />
+                        <img src={brand.logo_url} alt="" className="h-12 w-full rounded-md border object-contain" />
                       ) : (
-                        <div className="flex h-12 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                        <div className="flex h-12 w-full items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
                           No logo yet
                         </div>
                       )}
@@ -138,88 +156,186 @@ export function AdminBrandingPage() {
                       onUploaded={(url) => set("favicon_url", url)}
                     >
                       {brand.favicon_url !== "" ? (
-                        <img src={brand.favicon_url} alt="" className="size-10 border object-contain" />
+                        <img src={brand.favicon_url} alt="" className="size-12 rounded-md border object-contain" />
                       ) : (
-                        <div className="flex size-10 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                        <div className="flex size-12 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
                           None
                         </div>
                       )}
                     </ImageDropzone>
                   </Field>
-                  <div className="grid grid-cols-2 gap-x-3">
-                    <Field>
-                      <FieldLabel htmlFor="brand-color">Primary color</FieldLabel>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Color and theme</CardTitle>
+                <CardDescription>Pick a preset or type any #rrggbb color code.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel id="brand-color-label" htmlFor="brand-color">
+                      Primary color
+                    </FieldLabel>
+                    <div
+                      role="radiogroup"
+                      aria-labelledby="brand-color-label"
+                      className="flex flex-wrap gap-2"
+                    >
+                      {PRESET_COLORS.map((preset) => {
+                        const selected =
+                          brand.primary_color.toLowerCase() === preset.hex.toLowerCase();
+                        return (
+                          <button
+                            key={preset.hex}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            title={preset.name}
+                            aria-label={preset.name}
+                            onClick={() => set("primary_color", preset.hex)}
+                            style={{ background: preset.hex }}
+                            className={
+                              selected
+                                ? "grid size-8 place-items-center rounded-full text-white ring-2 ring-ring ring-offset-2 ring-offset-background"
+                                : "grid size-8 place-items-center rounded-full border text-transparent hover:ring-2 hover:ring-ring hover:ring-offset-2 hover:ring-offset-background"
+                            }
+                          >
+                            <Check className="size-4" aria-hidden="true" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        style={{ background: isHexColor(brand.primary_color) ? brand.primary_color : "transparent" }}
+                        className="size-9 shrink-0 rounded-md border"
+                      />
                       <Input
                         id="brand-color"
                         name="primary_color"
                         value={brand.primary_color}
                         onChange={(e) => set("primary_color", e.target.value)}
                         placeholder="#4f46e5"
+                        maxLength={7}
+                        aria-invalid={colorInvalid}
+                        className="font-mono"
                       />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="brand-theme">Theme</FieldLabel>
-                      <Select
-                        value={brand.theme === "" ? "system" : brand.theme}
-                        onValueChange={(v) => set("theme", v)}
-                      >
-                        <SelectTrigger id="brand-theme">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="system">system</SelectItem>
-                          <SelectItem value="light">light</SelectItem>
-                          <SelectItem value="dark">dark</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
+                      <input
+                        type="color"
+                        aria-label="Pick a custom color"
+                        value={isHexColor(brand.primary_color) ? brand.primary_color : "#4f46e5"}
+                        onChange={(e) => set("primary_color", e.target.value)}
+                        className="size-9 shrink-0 cursor-pointer rounded-md border bg-background p-1"
+                      />
+                    </div>
+                    {colorInvalid ? (
+                      <p role="alert" className="text-sm text-destructive">
+                        Use the #rrggbb format, e.g. #4f46e5.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Empty keeps the default indigo.
+                      </p>
+                    )}
+                  </Field>
                   <Field>
-                    <FieldLabel htmlFor="login-bg-upload">Login background</FieldLabel>
-                    <ImageDropzone
-                      id="login-bg-upload"
-                      assetType="app_logo"
-                      label="Upload login background"
-                      hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
-                      onUploaded={(url) => set("login_background_url", url)}
+                    <FieldLabel htmlFor="brand-theme">Theme</FieldLabel>
+                    <Select
+                      value={brand.theme === "" ? "system" : brand.theme}
+                      onValueChange={(v) => set("theme", v)}
                     >
-                      {brand.login_background_url !== "" ? (
-                        <img
-                          src={brand.login_background_url}
-                          alt=""
-                          className="h-20 w-48 border object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-20 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                          No background yet
-                        </div>
-                      )}
-                    </ImageDropzone>
+                      <SelectTrigger id="brand-theme">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="system">system</SelectItem>
+                        <SelectItem value="light">light</SelectItem>
+                        <SelectItem value="dark">dark</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </Field>
-                  <Field>
-                    <FieldLabel htmlFor="brand-css">Custom CSS (max 10 KB, sanitized on the server)</FieldLabel>
-                    <Textarea
-                      id="brand-css"
-                      name="custom_css"
-                      className="min-h-24 font-mono text-xs"
-                      value={brand.custom_css}
-                      onChange={(e) => set("custom_css", e.target.value)}
-                      placeholder=".login-card { … }"
-                    />
-                  </Field>
-                  <Button type="submit" className="w-full" disabled={busy}>
-                    {busy ? <Spinner data-icon="inline-start" /> : null}
-                    {busy ? "Saving…" : "Save branding"}
-                  </Button>
                 </FieldGroup>
-              </form>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Login background</CardTitle>
+                <CardDescription>Backdrop photo behind the sign-in card.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Field>
+                  <FieldLabel htmlFor="login-bg-upload">Background image</FieldLabel>
+                  <ImageDropzone
+                    id="login-bg-upload"
+                    assetType="app_logo"
+                    label="Upload login background"
+                    hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+                    onUploaded={(url) => set("login_background_url", url)}
+                  >
+                    {brand.login_background_url !== "" ? (
+                      <img
+                        src={brand.login_background_url}
+                        alt=""
+                        className="h-20 w-48 border object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                        No background yet
+                      </div>
+                    )}
+                  </ImageDropzone>
+                </Field>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Advanced</CardTitle>
+                <CardDescription>Optional CSS applied after the theme.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Field>
+                  <FieldLabel htmlFor="brand-css">Custom CSS (max 10 KB, sanitized on the server)</FieldLabel>
+                  <Textarea
+                    id="brand-css"
+                    name="custom_css"
+                    className="min-h-24 font-mono text-xs"
+                    value={brand.custom_css}
+                    onChange={(e) => set("custom_css", e.target.value)}
+                    placeholder=".login-card { … }"
+                  />
+                </Field>
+              </CardContent>
+            </Card>
+            <Button type="submit" className="w-full" disabled={busy || colorInvalid}>
+              {busy ? <Spinner data-icon="inline-start" /> : null}
+              {busy ? "Saving…" : "Save branding"}
+            </Button>
+          </form>
           <Preview brand={brand} />
         </div>
       )}
     </div>
   );
+}
+
+// PRESET_COLORS offers one-click brand colors; the hex input beside
+// them accepts any custom #rrggbb code.
+const PRESET_COLORS: Array<{ name: string; hex: string }> = [
+  { name: "Indigo (default)", hex: "#4f46e5" },
+  { name: "Blue", hex: "#2563eb" },
+  { name: "Teal", hex: "#0f766e" },
+  { name: "Green", hex: "#16a34a" },
+  { name: "Amber", hex: "#d97706" },
+  { name: "Red", hex: "#dc2626" },
+  { name: "Pink", hex: "#db2777" },
+  { name: "Slate", hex: "#334155" },
+];
+
+function isHexColor(value: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
 // Preview is a miniature of the login card (DESIGN §5.1) driven by the
@@ -229,7 +345,7 @@ function Preview({ brand }: { brand: Branding }) {
   const primary = /^#[0-9a-fA-F]{6}$/.test(brand.primary_color) ? brand.primary_color : "#4f46e5";
   const dark = brand.theme === "dark";
   return (
-    <div className="w-75 shrink-0" aria-label="Login preview">
+    <div className="w-75 shrink-0 lg:sticky lg:top-6" aria-label="Login preview">
       <p className="mt-0 mb-2 text-xs text-muted-foreground">Preview</p>
       <div
         className="rounded-xl border p-5"

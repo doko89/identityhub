@@ -241,12 +241,12 @@ export function AdminUsersPage() {
       </div>
 
       <Sheet open={showCreate} onOpenChange={setShowCreate}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Add user</SheetTitle>
             <SheetDescription>Create a local account or pre-provision an LDAP one.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <CreateUserForm
               onDone={(created) => {
                 setShowCreate(false);
@@ -260,12 +260,12 @@ export function AdminUsersPage() {
       </Sheet>
 
       <Sheet open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Edit {editing?.username}</SheetTitle>
             <SheetDescription>Profile, status, and administrator grant.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {editing !== null && (
               <EditUserForm
                 key={editing.id}
@@ -388,10 +388,12 @@ function CreateUserForm({
             placeholder="uid=alice,ou=people,dc=example,dc=com"
           />
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Creating…" : "Create user"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }
@@ -481,6 +483,8 @@ function EditUserForm({
           />
           <FieldLabel htmlFor="edit-active">Active (unchecking revokes every session)</FieldLabel>
         </Field>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 grid gap-2 border-t bg-background px-6 py-4">
         <div className="flex gap-2">
           <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
             Cancel
@@ -489,10 +493,16 @@ function EditUserForm({
             {busy ? "Saving…" : "Save"}
           </Button>
         </div>
-        <Button type="button" variant="outline" disabled={adminBusy} onClick={() => void toggleAdmin()}>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={adminBusy}
+          onClick={() => void toggleAdmin()}
+        >
           {adminBusy ? "Working…" : user.is_admin ? "Revoke administrator" : "Grant administrator"}
         </Button>
-      </FieldGroup>
+      </div>
     </form>
   );
 }

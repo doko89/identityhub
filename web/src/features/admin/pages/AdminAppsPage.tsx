@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { Plus } from "lucide-react";
+import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -103,26 +105,28 @@ export function AdminAppsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Applications</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-semibold">Applications</h1>
+        <div className="ml-auto">
+          <Button type="button" onClick={() => setShowCreate(true)}>
+            <Plus className="size-4" />
+            Add application
+          </Button>
+        </div>
+      </div>
       <p className="mt-1 mb-4 text-sm text-muted-foreground">
         The SSO catalog. Bindings decide who sees each app on the dashboard.
       </p>
 
-      <div className="mb-3">
-        <Button type="button" onClick={() => setShowCreate(true)}>
-          Add application
-        </Button>
-      </div>
-
       <Notice value={notice} />
 
       <Sheet open={showCreate} onOpenChange={setShowCreate}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Add application</SheetTitle>
             <SheetDescription>Register one catalog row for the app.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <AppForm
               submitLabel="Create application"
               onSubmit={(patch) => createApp(patch).then(({ app }) => app)}
@@ -138,12 +142,12 @@ export function AdminAppsPage() {
       </Sheet>
 
       <Sheet open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Edit {editing?.slug}</SheetTitle>
             <SheetDescription>Catalog row, visibility, and per-app MFA.</SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {editing !== null && (
               <AppForm
                 key={editing.id}
@@ -163,15 +167,15 @@ export function AdminAppsPage() {
       </Sheet>
 
       <Sheet open={bindingsFor !== null} onOpenChange={(open) => { if (!open) setBindingsFor(null); }}>
-        <SheetContent>
-          <SheetHeader>
+        <SheetContent className="gap-0">
+          <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Bindings of {bindingsFor?.slug}</SheetTitle>
             <SheetDescription>
               Who sees this app. Eval mode &quot;any&quot; grants on the first match, &quot;all&quot;
               requires every binding to match.
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {bindingsFor !== null && (
               <BindingsPanel key={bindingsFor.id} app={bindingsFor} onError={setNotice} />
             )}
@@ -279,6 +283,8 @@ function AppForm({
   const [providerType, setProviderType] = useState(initial?.provider_type ?? "oidc");
   const [isVisible, setIsVisible] = useState(initial?.is_visible ?? true);
   const [mfaRequired, setMfaRequired] = useState(initial?.mfa_required ?? false);
+  const [openInNewTab, setOpenInNewTab] = useState(initial?.open_in_new_tab ?? false);
+  const [iconUrl, setIconUrl] = useState(initial?.icon_url ?? "");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -296,6 +302,7 @@ function AppForm({
         provider_type: providerType,
         is_visible: isVisible,
         mfa_required: mfaRequired,
+        open_in_new_tab: openInNewTab,
       };
       if (sortRaw !== "") {
         patch.sort_order = Number(sortRaw);
@@ -355,13 +362,23 @@ function AppForm({
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor="app-icon">Icon URL</FieldLabel>
-          <Input
-            id="app-icon"
-            name="icon_url"
-            defaultValue={initial?.icon_url ?? ""}
-            placeholder="/uploads/….png"
-          />
+          <FieldLabel htmlFor="app-icon-upload">Icon</FieldLabel>
+          <ImageDropzone
+            id="app-icon-upload"
+            assetType="app_logo"
+            label="Upload app icon"
+            hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+            onUploaded={(url) => setIconUrl(url)}
+          >
+            {iconUrl !== "" ? (
+              <img src={iconUrl} alt="" className="size-16 rounded-md border object-cover" />
+            ) : (
+              <div className="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                No icon
+              </div>
+            )}
+          </ImageDropzone>
+          <input type="hidden" name="icon_url" value={iconUrl} />
         </Field>
         <Field>
           <FieldLabel htmlFor="app-sort">Sort order</FieldLabel>
@@ -373,7 +390,7 @@ function AppForm({
             placeholder="0"
           />
         </Field>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
           <Field orientation="horizontal">
             <Checkbox
               id="app-visible"
@@ -390,7 +407,17 @@ function AppForm({
             />
             <FieldLabel htmlFor="app-mfa">Require MFA</FieldLabel>
           </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="app-new-tab"
+              checked={openInNewTab}
+              onCheckedChange={(v) => setOpenInNewTab(v === true)}
+            />
+            <FieldLabel htmlFor="app-new-tab">Open in new tab</FieldLabel>
+          </Field>
         </div>
+      </FieldGroup>
+      <div className="sticky bottom-0 -mx-6 mt-5 -mb-5 border-t bg-background px-6 py-4">
         <div className="flex gap-2">
           {onClose !== undefined && (
             <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
@@ -401,7 +428,7 @@ function AppForm({
             {busy ? "Saving…" : submitLabel}
           </Button>
         </div>
-      </FieldGroup>
+      </div>
     </form>
   );
 }

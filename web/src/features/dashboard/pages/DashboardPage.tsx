@@ -29,6 +29,7 @@ type AppEntry = {
   group_label: string;
   provider_type: string;
   mfa_required: boolean;
+  open_in_new_tab: boolean;
 };
 
 // User dashboard (PRD §6.7): the signed-in user's apps, grouped by the
@@ -93,7 +94,11 @@ export function DashboardPage() {
         setNotice(`${app.name} has no launch URL configured yet. Ask your administrator.`);
         return;
       }
-      window.location.href = data.launch_url;
+      if (app.open_in_new_tab) {
+        window.open(data.launch_url, "_blank", "noopener");
+      } else {
+        window.location.href = data.launch_url;
+      }
     } catch {
       setNotice("Cannot reach the server. Try again.");
     }

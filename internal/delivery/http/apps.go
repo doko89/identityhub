@@ -17,6 +17,7 @@ func appJSON(a domain.Application) map[string]any {
 		"launch_url": a.LaunchURL, "group_label": a.GroupLabel,
 		"provider_type": string(a.ProviderType), "is_visible": a.IsVisible,
 		"sort_order": a.SortOrder, "mfa_required": a.MFARequired,
+		"open_in_new_tab": a.OpenInNewTab,
 	}
 }
 
@@ -78,6 +79,7 @@ type adminAppRequest struct {
 	IsVisible    *bool   `json:"is_visible"`
 	SortOrder    *int    `json:"sort_order"`
 	MFARequired  *bool   `json:"mfa_required"`
+	OpenInNewTab *bool   `json:"open_in_new_tab"`
 }
 
 // applyTo overlays the keys present in the body onto base. Create passes
@@ -113,6 +115,9 @@ func (r adminAppRequest) applyTo(base domain.Application) domain.Application {
 	}
 	if r.MFARequired != nil {
 		base.MFARequired = *r.MFARequired
+	}
+	if r.OpenInNewTab != nil {
+		base.OpenInNewTab = *r.OpenInNewTab
 	}
 	return base
 }

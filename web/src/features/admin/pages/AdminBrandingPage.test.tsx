@@ -93,4 +93,27 @@ describe("AdminBrandingPage", () => {
     fireEvent.click(getByRole("button", { name: "Save branding" }));
     await waitFor(() => expect(patched).toMatchObject({ logo_url: "/uploads/app_logo/9.webp" }));
   });
+
+  it("applies a preset color to the hex input", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ branding: brand })));
+    const { getByLabelText, getByRole } = render(shell(<AdminBrandingPage />));
+    await waitFor(() => expect(getByLabelText("Organization name")).toBeDefined());
+    fireEvent.click(getByRole("radio", { name: "Teal" }));
+    const input = getByRole("textbox", { name: "Primary color" }) as HTMLInputElement;
+    expect(input.value).toBe("#0f766e");
+    expect(getByRole("radio", { name: "Teal" }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("rejects a malformed color code and blocks saving", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ branding: brand })));
+    const { getByLabelText, getByRole, getByText, queryByText } = render(shell(<AdminBrandingPage />));
+    await waitFor(() => expect(getByLabelText("Organization name")).toBeDefined());
+    const input = getByRole("textbox", { name: "Primary color" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "red" } });
+    expect(getByText("Use the #rrggbb format, e.g. #4f46e5.")).toBeDefined();
+    expect(getByRole("button", { name: "Save branding" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(input, { target: { value: "" } });
+    expect(queryByText("Use the #rrggbb format, e.g. #4f46e5.")).toBeNull();
+    expect(getByRole("button", { name: "Save branding" }).hasAttribute("disabled")).toBe(false);
+  });
 });
