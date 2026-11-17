@@ -123,6 +123,11 @@ export function DashboardPage() {
           )}
         </div>
         <nav style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13 }}>
+          {me?.is_admin === true && (
+            <Link to="/admin" style={{ color: "var(--primary)" }}>
+              Admin
+            </Link>
+          )}
           <Link to="/account/mfa" style={{ color: "var(--primary)" }}>
             Two-step verification
           </Link>

@@ -12,9 +12,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, body: string) {
+  // mfaRequired marks 403s that step-up can clear (admin + MFA-gated
+  // apps): the UI offers a link to /mfa?stepup=1 instead of a dead end.
+  readonly mfaRequired: boolean;
+  constructor(status: number, body: string, mfaRequired = false) {
     super(`API ${status}: ${body}`);
     this.status = status;
+    this.mfaRequired = mfaRequired;
   }
 }
 
