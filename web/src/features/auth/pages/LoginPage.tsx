@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
-// M0 placeholder login page (DESIGN §5.1 layout). The form posts to
-// POST /api/auth/login, which lands in M1 — until then it shows a notice.
+// Login page (DESIGN §5.1 layout). Posts to POST /api/auth/login; on
+// success the browser continues to ?next= (the OIDC authorize request)
+// when it is a safe relative target, else to the dashboard.
 export function LoginPage() {
+  const [searchParams] = useSearchParams();
   const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   return (
     <main
@@ -31,9 +35,31 @@ export function LoginPage() {
           Sign in
         </p>
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            setNotice("Login is not available yet — the M0 scaffold serves this page only.");
+            setBusy(true);
+            setNotice(null);
+            try {
+              const form = new FormData(e.currentTarget);
+              const res = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  username: form.get("username"),
+                  password: form.get("password"),
+                }),
+              });
+              if (!res.ok) {
+                const data = (await res.json().catch(() => null)) as { error?: string } | null;
+                setNotice(data?.error ?? "Sign-in failed. Try again.");
+                return;
+              }
+              window.location.href = safeNext(searchParams.get("next"));
+            } catch {
+              setNotice("Cannot reach the server. Try again.");
+            } finally {
+              setBusy(false);
+            }
           }}
         >
           <label style={{ display: "block", fontSize: 14, marginBottom: 12 }}>
@@ -55,8 +81,8 @@ export function LoginPage() {
               required
             />
           </label>
-          <button type="submit" style={buttonStyle}>
-            Sign in
+          <button type="submit" style={buttonStyle} disabled={busy}>
+            {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
         {notice !== null && (
@@ -70,6 +96,14 @@ export function LoginPage() {
       </div>
     </main>
   );
+}
+
+// safeNext accepts only relative return targets (open-redirect guard).
+function safeNext(next: string | null): string {
+  if (next !== null && next.startsWith("/") && !next.startsWith("//")) {
+    return next;
+  }
+  return "/";
 }
 
 const inputStyle: React.CSSProperties = {
