@@ -27,12 +27,17 @@ const scopeLabels: Record<string, string> = {
 // with an app. Allow/Deny posts the decision; the API answers the client
 // redirect target, which may be cross-origin, so the page navigates the
 // whole browser there.
+// REDIRECT_BEAT_MS holds the "Redirecting…" state briefly so the
+// decision visibly lands before the browser leaves for the client app.
+const REDIRECT_BEAT_MS = 700;
+
 export function ConsentPage() {
   const [searchParams] = useSearchParams();
   const challenge = searchParams.get("challenge") ?? "";
   const [info, setInfo] = useState<ConsentInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [redirectTo, setRedirectTo] = useState<string | null>(null);
 
   useEffect(() => {
     if (challenge === "") {
@@ -76,7 +81,11 @@ export function ConsentPage() {
         setError(data?.error ?? "Authorization failed. Restart sign-in from the app.");
         return;
       }
-      window.location.href = data.redirect_to;
+      const target = data.redirect_to;
+      setRedirectTo(hostOf(target));
+      window.setTimeout(() => {
+        window.location.href = target;
+      }, REDIRECT_BEAT_MS);
     } catch {
       setError("Cannot reach the server. Try again.");
     } finally {
@@ -91,17 +100,28 @@ export function ConsentPage() {
         <CardHeader>
           <h2 className="text-xl leading-none font-semibold">Authorize app</h2>
           {info === null && error === null && (
-            <CardDescription>Loading request…</CardDescription>
+            <CardDescription className="flex items-center gap-2">
+              <Spinner data-icon="inline-start" />
+              Loading request…
+            </CardDescription>
           )}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {error !== null && (
-            <Alert variant="destructive">
-              <AlertTitle>Authorization failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          {info !== null && (
+          {redirectTo !== null ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center" role="status">
+              <Spinner className="size-8 text-primary" />
+              <p className="text-sm font-medium">Redirecting you back to {redirectTo}…</p>
+              <p className="text-xs text-muted-foreground">You will continue automatically.</p>
+            </div>
+          ) : (
+            <>
+              {error !== null && (
+                <Alert variant="destructive">
+                  <AlertTitle>Authorization failed</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              {info !== null && (
             <>
               <p className="text-sm text-muted-foreground">
                 <strong className="text-foreground">{info.client_name}</strong> wants to sign you
@@ -116,7 +136,7 @@ export function ConsentPage() {
                 ))}
               </ul>
               <p className="text-xs text-muted-foreground">
-                You will return to {redirectHost(info.redirect_uri)} after deciding.
+                You will return to {hostOf(info.redirect_uri)} after deciding.
               </p>
               <div className="flex gap-2">
                 <Button
@@ -140,13 +160,15 @@ export function ConsentPage() {
               </div>
             </>
           )}
+            </>
+          )}
         </CardContent>
       </Card>
     </main>
   );
 }
 
-function redirectHost(redirectUri: string): string {
+function hostOf(redirectUri: string): string {
   try {
     return new URL(redirectUri).host;
   } catch {
