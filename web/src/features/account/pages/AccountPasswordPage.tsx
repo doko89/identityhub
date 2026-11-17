@@ -5,7 +5,7 @@ import { ApiError } from "@/shared/api/client";
 import { useSessionStore } from "@/shared/stores/session";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
@@ -84,7 +84,7 @@ export function AccountPasswordPage() {
       </p>
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Change password</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Change password</h1>
           <CardDescription>
             Your new password signs out every other session. It must be at least 12 characters and
             differ from your recent passwords.

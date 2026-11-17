@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
 import { Separator } from "@/shared/ui/separator";
@@ -142,7 +142,7 @@ export function AccountMFAPage() {
       </p>
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Two-step verification</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Two-step verification</h1>
           {status !== null && !status.has_totp && codes === null && (
             <CardDescription>
               Two-step verification is off. Turn it on to protect your account with an

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
 import { testLDAP, type LDAPTestResult } from "../api";
 import { Notice, toNotice, type AdminNotice } from "../components/adminUi";
@@ -37,7 +37,7 @@ export function AdminLDAPTestPage() {
       <Notice value={notice} />
       <Card className="max-w-xl">
         <CardHeader>
-          <CardTitle className="text-base">Upstream directory</CardTitle>
+          <h2 className="text-base leading-none font-semibold">Upstream directory</h2>
           <CardDescription>
             Runs <code className="font-mono text-xs">POST /api/admin/ldap/test</code> against the
             server&apos;s LDAP settings.

@@ -4,7 +4,7 @@ import { useSessionStore } from "@/shared/stores/session";
 import { UploadField } from "@/features/uploads/components/UploadField";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Separator } from "@/shared/ui/separator";
 import { Skeleton } from "@/shared/ui/skeleton";
 
@@ -40,7 +40,7 @@ export function AccountPage() {
       </p>
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Account</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Account</h1>
           <CardDescription>Your profile and sign-in settings.</CardDescription>
         </CardHeader>
         <CardContent>

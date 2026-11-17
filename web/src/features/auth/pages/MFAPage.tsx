@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/shared/ui/input-otp";
@@ -67,7 +67,7 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Two-step verification</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Two-step verification</h1>
           <CardDescription>
             {stepup ? "This app needs a second factor." : "Enter the code from your authenticator app."}
           </CardDescription>
@@ -204,7 +204,7 @@ function EnrollFlow({ next }: { next: string }) {
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Set up two-step verification</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Set up two-step verification</h1>
           {!started && (
             <CardDescription>You will scan a QR code with your authenticator app.</CardDescription>
           )}

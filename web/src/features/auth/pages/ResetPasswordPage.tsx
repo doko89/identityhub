@@ -4,7 +4,7 @@ import { useBrand } from "@/features/branding/BrandProvider";
 import { errorMessage } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -56,7 +56,7 @@ export function ResetPasswordPage() {
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>{orgName}</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">{orgName}</h1>
           <CardDescription>Choose a new password</CardDescription>
         </CardHeader>
         <CardContent>

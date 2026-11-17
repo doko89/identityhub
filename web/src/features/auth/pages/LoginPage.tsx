@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -32,7 +32,7 @@ export function LoginPage() {
           {brand?.logo_url !== undefined && brand.logo_url !== "" && (
             <img src={brand.logo_url} alt="" className="mb-2 h-7" />
           )}
-          <CardTitle>{orgName}</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">{orgName}</h1>
           <CardDescription>Sign in</CardDescription>
         </CardHeader>
         <CardContent>

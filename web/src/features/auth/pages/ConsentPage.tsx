@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
 
 type ConsentInfo = {
@@ -87,7 +87,7 @@ export function ConsentPage() {
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Authorize app</CardTitle>
+          <h1 className="text-xl leading-none font-semibold">Authorize app</h1>
           {info === null && error === null && (
             <CardDescription>Loading request…</CardDescription>
           )}
