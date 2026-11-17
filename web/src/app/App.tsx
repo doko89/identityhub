@@ -5,6 +5,7 @@ import { AccountMFAPage } from "@/features/account/pages/AccountMFAPage";
 import { AdminLayout } from "@/features/admin/components/AdminLayout";
 import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
 import { AdminGroupsPage } from "@/features/admin/pages/AdminGroupsPage";
+import { AdminProvidersPage } from "@/features/admin/pages/AdminProvidersPage";
 import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { ConsentPage } from "@/features/auth/pages/ConsentPage";
 import { ForgotPasswordPage } from "@/features/auth/pages/ForgotPasswordPage";
@@ -34,6 +35,7 @@ export function App() {
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="groups" element={<AdminGroupsPage />} />
               <Route path="apps" element={<AdminAppsPage />} />
+              <Route path="providers" element={<AdminProvidersPage />} />
             </Route>
             <Route path="/" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
