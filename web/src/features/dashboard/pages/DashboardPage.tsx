@@ -131,6 +131,9 @@ export function DashboardPage() {
           <Link to="/account/mfa" style={{ color: "var(--primary)" }}>
             Two-step verification
           </Link>
+          <Link to="/account/password" style={{ color: "var(--primary)" }}>
+            Change password
+          </Link>
           <button type="button" onClick={() => void signOut()} style={linkButtonStyle}>
             Sign out
           </button>

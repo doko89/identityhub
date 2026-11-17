@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AccountMFAPage } from "@/features/account/pages/AccountMFAPage";
+import { AccountPasswordPage } from "@/features/account/pages/AccountPasswordPage";
 import { AdminLayout } from "@/features/admin/components/AdminLayout";
 import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
 import { AdminAuditPage } from "@/features/admin/pages/AdminAuditPage";
@@ -33,6 +34,7 @@ export function App() {
             <Route path="/mfa" element={<MFAPage />} />
             <Route path="/consent" element={<ConsentPage />} />
             <Route path="/account/mfa" element={<AccountMFAPage />} />
+            <Route path="/account/password" element={<AccountPasswordPage />} />
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="users" replace />} />
               <Route path="users" element={<AdminUsersPage />} />
