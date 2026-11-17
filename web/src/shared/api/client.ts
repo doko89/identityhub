@@ -17,3 +17,10 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+// errorMessage pulls the user-facing {error} string out of a failed
+// response, falling back when the body is not JSON.
+export async function errorMessage(res: Response, fallback: string): Promise<string> {
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  return data?.error ?? fallback;
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useBrand } from "@/features/branding/BrandProvider";
 
 // Login page (DESIGN §5.1 layout). Posts to POST /api/auth/login; on
@@ -105,6 +105,11 @@ export function LoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <p style={{ fontSize: 13, textAlign: "right", margin: "12px 0 0" }}>
+          <Link to="/forgot-password" style={{ color: "var(--primary)" }}>
+            Forgot password?
+          </Link>
+        </p>
         {notice !== null && (
           <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
             {notice}
