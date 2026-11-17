@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -22,6 +23,57 @@ func TestHashVerifyRoundTrip(t *testing.T) {
 	if h.Verify("wrong password here!!", sum) {
 		t.Error("Verify(wrong) = true, want false")
 	}
+}
+
+// legacyHash was minted with the previous 64 MiB parameters for
+// "legacy-password-1". Parameters ride in the PHC string, so it must
+// keep verifying after the default dropped to 32 MiB.
+const legacyHash = "$argon2id$v=19$m=65536,t=3,p=4$rwGKMlGy6V4Sho3DA/pGqg$uzbVTOygZLby/uRouOQy0c80+Hzr83VD5XYHyavU4rw"
+
+func TestVerifyLegacyParams(t *testing.T) {
+	h := Hasher{}
+	if !h.Verify("legacy-password-1", []byte(legacyHash)) {
+		t.Error("Verify(legacy 64MiB hash) = false, want true")
+	}
+	if h.Verify("wrong password here!!", []byte(legacyHash)) {
+		t.Error("Verify(wrong, legacy hash) = true, want false")
+	}
+}
+
+func TestHashUsesCurrentParams(t *testing.T) {
+	h := Hasher{}
+	sum, err := h.Hash("current-params-12")
+	if err != nil {
+		t.Fatalf("Hash() error = %v", err)
+	}
+	if !strings.Contains(string(sum), "$m=32768,t=3,p=4$") {
+		t.Errorf("Hash() = %q, want m=32768 params", sum)
+	}
+}
+
+// TestVerifyConcurrent hammers Verify from many goroutines: results must
+// stay correct and the semaphore must not deadlock (the test timeout
+// fails a stuck run).
+func TestVerifyConcurrent(t *testing.T) {
+	h := Hasher{}
+	sum, err := h.Hash("concurrent-password-1")
+	if err != nil {
+		t.Fatalf("Hash() error = %v", err)
+	}
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if !h.Verify("concurrent-password-1", sum) {
+				t.Error("Verify(correct) = false, want true")
+			}
+			if h.Verify("wrong password here!!", sum) {
+				t.Error("Verify(wrong) = true, want false")
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestHashIsSalted(t *testing.T) {

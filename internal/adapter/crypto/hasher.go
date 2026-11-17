@@ -17,14 +17,37 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Parameters follow OWASP's argon2id guidance for interactive logins.
+// Parameters balance OWASP's argon2id guidance against bind-storm
+// memory: 32 MiB per computation (above the OWASP minimum) keeps a
+// burst of legacy binds affordable. Parameters ride in the PHC string,
+// so hashes minted with older values keep verifying.
 const (
-	memoryKB   = 64 * 1024
+	memoryKB   = 32 * 1024
 	iterations = 3
 	lanes      = 4
 	keyLen     = 32
 	saltLen    = 16
 )
+
+// maxConcurrentArgon2 bounds simultaneous argon2id computations
+// process-wide. Each holds memoryKB while running, so an unbounded
+// burst of binds would multiply it into gigabytes (measured: 32
+// parallel verifies touched 2 GB at 64 MiB). Four slots cap the worst
+// case at 4 × 32 MiB = 128 MiB; excess verifications queue for tens
+// of milliseconds each.
+const maxConcurrentArgon2 = 4
+
+// argon2Sem is the process-wide computation budget. It must stay
+// package-level (not per-Hasher): several services hold their own
+// Hasher, and only a shared semaphore bounds their sum.
+var argon2Sem = make(chan struct{}, maxConcurrentArgon2)
+
+// acquireArgon2 takes one computation slot; callers defer the release.
+// Hash and Verify never nest, so this cannot deadlock.
+func acquireArgon2() func() {
+	argon2Sem <- struct{}{}
+	return func() { <-argon2Sem }
+}
 
 // Hasher is the production domain.PasswordHasher. Zero value is ready.
 type Hasher struct{}
@@ -34,6 +57,7 @@ func (Hasher) Hash(password string) ([]byte, error) {
 	if password == "" {
 		return nil, errors.New("password must not be empty")
 	}
+	defer acquireArgon2()()
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return nil, fmt.Errorf("argon2 salt: %w", err)
@@ -47,11 +71,13 @@ func (Hasher) Hash(password string) ([]byte, error) {
 }
 
 // Verify checks password against hash. argon2id hashes produced by Hash are
-// compared in constant time; bcrypt hashes fall back to bcrypt comparison.
+// compared in constant time; bcrypt hashes fall back to bcrypt comparison
+// (kilobytes of memory, so the fallback bypasses the argon2 budget).
 func (Hasher) Verify(password string, hash []byte) bool {
 	s := string(hash)
 	switch {
 	case strings.HasPrefix(s, "$argon2id$"):
+		defer acquireArgon2()()
 		return verifyArgon2(password, s)
 	case strings.HasPrefix(s, "$2a$") || strings.HasPrefix(s, "$2b$") || strings.HasPrefix(s, "$2y$"):
 		return bcrypt.CompareHashAndPassword(hash, []byte(password)) == nil

@@ -331,6 +331,11 @@ LDAP_CACHE_TTL=5m        # tree snapshots (0 disables: every search reads fresh)
 LDAP_BIND_CACHE_TTL=60s  # remembered binds (0 disables: every bind verifies)
 ```
 
+Password hashing is argon2id at 32 MiB × 3 iterations with at most 4
+concurrent computations process-wide (older 64 MiB hashes keep
+verifying), so a burst of cold binds is memory-bounded at ~128 MiB
+plus heap instead of scaling with concurrency.
+
 Two more knobs for busy directories: `pool_max_conns` in
 `DATABASE_URL` (the pool is shared by HTTP + LDAP; raise it under
 concurrent LDAP load), and `AUDIT_RETENTION` (e.g. `2160h` = 90 days)
