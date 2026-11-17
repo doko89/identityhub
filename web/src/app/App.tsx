@@ -3,6 +3,7 @@ import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AccountMFAPage } from "@/features/account/pages/AccountMFAPage";
 import { AdminLayout } from "@/features/admin/components/AdminLayout";
+import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
 import { AdminGroupsPage } from "@/features/admin/pages/AdminGroupsPage";
 import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { ConsentPage } from "@/features/auth/pages/ConsentPage";
@@ -32,6 +33,7 @@ export function App() {
               <Route index element={<Navigate to="users" replace />} />
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="groups" element={<AdminGroupsPage />} />
+              <Route path="apps" element={<AdminAppsPage />} />
             </Route>
             <Route path="/" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
