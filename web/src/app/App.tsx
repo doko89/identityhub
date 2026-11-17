@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AccountMFAPage } from "@/features/account/pages/AccountMFAPage";
 import { AdminLayout } from "@/features/admin/components/AdminLayout";
 import { AdminAppsPage } from "@/features/admin/pages/AdminAppsPage";
+import { AdminBrandingPage } from "@/features/admin/pages/AdminBrandingPage";
 import { AdminGroupsPage } from "@/features/admin/pages/AdminGroupsPage";
 import { AdminProvidersPage } from "@/features/admin/pages/AdminProvidersPage";
 import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
@@ -36,6 +37,7 @@ export function App() {
               <Route path="groups" element={<AdminGroupsPage />} />
               <Route path="apps" element={<AdminAppsPage />} />
               <Route path="providers" element={<AdminProvidersPage />} />
+              <Route path="branding" element={<AdminBrandingPage />} />
             </Route>
             <Route path="/" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
