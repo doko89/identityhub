@@ -23,6 +23,10 @@ const (
 	ActionUserCreate         = "user_create"
 	ActionUserDeactivate     = "user_deactivate"
 	ActionUserReactivate     = "user_reactivate"
+	ActionMFAEnroll          = "mfa_enroll"
+	ActionMFADisable         = "mfa_disable"
+	ActionMFARecoveryRegen   = "mfa_recovery_regenerate"
+	ActionMFAReset           = "mfa_reset"
 )
 
 // Service validates and persists audit entries.

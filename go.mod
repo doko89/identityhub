@@ -6,6 +6,7 @@ require (
 	github.com/alexedwards/scs/pgxstore v0.0.0-20251002162104-209de6e426de
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/beevik/etree v1.8.1
+	github.com/boombuler/barcode v1.1.0
 	github.com/crewjam/saml v0.6.3
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-ldap/ldap/v3 v3.4.15
@@ -13,6 +14,7 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/lor00x/goldap v0.0.0-20180618054307-a546dffdd1a3
 	github.com/ory/fosite v0.49.0
+	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/vjeantet/ldapserver v1.0.1
 	golang.org/x/crypto v0.59.0

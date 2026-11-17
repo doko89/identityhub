@@ -37,6 +37,9 @@ type Application struct {
 	ProviderType ProviderType
 	IsVisible    bool
 	SortOrder    int
+	// MFARequired marks apps whose non-admin users must pass a second
+	// factor (PRD §6.6). Admins always require MFA regardless.
+	MFARequired bool
 }
 
 // Validate checks constructor-level invariants shared by all writers.

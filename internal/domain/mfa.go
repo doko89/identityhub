@@ -49,6 +49,35 @@ type MFAStore interface {
 	AcceptStep(ctx context.Context, userID uuid.UUID, step int64) error
 	DisableTOTP(ctx context.Context, userID uuid.UUID) error
 	AddRecoveryCodes(ctx context.Context, userID uuid.UUID, hashes [][]byte) error
+	// ReplaceRecoveryCodes swaps the whole unused set (regeneration).
+	ReplaceRecoveryCodes(ctx context.Context, userID uuid.UUID, hashes [][]byte) error
 	UseRecoveryCode(ctx context.Context, userID uuid.UUID, hash []byte, at time.Time) error
 	RemainingRecoveryCodes(ctx context.Context, userID uuid.UUID) (int, error)
+}
+
+// TOTP generates seeds and validates codes (PRD §6.6: 6 digits, 30s
+// steps, current step + at most one previous). Implemented in
+// internal/adapter/crypto on pquerna/otp; usecases see only this port so
+// no protocol library leaks past the adapter layer (TECH_SPEC §4).
+type TOTP interface {
+	// NewSeed returns a fresh random seed and its otpauth:// URL for an
+	// authenticator app. The seed is raw bytes; callers seal it before
+	// storage and never return it after enroll.
+	NewSeed(issuer, account string) (seed []byte, otpauthURL string, err error)
+	// Verify matches code against the current or previous step at `at`
+	// and returns the matched absolute step for the anti-replay record.
+	// The next (future) step never matches: the window is narrow by
+	// design (PRD §6.6).
+	Verify(seed []byte, code string, at time.Time) (step int64, ok bool)
+	// Code returns the code for one absolute step (tests, tooling).
+	Code(seed []byte, step int64) (string, error)
+	// QRCodePNG renders content as a PNG QR image of size px.
+	QRCodePNG(content string, size int) ([]byte, error)
+}
+
+// SeedSealer encrypts TOTP seeds at rest with ENC_KEY (TECH_SPEC §5).
+// Implemented in internal/adapter/crypto.
+type SeedSealer interface {
+	Seal(plaintext []byte) ([]byte, error)
+	Open(sealed []byte) ([]byte, error)
 }
