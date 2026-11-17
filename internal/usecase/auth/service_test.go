@@ -1254,3 +1254,223 @@ func TestDefaultTokenGen(t *testing.T) {
 		}
 	}
 }
+
+// ---------- LoginLegacy ----------
+
+func TestLoginLegacyLocalSuccessAuditsProtocolMethod(t *testing.T) {
+	u := localUser("vpn-ara", "vpn-password-1")
+	h := newHarness(t, u)
+	appID := uuid.New()
+
+	got, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "vpn-ara", Password: "vpn-password-1", IP: "10.9.0.2",
+		Method: domain.MethodRADIUS, ApplicationID: &appID,
+	})
+	if err != nil {
+		t.Fatalf("LoginLegacy = %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("user = %v, want %v", got.ID, u.ID)
+	}
+	a := lastAudit(h)
+	if a.Method != domain.MethodRADIUS || a.Result != domain.ResultSuccess {
+		t.Errorf("audit = %s/%s, want radius/success", a.Method, a.Result)
+	}
+	if a.ApplicationID == nil || *a.ApplicationID != appID {
+		t.Errorf("audit app = %v, want %v", a.ApplicationID, appID)
+	}
+	if a.ActorUserID == nil || *a.ActorUserID != u.ID {
+		t.Errorf("audit actor = %v, want %v", a.ActorUserID, u.ID)
+	}
+	if a.IP != "10.9.0.2" {
+		t.Errorf("audit ip = %q", a.IP)
+	}
+}
+
+func TestLoginLegacyLDAPUserViaDirectory(t *testing.T) {
+	u := ldapUser("dir-ara", true)
+	h := newHarness(t, u)
+	h.dir.passwords["dir-ara"] = "dir-pass-0001"
+
+	got, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "dir-ara", Password: "dir-pass-0001", IP: "10.9.0.3",
+		Method: domain.MethodLDAP,
+	})
+	if err != nil {
+		t.Fatalf("LoginLegacy = %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("user = %v, want %v", got.ID, u.ID)
+	}
+	// The protocol method (ldap) wins over the backend (directory) in
+	// the audit log; the LDAP tree is global so no app is attached.
+	a := lastAudit(h)
+	if a.Method != domain.MethodLDAP || a.Result != domain.ResultSuccess {
+		t.Errorf("audit = %s/%s, want ldap/success", a.Method, a.Result)
+	}
+	if a.ApplicationID != nil {
+		t.Errorf("audit app = %v, want nil", a.ApplicationID)
+	}
+}
+
+func TestLoginLegacyDeniesAdminsWhenMFARequired(t *testing.T) {
+	admin := localUser("root", "root-password-1")
+	plain := localUser("ara", "ara-password-12")
+	h := newHarness(t, admin, plain)
+	h.groups.members[admin.ID] = map[string]bool{domain.AdminGroup: true}
+
+	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "root", Password: "root-password-1", IP: "10.9.0.4",
+		Method: domain.MethodLDAP,
+	})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("admin LoginLegacy = %v, want ErrForbidden", err)
+	}
+	if !strings.Contains(err.Error(), "multi-factor") {
+		t.Errorf("error %q must name multi-factor authentication", err)
+	}
+	a := lastAudit(h)
+	if a.Method != domain.MethodLDAP || a.Result != domain.ResultFailure {
+		t.Errorf("audit = %s/%s, want ldap/failure", a.Method, a.Result)
+	}
+	if a.Detail["reason"] != "mfa required" {
+		t.Errorf("audit reason = %v, want 'mfa required'", a.Detail["reason"])
+	}
+	// A correct password still verifies for non-admins on the same box.
+	if _, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "ara", Password: "ara-password-12", Method: domain.MethodLDAP,
+	}); err != nil {
+		t.Errorf("non-admin LoginLegacy = %v, want success", err)
+	}
+}
+
+func TestLoginLegacyDeniesAdminEvenWhenDirectoryVerifies(t *testing.T) {
+	admin := ldapUser("dir-root", true)
+	h := newHarness(t, admin)
+	h.dir.passwords["dir-root"] = "dir-pass-0002"
+	h.groups.members[admin.ID] = map[string]bool{domain.AdminGroup: true}
+
+	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "dir-root", Password: "dir-pass-0002", Method: domain.MethodRADIUS,
+	})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("LDAP admin LoginLegacy = %v, want ErrForbidden", err)
+	}
+}
+
+func TestLoginLegacyCredentialFailures(t *testing.T) {
+	u := localUser("ara", "ara-password-12")
+	off := localUser("off", "off-password-12")
+	off.IsActive = false
+	h := newHarness(t, u, off)
+	h.withoutDirectory(t)
+
+	cases := []struct {
+		name     string
+		username string
+		password string
+		reason   string
+	}{
+		{"bad password", "ara", "wrong-password", "bad password"},
+		{"unknown user", "ghost", "whatever-00000", "unknown user"},
+		{"disabled", "off", "off-password-12", "account disabled"},
+		{"missing", "", "", "missing credentials"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(h.audits.entries)
+			_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+				Username: tc.username, Password: tc.password, Method: domain.MethodRADIUS,
+			})
+			if tc.name == "disabled" {
+				if !errors.Is(err, domain.ErrForbidden) {
+					t.Fatalf("err = %v, want ErrForbidden", err)
+				}
+			} else if !errors.Is(err, domain.ErrUnauthorized) {
+				t.Fatalf("err = %v, want ErrUnauthorized", err)
+			}
+			if len(h.audits.entries) != before+1 {
+				t.Fatalf("audits = %d, want one new entry", len(h.audits.entries)-before)
+			}
+			a := lastAudit(h)
+			if a.Method != domain.MethodRADIUS || a.Result != domain.ResultFailure {
+				t.Errorf("audit = %s/%s, want radius/failure", a.Method, a.Result)
+			}
+			if a.Detail["reason"] != tc.reason {
+				t.Errorf("reason = %v, want %q", a.Detail["reason"], tc.reason)
+			}
+		})
+	}
+}
+
+func TestLoginLegacyDirectoryOutageIsExplicit(t *testing.T) {
+	u := ldapUser("dir-ara", true)
+	h := newHarness(t, u)
+	h.dir.err = errors.New("connection refused")
+
+	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+		Username: "dir-ara", Password: "whatever-00000", Method: domain.MethodLDAP,
+	})
+	if !errors.Is(err, ErrDirectoryUnavailable) {
+		t.Fatalf("err = %v, want ErrDirectoryUnavailable", err)
+	}
+	a := lastAudit(h)
+	if a.Method != domain.MethodLDAP || a.Detail["reason"] != "directory unavailable" {
+		t.Errorf("audit = %+v, want ldap/directory-unavailable", a)
+	}
+}
+
+func TestLoginLegacyRejectsBadMethod(t *testing.T) {
+	h := newHarness(t)
+	for _, method := range []string{"", "password", "oidc", "saml"} {
+		_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+			Username: "ara", Password: "x", Method: method,
+		})
+		if !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("method %q: err = %v, want ErrValidation", method, err)
+		}
+	}
+	if len(h.audits.entries) != 0 {
+		t.Errorf("audits = %d, want 0 (caller bug, not a login attempt)", len(h.audits.entries))
+	}
+}
+
+func TestLoginLegacyInfraFailures(t *testing.T) {
+	u := localUser("ara", "ara-password-12")
+
+	t.Run("user lookup error skips audit", func(t *testing.T) {
+		h := newHarness(t, u)
+		h.users.err = errors.New("db down")
+		_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+			Username: "ara", Password: "ara-password-12", Method: domain.MethodLDAP,
+		})
+		if err == nil || errors.Is(err, domain.ErrUnauthorized) {
+			t.Fatalf("err = %v, want wrapped infra error", err)
+		}
+		if len(h.audits.entries) != 0 {
+			t.Errorf("audits = %d, want 0", len(h.audits.entries))
+		}
+	})
+
+	t.Run("mfa policy check error", func(t *testing.T) {
+		h := newHarness(t, u)
+		h.groups.err = errors.New("db down")
+		_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+			Username: "ara", Password: "ara-password-12", Method: domain.MethodLDAP,
+		})
+		if err == nil || !strings.Contains(err.Error(), "mfa policy check") {
+			t.Fatalf("err = %v, want mfa policy check failure", err)
+		}
+	})
+
+	t.Run("audit failure fails closed", func(t *testing.T) {
+		h := newHarness(t, u)
+		h.audits.err = errors.New("audit down")
+		_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+			Username: "ara", Password: "ara-password-12", Method: domain.MethodLDAP,
+		})
+		if err == nil {
+			t.Fatal("LoginLegacy = nil, want audit fail-closed")
+		}
+	})
+}

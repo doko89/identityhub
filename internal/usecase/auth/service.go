@@ -111,6 +111,40 @@ type LoginInput struct {
 	IP       string
 }
 
+// LegacyLoginInput is one credential check from a legacy provider
+// (TECH_SPEC §6.4–6.5): an LDAP bind or a RADIUS PAP Access-Request.
+// Method names the protocol for the audit log; ApplicationID links the
+// attempt to its app when the protocol identifies one (RADIUS NAS;
+// nil for the global LDAP tree).
+type LegacyLoginInput struct {
+	Username      string
+	Password      string
+	IP            string
+	Method        string
+	ApplicationID *uuid.UUID
+}
+
+// credentialCheck is the unaudited outcome of checking username/password.
+// Both Login and LoginLegacy verify through checkCredentials and differ
+// only in how they audit (method/app) and in the legacy MFA gate.
+type credentialCheck struct {
+	user    domain.User
+	hasUser bool
+	// backend names the store that was consulted: MethodPassword for the
+	// local hash, MethodLDAP for the directory. HTTP login audits with
+	// it; legacy login audits with the protocol method instead.
+	backend string
+	// reason is the audit reason on failure; empty on success.
+	reason string
+	// err is nil on success, ErrUnauthorized/ErrForbidden on credential
+	// failures, or a wrapped outage/infra error.
+	err error
+	// outage marks a directory failure (audit best-effort, explicit
+	// error); infra marks a repository failure (no audit at all).
+	outage bool
+	infra  bool
+}
+
 // Login verifies username/password against the local hash (local users)
 // or the directory (LDAP users, including just-in-time provisioning on
 // first login after the account exists upstream). It returns
@@ -118,46 +152,110 @@ type LoginInput struct {
 // distinguishing them, and a distinct explicit error when the directory
 // itself is unreachable (PRD §5.1).
 func (s *Service) Login(ctx context.Context, in LoginInput) (domain.User, error) {
-	username := strings.TrimSpace(in.Username)
-	if username == "" || in.Password == "" {
-		if err := s.auditLogin(ctx, nil, domain.MethodPassword, domain.ResultFailure, in.IP, "missing credentials"); err != nil {
+	chk := s.checkCredentials(ctx, in.Username, in.Password)
+	if chk.infra {
+		return domain.User{}, chk.err
+	}
+	var actor *domain.User
+	if chk.hasUser {
+		actor = &chk.user
+	}
+	if chk.outage {
+		_ = s.auditLogin(ctx, actor, nil, chk.backend, domain.ResultFailure, in.IP, chk.reason)
+		return domain.User{}, chk.err
+	}
+	if chk.err != nil {
+		if err := s.auditLogin(ctx, actor, nil, chk.backend, domain.ResultFailure, in.IP, chk.reason); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, domain.ErrUnauthorized
+		return domain.User{}, chk.err
 	}
-
-	u, err := s.users.ByUsername(ctx, username)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return domain.User{}, fmt.Errorf("auth: user lookup: %w", err)
+	if err := s.auditLogin(ctx, actor, nil, chk.backend, domain.ResultSuccess, in.IP, ""); err != nil {
+		return domain.User{}, err
 	}
-	if errors.Is(err, domain.ErrNotFound) {
-		return s.loginUnknownUser(ctx, username, in)
-	}
-	if u.Source == domain.SourceLDAP {
-		return s.loginLDAPUser(ctx, u, in.Password, in.IP)
-	}
-	return s.loginLocalUser(ctx, u, in.Password, in.IP)
+	return chk.user, nil
 }
 
-// loginUnknownUser tries the directory (JIT provisioning) when the local
-// row is missing; without a directory it is a plain failure.
-func (s *Service) loginUnknownUser(ctx context.Context, username string, in LoginInput) (domain.User, error) {
-	if s.dir == nil {
-		if err := s.auditLogin(ctx, nil, domain.MethodPassword, domain.ResultFailure, in.IP, "unknown user"); err != nil {
+// LoginLegacy checks the same credentials as Login but audits under the
+// legacy protocol method and denies users who must use MFA (TECH_SPEC
+// §6.4–6.5: direct bind is rejected when the user must use MFA, since a
+// legacy bind cannot prompt for a second factor). Admins are always
+// MFA-bound (TECH_SPEC §8, no exceptions); per-app MFA policy for
+// regular users plugs into the gate once usecase/app lands (M6).
+func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.User, error) {
+	if in.Method != domain.MethodLDAP && in.Method != domain.MethodRADIUS {
+		return domain.User{}, fmt.Errorf("%w: legacy login method must be ldap or radius", domain.ErrValidation)
+	}
+	chk := s.checkCredentials(ctx, in.Username, in.Password)
+	if chk.infra {
+		return domain.User{}, chk.err
+	}
+	var actor *domain.User
+	if chk.hasUser {
+		actor = &chk.user
+	}
+	if chk.outage {
+		_ = s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, chk.reason)
+		return domain.User{}, chk.err
+	}
+	if chk.err != nil {
+		if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, chk.reason); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, domain.ErrUnauthorized
+		return domain.User{}, chk.err
 	}
-	lu, err := s.dir.Authenticate(ctx, username, in.Password)
+	admin, err := s.groups.IsMember(ctx, chk.user.ID, domain.AdminGroup)
+	if err != nil {
+		return domain.User{}, fmt.Errorf("auth: mfa policy check: %w", err)
+	}
+	if admin {
+		if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, "mfa required"); err != nil {
+			return domain.User{}, err
+		}
+		return domain.User{}, fmt.Errorf("%w: multi-factor authentication is required for this account; legacy bind is not allowed", domain.ErrForbidden)
+	}
+	if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultSuccess, in.IP, ""); err != nil {
+		return domain.User{}, err
+	}
+	return chk.user, nil
+}
+
+// checkCredentials verifies username/password without auditing: local
+// hash for local users, directory bind for LDAP users, with
+// just-in-time provisioning when the account exists only upstream.
+func (s *Service) checkCredentials(ctx context.Context, username, password string) credentialCheck {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return credentialCheck{backend: domain.MethodPassword, reason: "missing credentials", err: domain.ErrUnauthorized}
+	}
+	u, err := s.users.ByUsername(ctx, username)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return credentialCheck{infra: true, err: fmt.Errorf("auth: user lookup: %w", err)}
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		return s.checkUnknownUser(ctx, username, password)
+	}
+	if u.Source == domain.SourceLDAP {
+		return s.checkLDAPUser(ctx, u, password)
+	}
+	return s.checkLocalUser(u, password)
+}
+
+// checkUnknownUser tries the directory (JIT provisioning) when the local
+// row is missing; without a directory it is a plain failure.
+func (s *Service) checkUnknownUser(ctx context.Context, username, password string) credentialCheck {
+	if s.dir == nil {
+		return credentialCheck{backend: domain.MethodPassword, reason: "unknown user", err: domain.ErrUnauthorized}
+	}
+	lu, err := s.dir.Authenticate(ctx, username, password)
 	switch {
 	case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrUnauthorized):
-		if aerr := s.auditLogin(ctx, nil, domain.MethodLDAP, domain.ResultFailure, in.IP, "directory rejected"); aerr != nil {
-			return domain.User{}, aerr
-		}
-		return domain.User{}, domain.ErrUnauthorized
+		return credentialCheck{backend: domain.MethodLDAP, reason: "directory rejected", err: domain.ErrUnauthorized}
 	case err != nil:
-		_ = s.auditLogin(ctx, nil, domain.MethodLDAP, domain.ResultFailure, in.IP, "directory unavailable")
-		return domain.User{}, fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err)
+		return credentialCheck{
+			backend: domain.MethodLDAP, reason: "directory unavailable",
+			err: fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err), outage: true,
+		}
 	}
 	// Directory accepted: provision the local cache row (PRD §5.1). A
 	// concurrent worker sync may win the race; on conflict re-read.
@@ -169,76 +267,60 @@ func (s *Service) loginUnknownUser(ctx context.Context, username string, in Logi
 		u, err = s.users.ByUsername(ctx, username)
 	}
 	if err != nil {
-		return domain.User{}, fmt.Errorf("auth: provision ldap user: %w", err)
+		return credentialCheck{infra: true, err: fmt.Errorf("auth: provision ldap user: %w", err)}
 	}
 	if !u.IsActive {
-		if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, in.IP, "account disabled"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
+			reason: "account disabled", err: fmt.Errorf("%w: account disabled", domain.ErrForbidden)}
 	}
-	if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultSuccess, in.IP, ""); err != nil {
-		return domain.User{}, err
-	}
-	return u, nil
+	return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP}
 }
 
-func (s *Service) loginLocalUser(ctx context.Context, u domain.User, password, ip string) (domain.User, error) {
+func (s *Service) checkLocalUser(u domain.User, password string) credentialCheck {
 	if !s.hasher.Verify(password, u.PasswordHash) {
-		if err := s.auditLogin(ctx, &u, domain.MethodPassword, domain.ResultFailure, ip, "bad password"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, domain.ErrUnauthorized
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodPassword,
+			reason: "bad password", err: domain.ErrUnauthorized}
 	}
 	if !u.IsActive {
-		if err := s.auditLogin(ctx, &u, domain.MethodPassword, domain.ResultFailure, ip, "account disabled"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodPassword,
+			reason: "account disabled", err: fmt.Errorf("%w: account disabled", domain.ErrForbidden)}
 	}
-	if err := s.auditLogin(ctx, &u, domain.MethodPassword, domain.ResultSuccess, ip, ""); err != nil {
-		return domain.User{}, err
-	}
-	return u, nil
+	return credentialCheck{user: u, hasUser: true, backend: domain.MethodPassword}
 }
 
-func (s *Service) loginLDAPUser(ctx context.Context, u domain.User, password, ip string) (domain.User, error) {
+func (s *Service) checkLDAPUser(ctx context.Context, u domain.User, password string) credentialCheck {
 	if s.dir == nil {
-		if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "ldap disabled"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, domain.ErrUnauthorized
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
+			reason: "ldap disabled", err: domain.ErrUnauthorized}
 	}
 	_, err := s.dir.Authenticate(ctx, u.Username, password)
 	switch {
 	case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrUnauthorized):
-		if aerr := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "directory rejected"); aerr != nil {
-			return domain.User{}, aerr
-		}
-		return domain.User{}, domain.ErrUnauthorized
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
+			reason: "directory rejected", err: domain.ErrUnauthorized}
 	case err != nil:
-		_ = s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "directory unavailable")
-		return domain.User{}, fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err)
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
+			reason: "directory unavailable",
+			err:    fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err), outage: true}
 	}
 	if !u.IsActive {
-		if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "account disabled"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
+		return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP,
+			reason: "account disabled", err: fmt.Errorf("%w: account disabled", domain.ErrForbidden)}
 	}
-	if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultSuccess, ip, ""); err != nil {
-		return domain.User{}, err
-	}
-	return u, nil
+	return credentialCheck{user: u, hasUser: true, backend: domain.MethodLDAP}
 }
 
 // auditLogin records one login attempt. A failed write fails the login
 // (fail-closed) so the audit log stays complete.
-func (s *Service) auditLogin(ctx context.Context, u *domain.User, method, result, ip, reason string) error {
+func (s *Service) auditLogin(ctx context.Context, u *domain.User, appID *uuid.UUID, method, result, ip, reason string) error {
 	e := domain.AuditEntry{Method: method, Result: result, IP: ip, Detail: map[string]any{}}
 	if u != nil {
 		id := u.ID
 		e.ActorUserID = &id
+	}
+	if appID != nil {
+		id := *appID
+		e.ApplicationID = &id
 	}
 	if reason != "" {
 		e.Detail["reason"] = reason
