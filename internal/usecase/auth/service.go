@@ -25,6 +25,11 @@ import (
 	"github.com/identityhub/identityhub/internal/usecase/audit"
 )
 
+// ErrDirectoryUnavailable signals that the upstream directory itself is
+// unreachable (distinct from bad credentials). Delivery maps it to 503
+// with an explicit message (PRD §5.1).
+var ErrDirectoryUnavailable = errors.New("directory unavailable")
+
 const (
 	// MinPasswordLength is the v1 password policy floor (PRD §6.10).
 	MinPasswordLength = 12
@@ -152,7 +157,7 @@ func (s *Service) loginUnknownUser(ctx context.Context, username string, in Logi
 		return domain.User{}, domain.ErrUnauthorized
 	case err != nil:
 		_ = s.auditLogin(ctx, nil, domain.MethodLDAP, domain.ResultFailure, in.IP, "directory unavailable")
-		return domain.User{}, fmt.Errorf("auth: directory unavailable: %w", err)
+		return domain.User{}, fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err)
 	}
 	// Directory accepted: provision the local cache row (PRD §5.1). A
 	// concurrent worker sync may win the race; on conflict re-read.
@@ -170,7 +175,7 @@ func (s *Service) loginUnknownUser(ctx context.Context, username string, in Logi
 		if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, in.IP, "account disabled"); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, domain.ErrForbidden
+		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
 	}
 	if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultSuccess, in.IP, ""); err != nil {
 		return domain.User{}, err
@@ -189,7 +194,7 @@ func (s *Service) loginLocalUser(ctx context.Context, u domain.User, password, i
 		if err := s.auditLogin(ctx, &u, domain.MethodPassword, domain.ResultFailure, ip, "account disabled"); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, domain.ErrForbidden
+		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
 	}
 	if err := s.auditLogin(ctx, &u, domain.MethodPassword, domain.ResultSuccess, ip, ""); err != nil {
 		return domain.User{}, err
@@ -213,13 +218,13 @@ func (s *Service) loginLDAPUser(ctx context.Context, u domain.User, password, ip
 		return domain.User{}, domain.ErrUnauthorized
 	case err != nil:
 		_ = s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "directory unavailable")
-		return domain.User{}, fmt.Errorf("auth: directory unavailable: %w", err)
+		return domain.User{}, fmt.Errorf("auth: %w: %v", ErrDirectoryUnavailable, err)
 	}
 	if !u.IsActive {
 		if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultFailure, ip, "account disabled"); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, domain.ErrForbidden
+		return domain.User{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
 	}
 	if err := s.auditLogin(ctx, &u, domain.MethodLDAP, domain.ResultSuccess, ip, ""); err != nil {
 		return domain.User{}, err
@@ -436,7 +441,7 @@ func (s *Service) AdminSetPassword(ctx context.Context, actorID, targetID uuid.U
 		return fmt.Errorf("auth: admin check: %w", err)
 	}
 	if !admin {
-		return domain.ErrForbidden
+		return fmt.Errorf("%w: administrator access required", domain.ErrForbidden)
 	}
 	u, err := s.users.ByID(ctx, targetID)
 	if err != nil {
