@@ -333,20 +333,9 @@ func (c *Client) mapUser(e *ldap.Entry) domain.LDAPUser {
 	}
 }
 
-// SameDN reports DN equality under a normalized comparison (case and
-// surrounding whitespace insensitive). LDAP DNs are case-insensitive, so
-// the LDAP_ADMIN_GROUP_DN match must not depend on directory casing.
-func SameDN(a, b string) bool {
-	return normalizeDN(a) == normalizeDN(b)
-}
-
-func normalizeDN(dn string) string {
-	parts := strings.Split(dn, ",")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return strings.ToLower(strings.Join(parts, ","))
-}
+// SameDN reports DN equality; it forwards to domain.SameDN so usecases
+// and adapters share one normalization.
+func SameDN(a, b string) bool { return domain.SameDN(a, b) }
 
 // redactURL strips any userinfo before the URL reaches an error (and
 // therefore a log line).

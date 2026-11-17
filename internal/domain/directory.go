@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -53,6 +54,21 @@ type PasswordHistoryStore interface {
 	Add(ctx context.Context, userID uuid.UUID, hash []byte) error
 	// Recent returns up to limit newest hashes, newest first.
 	Recent(ctx context.Context, userID uuid.UUID, limit int) ([][]byte, error)
+}
+
+// SameDN reports DN equality under a normalized comparison (case and
+// surrounding whitespace insensitive). LDAP DNs are case-insensitive, so
+// the LDAP_ADMIN_GROUP_DN match must not depend on directory casing.
+func SameDN(a, b string) bool {
+	return normalizeDN(a) == normalizeDN(b)
+}
+
+func normalizeDN(dn string) string {
+	parts := strings.Split(dn, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return strings.ToLower(strings.Join(parts, ","))
 }
 
 // SessionRegistry tracks which login sessions belong to which user so a
