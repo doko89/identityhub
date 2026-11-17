@@ -149,19 +149,17 @@ func loadTLSConfig(cfg Config) (*tls.Config, error) {
 // failure immediately, or nil after a clean Stop.
 func (s *Server) Serve() error {
 	tlsCfg := s.tlsConfig
-	// The capture runs before the TLS wrap, so rawListener is always
-	// the inner TCP listener.
+	// One option: capture the raw listener, wrap it for ldaps, then
+	// signal ready — so Addr is final once Ready fires.
 	opts := []func(*ldapserver.Server){func(srv *ldapserver.Server) {
 		s.rawMutex.Lock()
 		s.rawListener = srv.Listener
 		s.rawMutex.Unlock()
+		if s.mode == ModeLDAPS {
+			srv.Listener = tls.NewListener(srv.Listener, tlsCfg)
+		}
 		close(s.ready)
 	}}
-	if s.mode == ModeLDAPS {
-		opts = append(opts, func(srv *ldapserver.Server) {
-			srv.Listener = tls.NewListener(srv.Listener, tlsCfg)
-		})
-	}
 	return s.srv.ListenAndServe(s.addr, opts...)
 }
 
