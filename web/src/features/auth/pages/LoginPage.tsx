@@ -54,7 +54,17 @@ export function LoginPage() {
                 setNotice(data?.error ?? "Sign-in failed. Try again.");
                 return;
               }
-              window.location.href = safeNext(searchParams.get("next"));
+              const data = (await res.json().catch(() => null)) as {
+                mfa_required?: boolean;
+                setup_required?: boolean;
+              } | null;
+              const next = safeNext(searchParams.get("next"));
+              if (data?.mfa_required) {
+                const setup = data.setup_required ? "setup=1&" : "";
+                window.location.href = `/mfa?${setup}next=${encodeURIComponent(next)}`;
+                return;
+              }
+              window.location.href = next;
             } catch {
               setNotice("Cannot reach the server. Try again.");
             } finally {
