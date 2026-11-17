@@ -5,7 +5,7 @@ login via LDAP/local, SSO via OIDC/SAML, legacy via LDAP/RADIUS, plus MFA,
 an app dashboard, and branding. See [PRD.md](PRD.md),
 [TECH_SPEC.md](docs/TECH_SPEC.md), [DESIGN.md](docs/DESIGN.md).
 
-Status: M1 local login + LDAP upstream + password management + audit.
+Status: M2 OIDC provider (code+PKCE, refresh rotation, discovery/JWKS) + consent page.
 Protocols and MFA land in M2–M7.
 
 ## Quickstart
@@ -71,16 +71,39 @@ curl -b jar -X POST localhost:8080/api/admin/ldap/test
 Every login — success, failure, or rate-limited — lands in `audit_log`
 (fail-closed: a failed audit write fails the login).
 
+## OIDC (M2)
+
+Provider endpoints (authorization code + PKCE for public clients,
+`client_secret_basic`/`_post` for confidential ones, refresh rotation,
+`sub` = user UUID, claims `preferred_username`/`email`/`name`/`groups`):
+
+```sh
+curl localhost:8080/.well-known/openid-configuration
+curl localhost:8080/oauth2/jwks
+# Browser flow: GET /oauth2/auth?client_id=...&redirect_uri=...&response_type=code&scope=openid...
+#   → /login?next=... (when logged out) → /consent?challenge=... → client redirect with ?code=
+curl -X POST localhost:8080/oauth2/token -d 'grant_type=authorization_code&code=...&redirect_uri=...&client_id=...&code_verifier=...'
+curl -H "Authorization: Bearer ..." localhost:8080/oauth2/userinfo
+```
+
+Test clients are seeded in the integration suite
+(`internal/delivery/http/oidc_integration_test.go -tags=integration`):
+one public PKCE client and one confidential client, both exercised
+end-to-end (consent grant/deny, exchange, userinfo, refresh rotation,
+code-replay revocation). Admin UI/API for client registration arrives
+with the app-catalog milestone; the `domain.OIDCClientStore` port and
+Postgres repository are already in place.
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
 - `internal/domain` — entities + ports (imports no other internal package)
 - `internal/config` — env-only config + boot validation (LDAP/SMTP included)
-- `internal/usecase/{auth,user,audit}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit
-- `internal/adapter/{postgres,crypto,ldapclient,mailer}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail
+- `internal/usecase/{auth,user,audit,oidcflow}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent decisions
+- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, embedded SPA
-- `internal/worker` — periodic jobs (LDAP sync when configured + session/token cleanup)
-- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry)
+- `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC cleanup)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage)
 - `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
 
 Dependency rule: `delivery → usecase → domain`; `adapter` implements
