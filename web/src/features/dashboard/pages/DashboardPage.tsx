@@ -233,10 +233,12 @@ export function DashboardPage() {
         )}
         {[...groups.entries()].map(([label, list]) => (
           <section key={label} className="mb-6">
-            <h2 className="mb-3 text-sm font-semibold">
-              {label}{" "}
-              <span className="font-normal text-muted-foreground">({list.length})</span>
-            </h2>
+            {(groups.size > 1 || label !== "Apps") && (
+              <h2 className="mb-3 text-sm font-semibold">
+                {label}{" "}
+                <span className="font-normal text-muted-foreground">({list.length})</span>
+              </h2>
+            )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {list.map((app, i) => (
                 <Card

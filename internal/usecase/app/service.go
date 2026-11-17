@@ -259,8 +259,8 @@ func (s *Service) GetApp(ctx context.Context, id uuid.UUID) (domain.Application,
 
 // ListApps pages the whole catalog including invisible apps (admin
 // console). The dashboard uses MyApps instead.
-func (s *Service) ListApps(ctx context.Context, limit, offset int) ([]domain.Application, int, error) {
-	return s.apps.List(ctx, limit, offset)
+func (s *Service) ListApps(ctx context.Context, f domain.AppFilter) ([]domain.Application, int, error) {
+	return s.apps.List(ctx, f)
 }
 
 // UpdateApp validates and rewrites an application.
@@ -353,7 +353,7 @@ func (s *Service) DeleteBinding(ctx context.Context, id uuid.UUID) error {
 func (s *Service) listAll(ctx context.Context) ([]domain.Application, error) {
 	var all []domain.Application
 	for offset := 0; ; offset += 200 {
-		page, total, err := s.apps.List(ctx, 200, offset)
+		page, total, err := s.apps.List(ctx, domain.AppFilter{Limit: 200, Offset: offset})
 		if err != nil {
 			return nil, err
 		}

@@ -14,6 +14,7 @@ afterEach(() => {
 
 const brand: Branding = {
   org_name: "Acme",
+  tagline: "",
   logo_url: "/uploads/app_logo/9.webp",
   favicon_url: "",
   primary_color: "#123abc",

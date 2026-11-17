@@ -2,6 +2,7 @@
 // no secrets; the login page and BrandProvider fetch it on every load.
 export interface Branding {
   org_name: string;
+  tagline: string;
   logo_url: string;
   favicon_url: string;
   primary_color: string;

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -42,19 +43,22 @@ func (f *fakeApps) BySlug(_ context.Context, slug string) (domain.Application, e
 	}
 	return a, nil
 }
-func (f *fakeApps) List(_ context.Context, limit, offset int) ([]domain.Application, int, error) {
+func (f *fakeApps) List(_ context.Context, flt domain.AppFilter) ([]domain.Application, int, error) {
 	var all []domain.Application
 	for _, a := range f.byID {
+		if flt.Group != "" && !strings.Contains(strings.ToLower(a.GroupLabel), strings.ToLower(flt.Group)) {
+			continue
+		}
 		all = append(all, a)
 	}
-	if offset >= len(all) {
+	if flt.Offset >= len(all) {
 		return nil, len(all), nil
 	}
-	end := offset + limit
+	end := flt.Offset + flt.Limit
 	if end > len(all) {
 		end = len(all)
 	}
-	return all[offset:end], len(all), nil
+	return all[flt.Offset:end], len(all), nil
 }
 func (f *fakeApps) Update(_ context.Context, a domain.Application) (domain.Application, error) {
 	if _, ok := f.byID[a.ID]; !ok {
@@ -388,7 +392,7 @@ func TestAppCRUDValidation(t *testing.T) {
 	if _, err := svc.UpdateApp(ctx, a); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("bad icon URL must fail, got %v", err)
 	}
-	list, total, err := svc.ListApps(ctx, 10, 0)
+	list, total, err := svc.ListApps(ctx, domain.AppFilter{Limit: 10})
 	if err != nil || total != 1 || len(list) != 1 {
 		t.Fatalf("list must return the app: %+v %d %v", list, total, err)
 	}
@@ -400,6 +404,27 @@ func TestAppCRUDValidation(t *testing.T) {
 	}
 	if err := svc.DeleteApp(ctx, a.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("second delete must be not-found, got %v", err)
+	}
+}
+
+func TestListAppsFiltersByGroup(t *testing.T) {
+	svc, _, _, _, _, _, _ := newTestService()
+	ctx := context.Background()
+	tools := mkapp("wiki")
+	tools.GroupLabel = "Tools"
+	if _, err := svc.CreateApp(ctx, tools); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateApp(ctx, mkapp("crm")); err != nil {
+		t.Fatal(err)
+	}
+	list, total, err := svc.ListApps(ctx, domain.AppFilter{Group: "tool", Limit: 10})
+	if err != nil || total != 1 || len(list) != 1 || list[0].Slug != "wiki" {
+		t.Fatalf("group filter must match wiki only: %+v %d %v", list, total, err)
+	}
+	list, total, err = svc.ListApps(ctx, domain.AppFilter{Limit: 10})
+	if err != nil || total != 2 || len(list) != 2 {
+		t.Fatalf("empty filter must return all: %+v %d %v", list, total, err)
 	}
 }
 

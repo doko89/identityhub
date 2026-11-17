@@ -15,6 +15,7 @@ afterEach(() => {
 
 const brand: Branding = {
   org_name: "Acme",
+  tagline: "Acme apps, one sign-in.",
   logo_url: "/uploads/app_logo/7.webp",
   favicon_url: "",
   primary_color: "#123abc",
@@ -86,5 +87,6 @@ describe("LoginPage", () => {
     );
     expect(container.querySelector('img[src="/uploads/app_logo/7.webp"]')).not.toBeNull();
     expect(getByText("Welcome back to Acme.")).toBeDefined();
+    expect(getByText("Acme apps, one sign-in.")).toBeDefined();
   });
 });

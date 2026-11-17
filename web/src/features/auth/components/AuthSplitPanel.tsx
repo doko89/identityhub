@@ -1,6 +1,9 @@
 import { BrandMark } from "@/features/branding/BrandMark";
 import { useBrand } from "@/features/branding/BrandProvider";
 
+// DEFAULT_TAGLINE shows on the auth panel when the brand sets none.
+const DEFAULT_TAGLINE = "The single front door to every company app. Sign in once, open anything.";
+
 // AuthSplitPanel is the wide brand panel of the auth split layout
 // (DESIGN §5.1): the uploaded backdrop photo when one is set, else the
 // built-in primary panel with the brand mark and tagline.
@@ -8,6 +11,8 @@ export function AuthSplitPanel() {
   const brand = useBrand();
   const orgName =
     brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
+  const tagline =
+    brand?.tagline !== undefined && brand.tagline.trim() !== "" ? brand.tagline : DEFAULT_TAGLINE;
   const backgroundUrl =
     brand?.login_background_url !== undefined && brand.login_background_url !== ""
       ? brand.login_background_url
@@ -41,9 +46,7 @@ export function AuthSplitPanel() {
           )}
           <p className="text-2xl font-bold text-white">{orgName}</p>
         </div>
-        <p className="mt-3 max-w-md text-white/80">
-          The single front door to every company app. Sign in once, open anything.
-        </p>
+        <p className="mt-3 max-w-md text-white/80">{tagline}</p>
       </div>
     </div>
   );

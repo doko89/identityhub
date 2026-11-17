@@ -47,6 +47,11 @@ func TestBrandingValidate(t *testing.T) {
 		t.Errorf("named color: err = %v, want ErrValidation", err)
 	}
 	bad = good
+	bad.Tagline = strings.Repeat("a", 201)
+	if err := bad.Validate(); !errors.Is(err, ErrValidation) {
+		t.Errorf("long tagline: err = %v, want ErrValidation", err)
+	}
+	bad = good
 	bad.Theme = "sepia"
 	if err := bad.Validate(); !errors.Is(err, ErrValidation) {
 		t.Errorf("bad theme: err = %v, want ErrValidation", err)

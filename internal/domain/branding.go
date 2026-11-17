@@ -22,6 +22,7 @@ var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 type Branding struct {
 	ID                 int
 	OrgName            string
+	Tagline            string
 	LogoURL            string
 	FaviconURL         string
 	PrimaryColor       string
@@ -30,11 +31,15 @@ type Branding struct {
 	CustomCSS          string
 }
 
-// Validate enforces hex colors, known themes, and the custom_css safety
-// rules from TECH_SPEC §7 (max 10 KB; no @import, url(, </style>).
+// Validate enforces hex colors, known themes, the tagline length cap,
+// and the custom_css safety rules from TECH_SPEC §7 (max 10 KB;
+// no @import, url(, </style>).
 func (b Branding) Validate() error {
 	if b.PrimaryColor != "" && !hexColor.MatchString(b.PrimaryColor) {
 		return wrapValidation("primary_color must be #rrggbb")
+	}
+	if len(b.Tagline) > 200 {
+		return wrapValidation("tagline too long (max 200 characters)")
 	}
 	switch b.Theme {
 	case "", ThemeLight, ThemeDark, ThemeSystem:

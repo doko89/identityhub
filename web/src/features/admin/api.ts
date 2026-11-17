@@ -275,13 +275,18 @@ export async function resolveGroupId(name: string): Promise<string> {
 
 // ---------- apps + bindings ----------
 
-export function listApps(
-  p: { limit?: number; offset?: number } = {},
-): Promise<{ apps: AdminApp[]; total: number }> {
+export interface AppListParams {
+  group?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listApps(p: AppListParams = {}): Promise<{ apps: AdminApp[]; total: number }> {
   const q = new URLSearchParams({
     limit: String(p.limit ?? ADMIN_PAGE_SIZE),
     offset: String(p.offset ?? 0),
   });
+  if (p.group !== undefined && p.group !== "") q.set("group", p.group);
   return getJSON(`/api/admin/apps?${q.toString()}`);
 }
 
@@ -429,6 +434,7 @@ export function testLDAP(): Promise<LDAPTestResult> {
 
 export interface BrandingPatch {
   org_name?: string;
+  tagline?: string;
   logo_url?: string;
   favicon_url?: string;
   primary_color?: string;

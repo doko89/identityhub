@@ -62,6 +62,7 @@ export function AdminAppsPage() {
   const [apps, setApps] = useState<AdminApp[] | null>(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [group, setGroup] = useState("");
   const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<AdminApp | null>(null);
@@ -69,10 +70,10 @@ export function AdminAppsPage() {
   const [confirmDelete, setConfirmDelete] = useState<AdminApp | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const load = useCallback(async (nextOffset: number) => {
+  const load = useCallback(async (nextOffset: number, groupValue: string) => {
     setNotice(null);
     try {
-      const res = await listApps({ limit: ADMIN_PAGE_SIZE, offset: nextOffset });
+      const res = await listApps({ group: groupValue, limit: ADMIN_PAGE_SIZE, offset: nextOffset });
       setApps(res.apps);
       setTotal(res.total);
       setOffset(nextOffset);
@@ -82,7 +83,7 @@ export function AdminAppsPage() {
   }, []);
 
   useEffect(() => {
-    void load(0);
+    void load(0, "");
   }, [load]);
 
   async function runDelete(a: AdminApp) {
@@ -207,6 +208,38 @@ export function AdminAppsPage() {
         </DialogContent>
       </Dialog>
 
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void load(0, group);
+        }}
+        className="mb-3 flex flex-wrap items-center gap-2"
+      >
+        <Input
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          placeholder="Filter by group…"
+          aria-label="Filter by dashboard group"
+          className="w-56"
+        />
+        <Button type="submit" variant="outline">
+          Search
+        </Button>
+        {group !== "" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setGroup("");
+              void load(0, "");
+            }}
+          >
+            Reset
+          </Button>
+        )}
+      </form>
+
       {apps === null && notice === null && (
         <div className="flex flex-col gap-2" aria-label="Loading applications">
           <Skeleton className="h-10 w-full" />
@@ -221,6 +254,7 @@ export function AdminAppsPage() {
                 <TableRow>
                   <TableHead>Slug</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Group</TableHead>
                   <TableHead>Protocol</TableHead>
                   <TableHead>Visible</TableHead>
                   <TableHead>MFA</TableHead>
@@ -232,6 +266,7 @@ export function AdminAppsPage() {
                   <TableRow key={a.id}>
                     <TableCell>{a.slug}</TableCell>
                     <TableCell>{a.name}</TableCell>
+                    <TableCell>{a.group_label || "—"}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">{a.provider_type}</Badge>
                     </TableCell>
@@ -249,7 +284,7 @@ export function AdminAppsPage() {
               </TableBody>
             </Table>
           </div>
-          <Pager offset={offset} total={total} onPage={(o) => void load(o)} />
+          <Pager offset={offset} total={total} onPage={(o) => void load(o, group)} />
         </>
       )}
     </div>

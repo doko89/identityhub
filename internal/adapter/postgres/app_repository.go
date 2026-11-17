@@ -74,11 +74,13 @@ func (r *ApplicationRepository) BySlug(ctx context.Context, slug string) (domain
 }
 
 // List returns applications ordered for the dashboard (sort_order, name),
-// plus the total count.
-func (r *ApplicationRepository) List(ctx context.Context, limit, offset int) ([]domain.Application, int, error) {
-	limit, offset = page(limit, offset)
-	const q = `SELECT ` + appColumns + ` FROM applications ORDER BY sort_order ASC, name ASC LIMIT $1 OFFSET $2`
-	rows, err := r.db.Pool.Query(ctx, q, limit, offset)
+// plus the total matching count.
+func (r *ApplicationRepository) List(ctx context.Context, f domain.AppFilter) ([]domain.Application, int, error) {
+	limit, offset := page(f.Limit, f.Offset)
+	const q = `SELECT ` + appColumns + ` FROM applications
+		WHERE ($1 = '' OR group_label ILIKE '%'||$1||'%')
+		ORDER BY sort_order ASC, name ASC LIMIT $2 OFFSET $3`
+	rows, err := r.db.Pool.Query(ctx, q, f.Group, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -88,8 +90,9 @@ func (r *ApplicationRepository) List(ctx context.Context, limit, offset int) ([]
 	if err != nil {
 		return nil, 0, err
 	}
+	const cq = `SELECT COUNT(*) FROM applications WHERE ($1 = '' OR group_label ILIKE '%'||$1||'%')`
 	var total int
-	if err := r.db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM applications`).Scan(&total); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, cq, f.Group).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	return apps, total, nil

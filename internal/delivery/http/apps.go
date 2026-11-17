@@ -122,10 +122,13 @@ func (r adminAppRequest) applyTo(base domain.Application) domain.Application {
 	return base
 }
 
-// handleAdminListApps pages the whole catalog including invisible apps.
+// handleAdminListApps pages the whole catalog including invisible apps,
+// optionally filtered by dashboard group (?group=).
 func (h *Handlers) handleAdminListApps(w http.ResponseWriter, req *http.Request) {
-	limit, offset := parsePage(req.URL.Query().Get)
-	apps, total, err := h.apps.ListApps(req.Context(), limit, offset)
+	q := req.URL.Query()
+	limit, offset := parsePage(q.Get)
+	f := domain.AppFilter{Group: q.Get("group"), Limit: limit, Offset: offset}
+	apps, total, err := h.apps.ListApps(req.Context(), f)
 	if err != nil {
 		h.writeError(w, req, err)
 		return

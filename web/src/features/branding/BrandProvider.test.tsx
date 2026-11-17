@@ -16,6 +16,7 @@ import { BrandProvider, useBrand } from "./BrandProvider";
 
 const brand: Branding = {
   org_name: "Acme",
+  tagline: "",
   logo_url: "",
   favicon_url: "",
   primary_color: "#123abc",

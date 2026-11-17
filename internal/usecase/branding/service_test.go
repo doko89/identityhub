@@ -167,6 +167,7 @@ func TestUpdateRejectsBadInput(t *testing.T) {
 		brand domain.Branding
 	}{
 		{"bad color", domain.Branding{PrimaryColor: "red"}},
+		{"long tagline", domain.Branding{Tagline: strings.Repeat("a", 201)}},
 		{"short hex", domain.Branding{PrimaryColor: "#fff"}},
 		{"unknown theme", domain.Branding{Theme: "neon"}},
 		{"css import", domain.Branding{CustomCSS: `@import url(evil);`}},

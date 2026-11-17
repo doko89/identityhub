@@ -55,6 +55,7 @@ export function AdminBrandingPage() {
     try {
       const patch: BrandingPatch = {
         org_name: brand.org_name,
+        tagline: brand.tagline,
         logo_url: brand.logo_url,
         favicon_url: brand.favicon_url,
         primary_color: brand.primary_color,
@@ -110,15 +111,31 @@ export function AdminBrandingPage() {
                 <CardDescription>The name shown on login and across the app.</CardDescription>
               </CardHeader>
               <CardContent>
-                <Field>
-                  <FieldLabel htmlFor="brand-org">Organization name</FieldLabel>
-                  <Input
-                    id="brand-org"
-                    name="org_name"
-                    value={brand.org_name}
-                    onChange={(e) => set("org_name", e.target.value)}
-                  />
-                </Field>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="brand-org">Organization name</FieldLabel>
+                    <Input
+                      id="brand-org"
+                      name="org_name"
+                      value={brand.org_name}
+                      onChange={(e) => set("org_name", e.target.value)}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="brand-tagline">Tagline</FieldLabel>
+                    <Input
+                      id="brand-tagline"
+                      name="tagline"
+                      value={brand.tagline}
+                      onChange={(e) => set("tagline", e.target.value)}
+                      placeholder="The single front door to every company app."
+                      maxLength={200}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown under the name on the sign-in page. Empty keeps the default.
+                    </p>
+                  </Field>
+                </FieldGroup>
               </CardContent>
             </Card>
             <Card>

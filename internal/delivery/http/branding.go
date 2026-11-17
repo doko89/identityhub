@@ -12,8 +12,8 @@ import (
 // and the admin console. It carries no secrets (TECH_SPEC §6.1).
 func brandingJSON(b domain.Branding) map[string]any {
 	return map[string]any{
-		"org_name": b.OrgName, "logo_url": b.LogoURL, "favicon_url": b.FaviconURL,
-		"primary_color": b.PrimaryColor, "theme": b.Theme,
+		"org_name": b.OrgName, "tagline": b.Tagline, "logo_url": b.LogoURL,
+		"favicon_url": b.FaviconURL, "primary_color": b.PrimaryColor, "theme": b.Theme,
 		"login_background_url": b.LoginBackgroundURL, "custom_css": b.CustomCSS,
 	}
 }
@@ -34,6 +34,7 @@ func (h *Handlers) handleGetBranding(w http.ResponseWriter, req *http.Request) {
 
 type adminBrandingRequest struct {
 	OrgName            *string `json:"org_name"`
+	Tagline            *string `json:"tagline"`
 	LogoURL            *string `json:"logo_url"`
 	FaviconURL         *string `json:"favicon_url"`
 	PrimaryColor       *string `json:"primary_color"`
@@ -58,6 +59,9 @@ func (h *Handlers) handleAdminUpdateBranding(w http.ResponseWriter, req *http.Re
 	next := current
 	if in.OrgName != nil {
 		next.OrgName = *in.OrgName
+	}
+	if in.Tagline != nil {
+		next.Tagline = *in.Tagline
 	}
 	if in.LogoURL != nil {
 		next.LogoURL = *in.LogoURL

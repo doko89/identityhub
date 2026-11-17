@@ -15,7 +15,7 @@ const wiki = {
   description: "",
   icon_url: "",
   launch_url: "https://wiki.example.com",
-  group_label: "",
+  group_label: "Tools",
   provider_type: "oidc",
   is_visible: true,
   sort_order: 0,
@@ -53,6 +53,7 @@ describe("AdminAppsPage", () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    expect(getByRole("cell", { name: "Tools" })).toBeDefined();
     fireEvent.click(getByRole("button", { name: "Bindings" }));
     await waitFor(() => expect(getByText(/cccccccc-cccc/)).toBeDefined());
   });
@@ -131,5 +132,30 @@ describe("AdminAppsPage", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
     await waitFor(() => expect(getByText("CRM")).toBeDefined());
     expect(posted).toMatchObject({ slug: "crm", icon_url: "/uploads/app_logo/9.webp" });
+  });
+
+  it("filters the list by dashboard group", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        urls.push(String(url));
+        return Response.json({ apps: [wiki], total: 1 });
+      }),
+    );
+    const { getByLabelText, getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.change(getByLabelText("Filter by dashboard group"), { target: { value: "Tools" } });
+    fireEvent.click(getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(urls.some((u) => u.includes("group=Tools"))).toBe(true));
+    fireEvent.click(getByRole("button", { name: "Reset" }));
+    await waitFor(() => {
+      const calls = urls.filter((u) => u.includes("/api/admin/apps?"));
+      expect(calls[calls.length - 1]).not.toContain("group=");
+    });
   });
 });

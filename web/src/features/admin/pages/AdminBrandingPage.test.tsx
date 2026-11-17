@@ -13,6 +13,7 @@ afterEach(() => {
 
 const brand: Branding = {
   org_name: "Acme",
+  tagline: "",
   logo_url: "",
   favicon_url: "",
   primary_color: "#123abc",
@@ -58,9 +59,14 @@ describe("AdminBrandingPage", () => {
     await waitFor(() => expect(getByLabelText("Organization name")).toBeDefined());
     const input = getByLabelText("Organization name") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Globex" } });
+    fireEvent.change(getByLabelText("Tagline"), { target: { value: "Globex apps, one sign-in." } });
     fireEvent.click(getByRole("button", { name: "Save branding" }));
     await waitFor(() => expect(getByText("Saved. The new theme is live.")).toBeDefined());
-    expect(patched).toMatchObject({ org_name: "Globex", theme: "light" });
+    expect(patched).toMatchObject({
+      org_name: "Globex",
+      tagline: "Globex apps, one sign-in.",
+      theme: "light",
+    });
   });
 
   it("uploads a logo file and saves its URL", async () => {

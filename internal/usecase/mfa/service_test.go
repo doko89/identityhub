@@ -193,7 +193,7 @@ func (f *fakeApps) ByID(_ context.Context, id uuid.UUID) (domain.Application, er
 func (f *fakeApps) BySlug(_ context.Context, _ string) (domain.Application, error) {
 	return domain.Application{}, domain.ErrNotFound
 }
-func (f *fakeApps) List(_ context.Context, _, _ int) ([]domain.Application, int, error) {
+func (f *fakeApps) List(_ context.Context, _ domain.AppFilter) ([]domain.Application, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeApps) Update(_ context.Context, a domain.Application) (domain.Application, error) {

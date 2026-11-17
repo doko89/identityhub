@@ -35,14 +35,14 @@ const apps = [
   },
 ];
 
-function stubFetch() {
+function stubFetch(list = apps) {
   const fetchMock = vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
     if (u === "/api/auth/me") {
       return Response.json({ user });
     }
     if (u === "/api/my-apps") {
-      return Response.json({ apps });
+      return Response.json({ apps: list });
     }
     if (u === "/api/apps/wiki/launch") {
       return Response.json({ launch_url: "https://wiki.example.com/sso" });
@@ -103,5 +103,27 @@ describe("DashboardPage", () => {
     expect(getByText("CRM")).toBeDefined();
     fireEvent.change(getByPlaceholderText("Filter applications…"), { target: { value: "zzz" } });
     expect(getByText("No applications match “zzz”.")).toBeDefined();
+  });
+
+  it("hides the default heading unless grouping is meaningful", async () => {
+    stubFetch();
+    const ungrouped = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(ungrouped.getByText("CRM")).toBeDefined());
+    expect(ungrouped.queryByRole("heading", { name: "Apps (2)" })).toBeNull();
+    ungrouped.unmount();
+    const grouped = apps.map((a) => (a.slug === "wiki" ? { ...a, group_label: "Tools" } : a));
+    stubFetch(grouped);
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    expect(getByRole("heading", { name: "Tools (1)" })).toBeDefined();
+    expect(getByRole("heading", { name: "Apps (1)" })).toBeDefined();
   });
 });

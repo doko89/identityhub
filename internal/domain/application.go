@@ -115,12 +115,20 @@ type SecretSealer interface {
 	Open(sealed []byte) ([]byte, error)
 }
 
+// AppFilter pages the app catalog; Group matches group_label,
+// empty = no filter.
+type AppFilter struct {
+	Group  string
+	Limit  int
+	Offset int
+}
+
 // ApplicationStore is the port for the app catalog and provider configs.
 type ApplicationStore interface {
 	Create(ctx context.Context, a Application) (Application, error)
 	ByID(ctx context.Context, id uuid.UUID) (Application, error)
 	BySlug(ctx context.Context, slug string) (Application, error)
-	List(ctx context.Context, limit, offset int) ([]Application, int, error)
+	List(ctx context.Context, f AppFilter) ([]Application, int, error)
 	Update(ctx context.Context, a Application) (Application, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
