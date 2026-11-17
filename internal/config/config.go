@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -26,30 +27,55 @@ const (
 	DefaultAppEnv          = "development"
 	DefaultLDAPTimeout     = 10 * time.Second
 	DefaultBaseURL         = "http://localhost:8080"
-	productionEnv          = "production"
-	encKeyBytes            = 32
-	envDatabaseURL         = "DATABASE_URL"
-	envHTTPPort            = "HTTP_PORT"
-	envAppEnv              = "APP_ENV"
-	envEncKey              = "ENC_KEY"
-	envLogFormat           = "LOG_FORMAT"
-	envSessionIdle         = "SESSION_IDLE_TIMEOUT"
-	envSessionLifetime     = "SESSION_LIFETIME"
-	envWorkerSyncInterval  = "WORKER_SYNC_INTERVAL"
-	envBaseURL             = "APP_BASE_URL"
-	envLDAPURL             = "LDAP_URL"
-	envLDAPBindDN          = "LDAP_BIND_DN"
-	envLDAPBindPassword    = "LDAP_BIND_PASSWORD"
-	envLDAPBaseDN          = "LDAP_BASE_DN"
-	envLDAPUserFilter      = "LDAP_USER_FILTER"
-	envLDAPGroupFilter     = "LDAP_GROUP_FILTER"
-	envLDAPAdminGroupDN    = "LDAP_ADMIN_GROUP_DN"
-	envLDAPTimeout         = "LDAP_TIMEOUT"
-	envSMTPHost            = "SMTP_HOST"
-	envSMTPPort            = "SMTP_PORT"
-	envSMTPUsername        = "SMTP_USERNAME"
-	envSMTPPassword        = "SMTP_PASSWORD"
-	envSMTPFrom            = "SMTP_FROM"
+	// DefaultLDAPServerPort is the unprivileged equivalent of 389 for the
+	// in-process LDAP provider (TECH_SPEC §6.4). Operators serving the
+	// standard ports set LDAP_PORT=389/636 explicitly.
+	DefaultLDAPServerPort = 1389
+	// DefaultRADIUSPort is the standard RADIUS authentication port
+	// (TECH_SPEC §6.5).
+	DefaultRADIUSPort     = 1812
+	productionEnv         = "production"
+	encKeyBytes           = 32
+	envDatabaseURL        = "DATABASE_URL"
+	envHTTPPort           = "HTTP_PORT"
+	envAppEnv             = "APP_ENV"
+	envEncKey             = "ENC_KEY"
+	envLogFormat          = "LOG_FORMAT"
+	envSessionIdle        = "SESSION_IDLE_TIMEOUT"
+	envSessionLifetime    = "SESSION_LIFETIME"
+	envWorkerSyncInterval = "WORKER_SYNC_INTERVAL"
+	envBaseURL            = "APP_BASE_URL"
+	envLDAPURL            = "LDAP_URL"
+	envLDAPBindDN         = "LDAP_BIND_DN"
+	envLDAPBindPassword   = "LDAP_BIND_PASSWORD"
+	envLDAPBaseDN         = "LDAP_BASE_DN"
+	envLDAPUserFilter     = "LDAP_USER_FILTER"
+	envLDAPGroupFilter    = "LDAP_GROUP_FILTER"
+	envLDAPAdminGroupDN   = "LDAP_ADMIN_GROUP_DN"
+	envLDAPTimeout        = "LDAP_TIMEOUT"
+	envSMTPHost           = "SMTP_HOST"
+	envSMTPPort           = "SMTP_PORT"
+	envSMTPUsername       = "SMTP_USERNAME"
+	envSMTPPassword       = "SMTP_PASSWORD"
+	envSMTPFrom           = "SMTP_FROM"
+	// LDAP provider (server) settings (TECH_SPEC §6.4). These are
+	// distinct from the LDAP_* upstream connector settings above.
+	envLDAPMode         = "LDAP_MODE"
+	envLDAPPort         = "LDAP_PORT"
+	envLDAPAllowedCIDRs = "LDAP_ALLOWED_CIDRS"
+	envLDAPTLSCertFile  = "LDAP_TLS_CERT_FILE"
+	envLDAPTLSKeyFile   = "LDAP_TLS_KEY_FILE"
+	// RADIUS provider (server) settings (TECH_SPEC §6.5).
+	envRADIUSEnabled = "RADIUS_ENABLED"
+	envRADIUSPort    = "RADIUS_PORT"
+)
+
+// LDAP provider connection modes (TECH_SPEC §6.4). Empty disables the
+// in-process LDAP listener.
+const (
+	LDAPModePlain    = "ldap"
+	LDAPModeLDAPS    = "ldaps"
+	LDAPModeStartTLS = "starttls"
 )
 
 // Config is the validated process-wide configuration.
@@ -81,6 +107,12 @@ type Config struct {
 	// SMTP holds the transactional mailer settings. Mail is disabled
 	// (messages go to the log) when Host is empty.
 	SMTP SMTPConfig
+	// LDAPProvider holds the in-process LDAP server settings
+	// (TECH_SPEC §6.4). The listener is disabled when Mode is empty.
+	LDAPProvider LDAPProviderConfig
+	// RADIUS holds the in-process RADIUS server settings (TECH_SPEC
+	// §6.5). It listens on UDP port 1812 by default.
+	RADIUS RADIUSConfig
 }
 
 // LDAPConfig mirrors the upstream connector fields (PRD §6.2).
@@ -105,6 +137,38 @@ type LDAPConfig struct {
 
 // Enabled reports whether the upstream connector is configured.
 func (l LDAPConfig) Enabled() bool { return l.URL != "" }
+
+// LDAPProviderConfig mirrors the in-process LDAP server settings
+// (TECH_SPEC §6.4). It is unrelated to LDAPConfig (the upstream
+// connector): both may be active at once.
+type LDAPProviderConfig struct {
+	// Mode is "", "ldap", "ldaps" or "starttls". Empty disables the
+	// listener.
+	Mode string
+	// Port is the TCP port for the LDAP listener.
+	Port int
+	// AllowedCIDRs is the parsed LDAP_ALLOWED_CIDRS whitelist,
+	// enforced in the server's OnNewConnection hook before any LDAP
+	// bytes are parsed. Plaintext mode requires it to be non-empty.
+	AllowedCIDRs []*net.IPNet
+	// TLSCertFile and TLSKeyFile hold the managed certificate pair for
+	// ldaps/starttls modes (TECH_SPEC §8: TLS 1.2 minimum).
+	TLSCertFile string
+	TLSKeyFile  string
+}
+
+// Enabled reports whether the LDAP listener is configured.
+func (l LDAPProviderConfig) Enabled() bool { return l.Mode != "" }
+
+// RADIUSConfig mirrors the in-process RADIUS server settings
+// (TECH_SPEC §6.5).
+type RADIUSConfig struct {
+	// Enabled toggles the UDP listener. True by default; set
+	// RADIUS_ENABLED=false to disable.
+	Enabled bool
+	// Port is the UDP port for authentication requests.
+	Port int
+}
 
 // SMTPConfig mirrors the transactional mailer settings.
 type SMTPConfig struct {
@@ -154,6 +218,13 @@ func Load() (Config, error) {
 		Password: os.Getenv(envSMTPPassword),
 		From:     strings.TrimSpace(os.Getenv(envSMTPFrom)),
 	}
+	cfg.LDAPProvider = LDAPProviderConfig{
+		Mode:        strings.ToLower(strings.TrimSpace(os.Getenv(envLDAPMode))),
+		Port:        DefaultLDAPServerPort,
+		TLSCertFile: strings.TrimSpace(os.Getenv(envLDAPTLSCertFile)),
+		TLSKeyFile:  strings.TrimSpace(os.Getenv(envLDAPTLSKeyFile)),
+	}
+	cfg.RADIUS = RADIUSConfig{Enabled: true, Port: DefaultRADIUSPort}
 
 	if raw := strings.TrimSpace(os.Getenv(envHTTPPort)); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -176,6 +247,34 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid %s %q: %v", envLDAPTimeout, raw, err)
 		}
 		cfg.LDAP.Timeout = d
+	}
+	if raw := strings.TrimSpace(os.Getenv(envLDAPPort)); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s %q: must be an integer", envLDAPPort, raw)
+		}
+		cfg.LDAPProvider.Port = port
+	}
+	if raw := strings.TrimSpace(os.Getenv(envRADIUSPort)); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s %q: must be an integer", envRADIUSPort, raw)
+		}
+		cfg.RADIUS.Port = port
+	}
+	if raw := strings.TrimSpace(os.Getenv(envRADIUSEnabled)); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s %q: must be a boolean", envRADIUSEnabled, raw)
+		}
+		cfg.RADIUS.Enabled = enabled
+	}
+	if raw := strings.TrimSpace(os.Getenv(envLDAPAllowedCIDRs)); raw != "" {
+		nets, err := parseCIDRList(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s: %w", envLDAPAllowedCIDRs, err)
+		}
+		cfg.LDAPProvider.AllowedCIDRs = nets
 	}
 
 	cfg.DatabaseURL = strings.TrimSpace(os.Getenv(envDatabaseURL))
@@ -250,6 +349,12 @@ func (c Config) Validate() error {
 	if err := c.SMTP.Validate(); err != nil {
 		return err
 	}
+	if err := c.LDAPProvider.Validate(); err != nil {
+		return err
+	}
+	if err := c.RADIUS.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -290,6 +395,71 @@ func (s SMTPConfig) Validate() error {
 		return fmt.Errorf("invalid SMTP_FROM: required when SMTP_HOST is set")
 	}
 	return nil
+}
+
+// Validate checks the in-process LDAP server settings. An empty mode
+// disables the listener and skips every other check. Plaintext mode
+// refuses to boot without a non-empty whitelist (TECH_SPEC §8); TLS
+// modes require the managed certificate pair.
+func (l LDAPProviderConfig) Validate() error {
+	if !l.Enabled() {
+		return nil
+	}
+	switch l.Mode {
+	case LDAPModePlain, LDAPModeLDAPS, LDAPModeStartTLS:
+	default:
+		return fmt.Errorf("invalid LDAP_MODE %q: must be ldap, ldaps or starttls", l.Mode)
+	}
+	if l.Port < 1 || l.Port > 65535 {
+		return fmt.Errorf("invalid LDAP_PORT %d: must be 1-65535", l.Port)
+	}
+	if l.Mode == LDAPModePlain && len(l.AllowedCIDRs) == 0 {
+		return fmt.Errorf("invalid LDAP_ALLOWED_CIDRS: required when LDAP_MODE is ldap (plaintext stays locked down)")
+	}
+	if l.Mode == LDAPModeLDAPS || l.Mode == LDAPModeStartTLS {
+		if l.TLSCertFile == "" || l.TLSKeyFile == "" {
+			return fmt.Errorf("invalid LDAP_TLS_CERT_FILE/LDAP_TLS_KEY_FILE: both are required for LDAP_MODE=%s", l.Mode)
+		}
+	}
+	return nil
+}
+
+// Validate checks the RADIUS server settings. A disabled server skips
+// the port check.
+func (r RADIUSConfig) Validate() error {
+	if !r.Enabled {
+		return nil
+	}
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("invalid RADIUS_PORT %d: must be 1-65535", r.Port)
+	}
+	return nil
+}
+
+// parseCIDRList parses a comma-separated whitelist. Each item is a CIDR
+// ("10.0.0.0/8") or a bare IP ("10.0.0.5", treated as a /32 or /128).
+func parseCIDRList(raw string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(item); err == nil {
+			out = append(out, n)
+			continue
+		}
+		if ip := net.ParseIP(item); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		return nil, fmt.Errorf("%q is not a CIDR or IP address", item)
+	}
+	return out, nil
 }
 
 // balancedFilter is a cheap sanity check for admin-supplied LDAP filters:

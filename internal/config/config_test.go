@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"net"
 	"testing"
 	"time"
 )
@@ -128,6 +129,112 @@ func TestLoadLDAPAndSMTP(t *testing.T) {
 	}
 	if cfg.BaseURL != DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want default", cfg.BaseURL)
+	}
+}
+
+func TestLoadLegacyProviderDefaults(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LDAPProvider.Enabled() {
+		t.Error("LDAP provider must be disabled by default (empty LDAP_MODE)")
+	}
+	if cfg.LDAPProvider.Port != DefaultLDAPServerPort {
+		t.Errorf("LDAPProvider.Port = %d, want %d", cfg.LDAPProvider.Port, DefaultLDAPServerPort)
+	}
+	if !cfg.RADIUS.Enabled || cfg.RADIUS.Port != DefaultRADIUSPort {
+		t.Errorf("RADIUS = %+v, want enabled on %d", cfg.RADIUS, DefaultRADIUSPort)
+	}
+}
+
+func TestLoadLegacyProviders(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_MODE", "ldap")
+	setEnv(t, "LDAP_PORT", "1389")
+	setEnv(t, "LDAP_ALLOWED_CIDRS", "10.0.0.0/8, 192.168.1.50")
+	setEnv(t, "RADIUS_ENABLED", "false")
+	setEnv(t, "RADIUS_PORT", "11812")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.LDAPProvider.Enabled() || cfg.LDAPProvider.Mode != "ldap" {
+		t.Errorf("LDAPProvider = %+v, want enabled ldap mode", cfg.LDAPProvider)
+	}
+	if len(cfg.LDAPProvider.AllowedCIDRs) != 2 {
+		t.Fatalf("AllowedCIDRs = %d nets, want 2", len(cfg.LDAPProvider.AllowedCIDRs))
+	}
+	if !cfg.LDAPProvider.AllowedCIDRs[0].Contains(net.ParseIP("10.1.2.3")) {
+		t.Error("10.1.2.3 must be inside 10.0.0.0/8")
+	}
+	if !cfg.LDAPProvider.AllowedCIDRs[1].Contains(net.ParseIP("192.168.1.50")) {
+		t.Error("bare IP whitelist entry must match itself as /32")
+	}
+	if cfg.RADIUS.Enabled || cfg.RADIUS.Port != 11812 {
+		t.Errorf("RADIUS = %+v, want disabled on 11812", cfg.RADIUS)
+	}
+}
+
+func TestLoadLegacyProviderFailures(t *testing.T) {
+	validURL := "postgres://localhost:5432/identityhub"
+	validKey := testEncKey(t)
+
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"LDAP_MODE bogus", map[string]string{"LDAP_MODE": "ldapi"}},
+		{"LDAP plaintext without whitelist", map[string]string{"LDAP_MODE": "ldap"}},
+		{"LDAP port bad", map[string]string{"LDAP_MODE": "ldap", "LDAP_ALLOWED_CIDRS": "10.0.0.0/8", "LDAP_PORT": "abc"}},
+		{"LDAP port range", map[string]string{"LDAP_MODE": "ldap", "LDAP_ALLOWED_CIDRS": "10.0.0.0/8", "LDAP_PORT": "0"}},
+		{"LDAP whitelist bad entry", map[string]string{"LDAP_MODE": "ldap", "LDAP_ALLOWED_CIDRS": "not-a-cidr"}},
+		{"LDAPS without cert pair", map[string]string{"LDAP_MODE": "ldaps"}},
+		{"StartTLS with cert but no key", map[string]string{"LDAP_MODE": "starttls", "LDAP_TLS_CERT_FILE": "/tmp/c.pem"}},
+		{"RADIUS port bad", map[string]string{"RADIUS_PORT": "abc"}},
+		{"RADIUS port range", map[string]string{"RADIUS_PORT": "70000"}},
+		{"RADIUS enabled bad bool", map[string]string{"RADIUS_ENABLED": "sometimes"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"DATABASE_URL", "ENC_KEY", "LDAP_MODE", "LDAP_PORT", "LDAP_ALLOWED_CIDRS", "LDAP_TLS_CERT_FILE", "LDAP_TLS_KEY_FILE", "RADIUS_ENABLED", "RADIUS_PORT"} {
+				t.Setenv(k, "")
+			}
+			t.Setenv("DATABASE_URL", validURL)
+			t.Setenv("ENC_KEY", validKey)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() = nil error, want failure")
+			}
+		})
+	}
+}
+
+func TestLDAPProviderTLSModesNeedOnlyCertPair(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_MODE", "STARTTLS")
+	setEnv(t, "LDAP_TLS_CERT_FILE", "/tmp/c.pem")
+	setEnv(t, "LDAP_TLS_KEY_FILE", "/tmp/k.pem")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LDAPProvider.Mode != "starttls" {
+		t.Errorf("Mode = %q, want lowercased starttls", cfg.LDAPProvider.Mode)
+	}
+	// TLS modes boot without a whitelist (encryption replaces the
+	// plaintext lockdown), but the whitelist still applies when set.
+	if len(cfg.LDAPProvider.AllowedCIDRs) != 0 {
+		t.Errorf("AllowedCIDRs = %v, want empty", cfg.LDAPProvider.AllowedCIDRs)
 	}
 }
 
