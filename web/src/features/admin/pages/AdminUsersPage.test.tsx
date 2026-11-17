@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminUsersPage } from "./AdminUsersPage";
@@ -50,22 +50,21 @@ describe("AdminUsersPage", () => {
       return Response.json({ user: bob }, { status: 201 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const { container, getByRole, getByText } = render(
+    const { getByRole, getByText } = render(
       <MemoryRouter>
         <AdminUsersPage />
       </MemoryRouter>,
     );
     await waitFor(() => expect(getByText("alice@example.com")).toBeDefined());
     fireEvent.click(getByRole("button", { name: "Add user" }));
-    const form = container.querySelector("form.ih-panel") as HTMLFormElement;
-    const set = (name: string, value: string) => {
-      const input = form.querySelector(`[name="${name}"]`) as HTMLInputElement;
-      fireEvent.change(input, { target: { value } });
+    const sheet = getByRole("dialog", { name: "Add user" });
+    const set = (label: string, value: string) => {
+      fireEvent.change(within(sheet).getByLabelText(label), { target: { value } });
     };
-    set("username", "bob");
-    set("email", "bob@example.com");
-    set("password", "secret-1");
-    fireEvent.click(getByRole("button", { name: "Create user" }));
+    set("Username", "bob");
+    set("Email", "bob@example.com");
+    set("Password", "secret-1");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create user" }));
     await waitFor(() => expect(getByText("bob@example.com")).toBeDefined());
   });
 

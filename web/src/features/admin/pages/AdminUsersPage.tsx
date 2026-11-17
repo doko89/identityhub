@@ -1,6 +1,41 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "@/shared/api/client";
-import { buttonStyle, inputStyle, labelStyle, secondaryStyle } from "@/shared/ui/formStyles";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
+import { Skeleton } from "@/shared/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/ui/table";
 import {
   ADMIN_PAGE_SIZE,
   createUser,
@@ -52,8 +87,8 @@ export function AdminUsersPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Users</h1>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
+      <h1 className="text-xl font-semibold">Users</h1>
+      <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Local and LDAP accounts. Deactivation revokes every session immediately.
       </p>
 
@@ -62,110 +97,131 @@ export function AdminUsersPage() {
           e.preventDefault();
           void load(0);
         }}
-        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
+        className="mb-3 flex flex-wrap gap-2"
       >
-        <input
+        <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search name, username, email…"
-          style={{ ...inputStyle, marginTop: 0, width: 220 }}
           aria-label="Search users"
+          className="w-56"
         />
-        <select
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          style={{ ...inputStyle, marginTop: 0, width: 130 }}
-          aria-label="Filter by source"
-        >
-          <option value="">All sources</option>
-          <option value="local">local</option>
-          <option value="ldap">ldap</option>
-        </select>
-        <select
-          value={active}
-          onChange={(e) => setActive(e.target.value)}
-          style={{ ...inputStyle, marginTop: 0, width: 130 }}
-          aria-label="Filter by status"
-        >
-          <option value="">Any status</option>
-          <option value="true">Active</option>
-          <option value="false">Disabled</option>
-        </select>
-        <button type="submit" style={{ ...secondaryStyle, width: "auto" }}>
+        <Select value={source === "" ? "all" : source} onValueChange={(v) => setSource(v === "all" ? "" : v)}>
+          <SelectTrigger aria-label="Filter by source" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            <SelectItem value="local">local</SelectItem>
+            <SelectItem value="ldap">ldap</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={active === "" ? "any" : active} onValueChange={(v) => setActive(v === "any" ? "" : v)}>
+          <SelectTrigger aria-label="Filter by status" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any status</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Disabled</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button type="submit" variant="outline">
           Search
-        </button>
-        <button
-          type="button"
-          style={{ ...buttonStyle, width: "auto" }}
-          onClick={() => setShowCreate((v) => !v)}
-        >
-          {showCreate ? "Close" : "Add user"}
-        </button>
+        </Button>
+        <Button type="button" onClick={() => setShowCreate(true)}>
+          Add user
+        </Button>
       </form>
 
       <Notice value={notice} />
 
-      {showCreate && (
-        <CreateUserForm
-          onDone={(created) => {
-            setShowCreate(false);
-            setUsers((prev) => (prev === null ? [created] : [created, ...prev]));
-            setTotal((t) => t + 1);
-          }}
-          onError={setNotice}
-        />
-      )}
+      <Sheet open={showCreate} onOpenChange={setShowCreate}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Add user</SheetTitle>
+            <SheetDescription>Create a local account or pre-provision an LDAP one.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <CreateUserForm
+              onDone={(created) => {
+                setShowCreate(false);
+                setUsers((prev) => (prev === null ? [created] : [created, ...prev]));
+                setTotal((t) => t + 1);
+              }}
+              onError={setNotice}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      {editing !== null && (
-        <EditUserForm
-          user={editing}
-          onDone={(updated) => {
-            setEditing(null);
-            setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? null);
-          }}
-          onError={setNotice}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      <Sheet open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Edit {editing?.username}</SheetTitle>
+            <SheetDescription>Profile, status, and administrator grant.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {editing !== null && (
+              <EditUserForm
+                key={editing.id}
+                user={editing}
+                onDone={(updated) => {
+                  setEditing(null);
+                  setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? null);
+                }}
+                onError={setNotice}
+                onClose={() => setEditing(null)}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {users === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading users…</p>
+        <div className="flex flex-col gap-2" aria-label="Loading users">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       )}
       {users !== null && (
         <>
-          <div className="ih-table-wrap">
-            <table className="ih-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Display name</th>
-                  <th>Email</th>
-                  <th>Source</th>
-                  <th>Status</th>
-                  <th>Admin</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Username</TableHead>
+                  <TableHead>Display name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Admin</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {users.map((u) => (
-                  <tr key={u.id}>
-                    <td>{u.username}</td>
-                    <td>{u.display_name || "—"}</td>
-                    <td>{u.email || "—"}</td>
-                    <td>{u.source}</td>
-                    <td>{u.is_active ? "Active" : "Disabled"}</td>
-                    <td>{u.is_admin ? "Yes" : "No"}</td>
-                    <td>
-                      <span className="ih-row-actions">
+                  <TableRow key={u.id}>
+                    <TableCell>{u.username}</TableCell>
+                    <TableCell>{u.display_name || "—"}</TableCell>
+                    <TableCell>{u.email || "—"}</TableCell>
+                    <TableCell>{u.source}</TableCell>
+                    <TableCell>
+                      {u.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Disabled</Badge>}
+                    </TableCell>
+                    <TableCell>{u.is_admin ? "Yes" : "No"}</TableCell>
+                    <TableCell>
+                      <span className="flex gap-1">
                         <RowButton label="Edit" onClick={() => setEditing(u)} />
                         <PasswordButton user={u} onError={setNotice} />
                         <MFAResetButton user={u} onError={setNotice} />
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <Pager offset={offset} total={total} onPage={(o) => void load(o)} />
         </>
@@ -176,20 +232,9 @@ export function AdminUsersPage() {
 
 function RowButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        background: "none",
-        border: "none",
-        padding: 0,
-        color: "var(--primary)",
-        fontSize: 13,
-        cursor: "pointer",
-      }}
-    >
+    <Button type="button" variant="link" size="sm" className="h-auto p-1" onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -201,13 +246,13 @@ function CreateUserForm({
   onError: (n: AdminNotice) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [source, setSource] = useState("local");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
       const form = new FormData(e.currentTarget as HTMLFormElement);
-      const source = String(form.get("source") ?? "local");
       const { user } = await createUser({
         username: String(form.get("username") ?? ""),
         email: String(form.get("email") ?? ""),
@@ -225,38 +270,48 @@ function CreateUserForm({
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="ih-panel" style={{ maxWidth: 480 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 12px" }}>Add user</h2>
-      <label style={labelStyle}>
-        Username
-        <input name="username" style={inputStyle} required />
-      </label>
-      <label style={labelStyle}>
-        Email
-        <input name="email" type="email" style={inputStyle} required />
-      </label>
-      <label style={labelStyle}>
-        Display name
-        <input name="display_name" style={inputStyle} />
-      </label>
-      <label style={labelStyle}>
-        Password
-        <input name="password" type="password" autoComplete="new-password" style={inputStyle} required />
-      </label>
-      <label style={labelStyle}>
-        Source
-        <select name="source" style={inputStyle} defaultValue="local">
-          <option value="local">local</option>
-          <option value="ldap">ldap (pre-provisioned)</option>
-        </select>
-      </label>
-      <label style={{ ...labelStyle, marginBottom: 16 }}>
-        External DN (LDAP only)
-        <input name="external_dn" style={inputStyle} placeholder="uid=alice,ou=people,dc=example,dc=com" />
-      </label>
-      <button type="submit" style={buttonStyle} disabled={busy}>
-        {busy ? "Creating…" : "Create user"}
-      </button>
+    <form onSubmit={(e) => void submit(e)}>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="new-username">Username</FieldLabel>
+          <Input id="new-username" name="username" required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-email">Email</FieldLabel>
+          <Input id="new-email" name="email" type="email" required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-display-name">Display name</FieldLabel>
+          <Input id="new-display-name" name="display_name" />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-password">Password</FieldLabel>
+          <Input id="new-password" name="password" type="password" autoComplete="new-password" required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-source">Source</FieldLabel>
+          <Select value={source} onValueChange={setSource}>
+            <SelectTrigger id="new-source">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="local">local</SelectItem>
+              <SelectItem value="ldap">ldap (pre-provisioned)</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-external-dn">External DN (LDAP only)</FieldLabel>
+          <Input
+            id="new-external-dn"
+            name="external_dn"
+            placeholder="uid=alice,ou=people,dc=example,dc=com"
+          />
+        </Field>
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy ? "Creating…" : "Create user"}
+        </Button>
+      </FieldGroup>
     </form>
   );
 }
@@ -274,17 +329,20 @@ function EditUserForm({
 }) {
   const [busy, setBusy] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
+  const [displayName, setDisplayName] = useState(user.display_name);
+  const [email, setEmail] = useState(user.email);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar_url);
+  const [isActive, setIsActive] = useState(user.is_active);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      const form = new FormData(e.currentTarget as HTMLFormElement);
       const { user: updated } = await updateUser(user.id, {
-        display_name: String(form.get("display_name") ?? ""),
-        email: String(form.get("email") ?? ""),
-        avatar_url: String(form.get("avatar_url") ?? ""),
-        is_active: (form.get("is_active") as string | null) === "on",
+        display_name: displayName,
+        email,
+        avatar_url: avatarUrl,
+        is_active: isActive,
       });
       onDone(updated);
     } catch (err) {
@@ -308,49 +366,53 @@ function EditUserForm({
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="ih-panel" style={{ maxWidth: 480 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 12px" }}>
-        Edit {user.username}
-        {user.is_admin ? " (admin)" : ""}
-      </h2>
-      <label style={labelStyle}>
-        Display name
-        <input name="display_name" style={inputStyle} defaultValue={user.display_name} />
-      </label>
-      <label style={labelStyle}>
-        Email
-        <input name="email" type="email" style={inputStyle} defaultValue={user.email} />
-      </label>
-      <label style={labelStyle}>
-        Avatar URL
-        <input name="avatar_url" style={inputStyle} defaultValue={user.avatar_url} />
-      </label>
-      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, marginBottom: 16 }}>
-        <input name="is_active" type="checkbox" defaultChecked={user.is_active} />
-        Active (unchecking revokes every session)
-      </label>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" style={secondaryStyle} onClick={onClose}>
-          Cancel
-        </button>
-        <button type="submit" style={buttonStyle} disabled={busy}>
-          {busy ? "Saving…" : "Save"}
-        </button>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <button
-          type="button"
-          style={secondaryStyle}
-          disabled={adminBusy}
-          onClick={() => void toggleAdmin()}
-        >
-          {adminBusy
-            ? "Working…"
-            : user.is_admin
-              ? "Revoke administrator"
-              : "Grant administrator"}
-        </button>
-      </div>
+    <form onSubmit={(e) => void submit(e)}>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="edit-display-name">Display name</FieldLabel>
+          <Input
+            id="edit-display-name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="edit-email">Email</FieldLabel>
+          <Input
+            id="edit-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="edit-avatar">Avatar URL</FieldLabel>
+          <Input
+            id="edit-avatar"
+            value={avatarUrl}
+            onChange={(e) => setAvatarUrl(e.target.value)}
+          />
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="edit-active"
+            checked={isActive}
+            onCheckedChange={(v) => setIsActive(v === true)}
+          />
+          <FieldLabel htmlFor="edit-active">Active (unchecking revokes every session)</FieldLabel>
+        </Field>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1" disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </div>
+        <Button type="button" variant="outline" disabled={adminBusy} onClick={() => void toggleAdmin()}>
+          {adminBusy ? "Working…" : user.is_admin ? "Revoke administrator" : "Grant administrator"}
+        </Button>
+      </FieldGroup>
     </form>
   );
 }
@@ -358,18 +420,15 @@ function EditUserForm({
 function PasswordButton({ user, onError }: { user: AdminUser; onError: (n: AdminNotice) => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  if (!open) {
-    return <RowButton label="Password" onClick={() => setOpen(true)} />;
-  }
+  const [password, setPassword] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      const form = new FormData(e.currentTarget as HTMLFormElement);
-      await setUserPassword(user.id, String(form.get("new_password") ?? ""));
+      await setUserPassword(user.id, password);
       setOpen(false);
+      setPassword("");
     } catch (err) {
       onError(toNotice(err));
     } finally {
@@ -378,51 +437,53 @@ function PasswordButton({ user, onError }: { user: AdminUser; onError: (n: Admin
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} style={{ display: "inline-flex", gap: 4 }}>
-      <input
-        name="new_password"
-        type="password"
-        autoComplete="new-password"
-        placeholder="New password"
-        aria-label={`New password for ${user.username}`}
-        style={{ ...inputStyle, marginTop: 0, width: 130, padding: "4px 8px" }}
-        required
-      />
-      <button
-        type="submit"
-        disabled={busy}
-        style={{ background: "none", border: "none", color: "var(--primary)", cursor: "pointer", fontSize: 13 }}
-      >
-        Set
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        style={{ background: "none", border: "none", color: "var(--muted-foreground)", cursor: "pointer", fontSize: 13 }}
-      >
-        ×
-      </button>
-    </form>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <RowButton label="Password" onClick={() => setOpen(true)} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Set password for {user.username}</DialogTitle>
+          <DialogDescription>
+            The user signs in with this password next time. LDAP accounts cannot be changed here.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={(e) => void submit(e)}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor={`pw-${user.id}`}>New password</FieldLabel>
+              <Input
+                id={`pw-${user.id}`}
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </Field>
+            <DialogFooter>
+              <Button type="submit" disabled={busy}>
+                {busy ? "Setting…" : "Set password"}
+              </Button>
+            </DialogFooter>
+          </FieldGroup>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function MFAResetButton({ user, onError }: { user: AdminUser; onError: (n: AdminNotice) => void }) {
-  const [confirming, setConfirming] = useState(false);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  if (!confirming) {
-    return <RowButton label="Reset MFA" onClick={() => setConfirming(true)} />;
-  }
 
   async function run() {
     setBusy(true);
     try {
       await resetUserMFA(user.id);
-      setConfirming(false);
+      setOpen(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         // Route absent when MFA is unwired; nothing to reset.
-        setConfirming(false);
+        setOpen(false);
         return;
       }
       onError(toNotice(err));
@@ -432,23 +493,25 @@ function MFAResetButton({ user, onError }: { user: AdminUser; onError: (n: Admin
   }
 
   return (
-    <span style={{ display: "inline-flex", gap: 4, fontSize: 13 }}>
-      Clear {user.username}&apos;s factors?
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void run()}
-        style={{ background: "none", border: "none", color: "var(--destructive)", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-      >
-        Yes
-      </button>
-      <button
-        type="button"
-        onClick={() => setConfirming(false)}
-        style={{ background: "none", border: "none", color: "var(--muted-foreground)", cursor: "pointer", fontSize: 13 }}
-      >
-        No
-      </button>
-    </span>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <RowButton label="Reset MFA" onClick={() => setOpen(true)} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset MFA for {user.username}</DialogTitle>
+          <DialogDescription>
+            This clears every enrolled factor and recovery code. The user logs straight in and
+            re-enrolls.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" variant="destructive" disabled={busy} onClick={() => void run()}>
+            {busy ? "Resetting…" : "Reset factors"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
