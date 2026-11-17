@@ -52,9 +52,30 @@ func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// Recently verified local binds skip argon2 through the bind cache.
+	// The cached path still re-checks live account state and audits, so
+	// its result mapping is identical to the full login below.
+	if uid, ok := s.cachedBindUser(ctx, username, password); ok {
+		u, err := s.auth.ConfirmCachedBind(ctx, uid, domain.MethodLDAP, ip)
+		s.writeBindResult(w, m, u, err, username, ip)
+		return
+	}
 	u, err := s.auth.LoginLegacy(ctx, usecaseauth.LegacyLoginInput{
 		Username: username, Password: password, IP: ip, Method: domain.MethodLDAP,
 	})
+	if err == nil && u.Source == domain.SourceLocal {
+		s.rememberBind(ctx, username, password, u.ID)
+	}
+	s.writeBindResult(w, m, u, err, username, ip)
+}
+
+// writeBindResult maps a legacy login outcome to the bind response.
+func (s *Server) writeBindResult(w ldapserver.ResponseWriter, m *ldapserver.Message, u domain.User, err error, username, ip string) {
+	fail := func(code int, diag string) {
+		res := ldapserver.NewBindResponse(code)
+		res.SetDiagnosticMessage(diag)
+		w.Write(res)
+	}
 	switch {
 	case err == nil:
 		s.markBound(m.Client, u.Username)
@@ -69,6 +90,32 @@ func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) 
 		fail(ldapserver.LDAPResultUnavailable, "directory unavailable, try again later")
 	default:
 		fail(ldapserver.LDAPResultInvalidCredentials, "invalid credentials")
+	}
+}
+
+// cachedBindUser resolves recently verified credentials to their user.
+// A version-query failure is a miss (the full login runs instead); the
+// cache never serves when it cannot prove freshness.
+func (s *Server) cachedBindUser(ctx context.Context, username, password string) (uuid.UUID, bool) {
+	if s.version == nil {
+		return uuid.Nil, false
+	}
+	v, err := s.version.Current(ctx)
+	if err != nil {
+		return uuid.Nil, false
+	}
+	return s.bindCache.lookup(bindCacheKey(username, password), v)
+}
+
+// rememberBind records a verified local bind under the current
+// generation (best-effort: a version-query failure simply skips the
+// cache entry).
+func (s *Server) rememberBind(ctx context.Context, username, password string, userID uuid.UUID) {
+	if s.version == nil {
+		return
+	}
+	if v, err := s.version.Current(ctx); err == nil {
+		s.bindCache.store(bindCacheKey(username, password), userID, v)
 	}
 }
 
@@ -92,6 +139,10 @@ func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message
 		s.log.Warn("ldap search: bad filter", "filter", r.FilterString(), "ip", peerIP(m))
 		done(ldapserver.LDAPResultProtocolError)
 		return
+	}
+	if f.unsupported() {
+		s.log.Warn("ldap search uses ordering or extensible matching, which never matches here",
+			"filter", r.FilterString(), "ip", peerIP(m))
 	}
 	// Attribute selection: empty or "*" means all user attributes.
 	want := map[string]bool{}
@@ -323,37 +374,48 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 
 // wholeTree returns every entry under the base DN.
 func (s *Server) wholeTree(ctx context.Context) ([]*entry, bool, error) {
-	users, memberOf, custom, err := s.activeUsers(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	groups, members, err := s.groupMembers(ctx)
+	snap, err := s.snapshot(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	out := []*entry{domainEntry(), ouEntry("users"), ouEntry("groups")}
-	out = append(out, userEntries(users, memberOf, custom)...)
-	out = append(out, groupEntries(groups, members)...)
+	out = append(out, userEntries(snap.users, invertMembers(snap.users, snap.groups, snap.members), snap.custom)...)
+	out = append(out, groupEntries(snap.groups, snap.members)...)
 	return out, false, nil
 }
 
-// activeUsers lists every active user plus a user-id → group-DN index
-// and a user-id → custom-attributes index: users, groups, one
-// membership join and one attribute batch.
-func (s *Server) activeUsers(ctx context.Context) ([]domain.User, map[string][]string, map[string]map[string][]string, error) {
+// snapshot returns the cached whole-directory snapshot, refreshing it
+// through loadTree when the version moved or the TTL lapsed.
+func (s *Server) snapshot(ctx context.Context) (*treeSnapshot, error) {
+	return s.tree.get(ctx, s.loadTree)
+}
+
+// loadTree assembles one snapshot: users, groups, one membership join
+// and one attribute batch.
+func (s *Server) loadTree(ctx context.Context) (*treeSnapshot, error) {
 	users, err := s.users.AllActive(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
-	groups, members, err := s.groupMembers(ctx)
+	groups, members, err := s.loadGroups(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	custom, err := s.customForUsers(ctx, users)
 	if err != nil {
+		return nil, err
+	}
+	return &treeSnapshot{users: users, groups: groups, members: members, custom: custom}, nil
+}
+
+// activeUsers lists every active user plus a user-id → group-DN index
+// and a user-id → custom-attributes index, served from the snapshot.
+func (s *Server) activeUsers(ctx context.Context) ([]domain.User, map[string][]string, map[string]map[string][]string, error) {
+	snap, err := s.snapshot(ctx)
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	return users, invertMembers(users, groups, members), custom, nil
+	return snap.users, invertMembers(snap.users, snap.groups, snap.members), snap.custom, nil
 }
 
 // customForUsers batch-loads custom attributes keyed by user-ID string.
@@ -402,9 +464,19 @@ func invertMembers(users []domain.User, groups []domain.Group, members map[strin
 	return out
 }
 
-// groupMembers lists every group plus group-id → active-member user-DNs
-// in two queries: the group list and one membership join.
+// groupMembers lists every group plus group-id → active-member
+// user-DNs, served from the snapshot.
 func (s *Server) groupMembers(ctx context.Context) ([]domain.Group, map[string][]string, error) {
+	snap, err := s.snapshot(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return snap.groups, snap.members, nil
+}
+
+// loadGroups lists every group plus group-id → active-member user-DNs
+// in two queries: the group list and one membership join.
+func (s *Server) loadGroups(ctx context.Context) ([]domain.Group, map[string][]string, error) {
 	groups, err := s.groups.All(ctx)
 	if err != nil {
 		return nil, nil, err

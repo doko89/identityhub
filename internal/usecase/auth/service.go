@@ -244,6 +244,49 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 	return chk.user, nil
 }
 
+// ConfirmCachedBind records a legacy bind whose password already verified
+// against a delivery-layer bind cache. It re-checks live account state —
+// existence, active flag, MFA deny — and audits exactly like LoginLegacy;
+// only the expensive credential check is skipped. Callers must only pass
+// userIDs whose password verified within the cache TTL for a local user
+// (directory users are never cached: no local write marks an upstream
+// password change stale).
+func (s *Service) ConfirmCachedBind(ctx context.Context, userID uuid.UUID, method, ip string) (domain.User, error) {
+	if method != domain.MethodLDAP && method != domain.MethodRADIUS {
+		return domain.User{}, fmt.Errorf("%w: legacy login method must be ldap or radius", domain.ErrValidation)
+	}
+	u, err := s.users.ByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			if aerr := s.auditLogin(ctx, nil, nil, method, domain.ResultFailure, ip, "unknown user"); aerr != nil {
+				return domain.User{}, aerr
+			}
+			return domain.User{}, domain.ErrUnauthorized
+		}
+		return domain.User{}, fmt.Errorf("auth: cached bind lookup: %w", err)
+	}
+	if !u.IsActive {
+		if err := s.auditLogin(ctx, &u, nil, method, domain.ResultFailure, ip, "account disabled"); err != nil {
+			return domain.User{}, err
+		}
+		return domain.User{}, domain.ErrForbidden
+	}
+	denied, err := s.legacyMFADenied(ctx, u.ID, nil)
+	if err != nil {
+		return domain.User{}, err
+	}
+	if denied {
+		if err := s.auditLogin(ctx, &u, nil, method, domain.ResultFailure, ip, "mfa required"); err != nil {
+			return domain.User{}, err
+		}
+		return domain.User{}, ErrMFARequired
+	}
+	if err := s.auditLogin(ctx, &u, nil, method, domain.ResultSuccess, ip, ""); err != nil {
+		return domain.User{}, err
+	}
+	return u, nil
+}
+
 // legacyMFADenied reports whether the legacy bind must be rejected for
 // MFA: admins always; when a policy and an app identity are both
 // present, per-app requirements for regular users too.

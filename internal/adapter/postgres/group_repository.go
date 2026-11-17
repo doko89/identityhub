@@ -30,6 +30,7 @@ func (r *GroupRepository) Create(ctx context.Context, g domain.Group) (domain.Gr
 	if err := r.db.Pool.QueryRow(ctx, q, g.ID, g.Name, g.Description).Scan(&created.ID, &created.Name, &created.Description); err != nil {
 		return domain.Group{}, mapWriteError(err)
 	}
+	_ = BumpDirectoryVersion(ctx, r.db)
 	return created, nil
 }
 
@@ -100,20 +101,40 @@ func (r *GroupRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if g.Name == domain.AdminGroup {
 		return domain.ErrForbidden
 	}
-	_, err = r.db.Pool.Exec(ctx, `DELETE FROM groups WHERE id=$1`, id)
-	return err
+	tag, err := r.db.Pool.Exec(ctx, `DELETE FROM groups WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		_ = BumpDirectoryVersion(ctx, r.db)
+	}
+	return nil
 }
 
 // AddMember adds a user to a group (idempotent).
 func (r *GroupRepository) AddMember(ctx context.Context, userID, groupID uuid.UUID) error {
-	_, err := r.db.Pool.Exec(ctx, `INSERT INTO user_groups (user_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, userID, groupID)
-	return err
+	tag, err := r.db.Pool.Exec(ctx, `INSERT INTO user_groups (user_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, userID, groupID)
+	if err != nil {
+		return err
+	}
+	// No-op re-adds (sync tools call this often) skip the bump so the
+	// LDAP cache is not refreshed for nothing.
+	if tag.RowsAffected() > 0 {
+		_ = BumpDirectoryVersion(ctx, r.db)
+	}
+	return nil
 }
 
 // RemoveMember removes a user from a group.
 func (r *GroupRepository) RemoveMember(ctx context.Context, userID, groupID uuid.UUID) error {
-	_, err := r.db.Pool.Exec(ctx, `DELETE FROM user_groups WHERE user_id=$1 AND group_id=$2`, userID, groupID)
-	return err
+	tag, err := r.db.Pool.Exec(ctx, `DELETE FROM user_groups WHERE user_id=$1 AND group_id=$2`, userID, groupID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		_ = BumpDirectoryVersion(ctx, r.db)
+	}
+	return nil
 }
 
 // MemberIDs lists member user ids of a group.

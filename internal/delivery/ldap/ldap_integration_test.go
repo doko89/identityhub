@@ -366,6 +366,94 @@ func TestLDAPBindAndSearch(t *testing.T) {
 	}
 }
 
+func TestLDAPMemberFilterNormalizesDN(t *testing.T) {
+	fx := setupFixture(t)
+	alice := fx.createLocalUser("alice", "alice-password-1", true)
+	eng := fx.createGroup("eng", alice)
+	srv := fx.startServer(ModePlain, []string{"127.0.0.0/8"}, nil)
+
+	c := fx.dial(srv.Addr().String())
+	if err := c.Bind(UserDN(alice.Username), "alice-password-1"); err != nil {
+		t.Fatalf("bind alice: %v", err)
+	}
+	// VPN boxes substitute their own DN templates into member= filters;
+	// spacing and casing variants must still match (FortiGate case).
+	dn := UserDN(alice.Username)
+	for _, variant := range []string{
+		dn,
+		"uid=" + alice.Username + ", ou=users, dc=identityhub",
+		"UID=" + alice.Username + ",OU=USERS,DC=IDENTITYHUB",
+	} {
+		res, err := c.Search(goldap.NewSearchRequest(
+			GroupsDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+			"(&(objectClass=groupOfNames)(member="+variant+"))", []string{"cn"}, nil,
+		))
+		if err != nil {
+			t.Fatalf("search %q: %v", variant, err)
+		}
+		if len(res.Entries) != 1 || res.Entries[0].DN != GroupDN(eng.Name) {
+			t.Fatalf("search %q = %v, want [%s]", variant, res.Entries, GroupDN(eng.Name))
+		}
+	}
+}
+
+func TestLDAPBindCacheInvalidatesOnPasswordChange(t *testing.T) {
+	fx := setupFixture(t)
+	ctx := context.Background()
+	alice := fx.createLocalUser("alice", "alice-password-1", true)
+
+	// Wired by hand: the shared harness predates the version store.
+	versions := postgres.NewDirectoryVersionRepository(fx.db)
+	srv2, err := New(
+		Config{Mode: ModePlain, Addr: "127.0.0.1:0", AllowedCIDRs: mustCIDRs(t, "127.0.0.0/8"), CacheTTL: time.Minute, BindCacheTTL: time.Minute},
+		Deps{Auth: fx.auth, Users: fx.users, Groups: fx.groups, Attrs: fx.attrs, Version: versions,
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	go func() { _ = srv2.Serve() }()
+	select {
+	case <-srv2.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never became ready")
+	}
+	t.Cleanup(srv2.Stop)
+
+	c := fx.dial(srv2.Addr().String())
+	if err := c.Bind(UserDN(alice.Username), "alice-password-1"); err != nil {
+		t.Fatalf("first bind: %v", err)
+	}
+	// A password change bumps the directory version, so the remembered
+	// bind must not authenticate anymore.
+	hash, err := adaptercrypto.Hasher{}.Hash("alice-password-2")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if err := fx.users.SetPasswordHash(ctx, alice.ID, hash); err != nil {
+		t.Fatalf("set hash: %v", err)
+	}
+	if err := c.Bind(UserDN(alice.Username), "alice-password-1"); err == nil {
+		t.Fatal("old password still binds after change, want rejection")
+	}
+	if err := c.Bind(UserDN(alice.Username), "alice-password-2"); err != nil {
+		t.Fatalf("new password bind: %v", err)
+	}
+}
+
+func mustCIDRs(t *testing.T, cidrs ...string) []*net.IPNet {
+	t.Helper()
+	var out []*net.IPNet
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			t.Fatalf("parse cidr: %v", err)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 func TestLDAPCustomAttrs(t *testing.T) {
 	fx := setupFixture(t)
 	ctx := context.Background()

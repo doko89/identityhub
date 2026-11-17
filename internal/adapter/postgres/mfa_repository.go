@@ -26,7 +26,12 @@ func NewMFARepository(db *DB) *MFARepository { return &MFARepository{db: db} }
 func (r *MFARepository) EnrollTOTP(ctx context.Context, cred domain.TOTPCredential) error {
 	const q = `INSERT INTO mfa_totp (user_id, seed_enc, last_step) VALUES ($1, $2, 0)`
 	_, err := r.db.Pool.Exec(ctx, q, cred.UserID, cred.SeedEnc)
-	return mapWriteError(err)
+	if err != nil {
+		return mapWriteError(err)
+	}
+	// Enrollment flips legacy-bind decisions for the user.
+	_ = BumpDirectoryVersion(ctx, r.db)
+	return nil
 }
 
 // TOTPOfUser loads the credential or reports domain.ErrNotFound.
@@ -78,7 +83,11 @@ func (r *MFARepository) DisableTOTP(ctx context.Context, userID uuid.UUID) error
 	if _, err := tx.Exec(ctx, `DELETE FROM mfa_totp WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = BumpDirectoryVersion(ctx, r.db)
+	return nil
 }
 
 // AddRecoveryCodes stores pre-hashed single-use codes.

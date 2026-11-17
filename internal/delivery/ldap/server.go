@@ -33,6 +33,13 @@ type Config struct {
 	// TLSConfig overrides the file pair (tests inject an in-memory
 	// certificate). The minimum version is still raised to TLS 1.2.
 	TLSConfig *tls.Config
+	// CacheTTL bounds whole-tree snapshots (LDAP_CACHE_TTL). Snapshots
+	// also refresh when the directory version moves; <=0 disables the
+	// tree cache (every search reads fresh).
+	CacheTTL time.Duration
+	// BindCacheTTL bounds remembered local binds (LDAP_BIND_CACHE_TTL).
+	// <=0, or a nil Version store, disables the bind cache.
+	BindCacheTTL time.Duration
 }
 
 // Deps wires the server to the shared usecases.
@@ -43,7 +50,11 @@ type Deps struct {
 	// Attrs serves custom attributes; nil omits them (tests that
 	// predate the schema).
 	Attrs domain.UserAttrStore
-	Log   *slog.Logger
+	// Version reads the directory generation for cache invalidation;
+	// nil runs the tree cache TTL-only and disables the bind cache
+	// (tests that predate the schema).
+	Version domain.DirectoryVersioner
+	Log     *slog.Logger
 }
 
 // Server is one in-process LDAP listener. It is single-use: call Serve
@@ -66,6 +77,11 @@ type Server struct {
 	// wrapper; Stop sets a past deadline on it to unblock Accept.
 	rawListener net.Listener
 	rawMutex    sync.Mutex
+	// tree and binds cache whole-directory snapshots and verified
+	// local binds; version gates the bind cache (never TTL-only).
+	version   domain.DirectoryVersioner
+	tree      *treeCache
+	bindCache *bindCache
 }
 
 // boundConn remembers one connection's successful bind. The map key is
@@ -106,9 +122,19 @@ func New(cfg Config, d Deps) (*Server, error) {
 	s := &Server{
 		mode: cfg.Mode, addr: cfg.Addr,
 		auth: d.Auth, users: d.Users, groups: d.Groups, attrs: d.Attrs, log: log,
-		ready: make(chan struct{}),
-		binds: map[any]boundConn{},
+		ready:   make(chan struct{}),
+		binds:   map[any]boundConn{},
+		version: d.Version,
 	}
+	s.tree = newTreeCache(d.Version, cfg.CacheTTL, log)
+	bindTTL := cfg.BindCacheTTL
+	if d.Version == nil {
+		// A bind cache without version invalidation would honor
+		// changed passwords until the TTL lapses; TTL-only is fine
+		// for the visible tree, never for credentials.
+		bindTTL = 0
+	}
+	s.bindCache = newBindCache(bindTTL)
 	if cfg.Mode == ModeLDAPS || cfg.Mode == ModeStartTLS {
 		tlsCfg, err := loadTLSConfig(cfg)
 		if err != nil {

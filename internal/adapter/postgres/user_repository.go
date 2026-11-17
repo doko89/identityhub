@@ -50,6 +50,7 @@ func (r *UserRepository) Create(ctx context.Context, u domain.User) (domain.User
 	if err != nil {
 		return domain.User{}, mapWriteError(err)
 	}
+	_ = BumpDirectoryVersion(ctx, r.db)
 	return created, nil
 }
 
@@ -87,13 +88,20 @@ func (r *UserRepository) ByUsernameFold(ctx context.Context, username string) (d
 }
 
 // AllActive lists every active user in one query (LDAP tree serving).
+// treeColumns is the slim projection for directory serving: only what
+// the LDAP tree renders. Password hashes must never ride along into a
+// cached whole-directory snapshot.
+const treeColumns = `id, username, email, display_name, is_active`
+
 func (r *UserRepository) AllActive(ctx context.Context) ([]domain.User, error) {
-	rows, err := r.db.Pool.Query(ctx, `SELECT `+userColumns+` FROM users WHERE is_active ORDER BY created_at DESC`)
+	rows, err := r.db.Pool.Query(ctx, `SELECT `+treeColumns+` FROM users WHERE is_active ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.User, error) {
-		return scanUser(row)
+		var u domain.User
+		err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsActive)
+		return u, err
 	})
 }
 
@@ -147,6 +155,7 @@ func (r *UserRepository) Update(ctx context.Context, u domain.User) (domain.User
 	if err != nil {
 		return domain.User{}, mapWriteError(mapReadError(err))
 	}
+	_ = BumpDirectoryVersion(ctx, r.db)
 	return updated, nil
 }
 
@@ -159,6 +168,7 @@ func (r *UserRepository) SetActive(ctx context.Context, id uuid.UUID, active boo
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
+	_ = BumpDirectoryVersion(ctx, r.db)
 	return nil
 }
 
@@ -171,6 +181,7 @@ func (r *UserRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, hash
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
+	_ = BumpDirectoryVersion(ctx, r.db)
 	return nil
 }
 

@@ -115,6 +115,7 @@ type services struct {
 	branding      *usecasebranding.Service
 	providers     *usecaseapp.ProviderService
 	apiKeys       *usecaseapikey.Service
+	dirVersion    *postgres.DirectoryVersionRepository
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -279,6 +280,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if err != nil {
 		return nil, fmt.Errorf("wire apikeys: %w", err)
 	}
+	dirVersion := postgres.NewDirectoryVersionRepository(db)
 	return &services{
 		auth: authSvc, users: userSvc, audits: audits, usersRepo: users,
 		groups: groups, attrs: userAttrs, radiusClients: postgres.NewRADIUSClientRepository(db),
@@ -288,6 +290,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		samlRequests: samlRequests, samlSPs: samlSPs,
 		mfa: mfaSvc, apps: appSvc, assets: assetSvc, files: files, sealer: sealer,
 		branding: brandingSvc, providers: providerSvc, apiKeys: apiKeySvc,
+		dirVersion: dirVersion,
 	}, nil
 }
 
@@ -398,7 +401,9 @@ func startLDAPProvider(cfg config.Config, log *slog.Logger, svc *services) (*del
 		AllowedCIDRs: cfg.LDAPProvider.AllowedCIDRs,
 		TLSCertFile:  cfg.LDAPProvider.TLSCertFile,
 		TLSKeyFile:   cfg.LDAPProvider.TLSKeyFile,
-	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Attrs: svc.attrs, Log: log})
+		CacheTTL:     cfg.LDAPProvider.CacheTTL,
+		BindCacheTTL: cfg.LDAPProvider.BindCacheTTL,
+	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Attrs: svc.attrs, Version: svc.dirVersion, Log: log})
 	if err != nil {
 		return nil, fmt.Errorf("ldap provider: %w", err)
 	}
@@ -473,7 +478,8 @@ func runWorker(args []string) error {
 	if err != nil {
 		return err
 	}
-	runner := worker.NewRunner(db.Pool, cfg.WorkerSyncInterval, log)
+	runner := worker.NewRunner(db.Pool, cfg.WorkerSyncInterval, log).
+		WithAuditRetention(cfg.AuditRetention)
 	if svc.dir != nil {
 		adminDN := cfg.LDAP.AdminGroupDN
 		runner.WithLDAPSync(func(syncCtx context.Context) error {

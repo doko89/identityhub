@@ -20,6 +20,7 @@ require (
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/vjeantet/ldapserver v1.0.1
 	golang.org/x/crypto v0.59.0
+	golang.org/x/sync v0.25.0
 	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
 )
 
@@ -104,7 +105,6 @@ require (
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect

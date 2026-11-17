@@ -27,6 +27,32 @@ func TestParseBindDN(t *testing.T) {
 	}
 }
 
+func TestNormalizeDN(t *testing.T) {
+	cases := []struct {
+		dn   string
+		want string
+	}{
+		{"uid=ara,ou=users,dc=identityhub", "uid=ara,ou=users,dc=identityhub"},
+		{"uid=ara, ou=users, dc=identityhub", "uid=ara,ou=users,dc=identityhub"},
+		{"UID=Ara,OU=Users,DC=IdentityHub", "uid=Ara,ou=Users,dc=IdentityHub"},
+		{`cn=a\,b,ou=groups,dc=identityhub`, `cn=a\,b,ou=groups,dc=identityhub`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.dn, func(t *testing.T) {
+			got, err := normalizeDN(tc.dn)
+			if err != nil {
+				t.Fatalf("normalizeDN = %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("normalized = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if _, err := normalizeDN("not-a-dn"); err == nil {
+		t.Error("normalizeDN(not-a-dn) succeeded, want error")
+	}
+}
+
 func TestParseBindDNRejects(t *testing.T) {
 	for _, dn := range []string{
 		"",

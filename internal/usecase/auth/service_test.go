@@ -1423,6 +1423,51 @@ func TestDefaultTokenGen(t *testing.T) {
 	}
 }
 
+// ---------- ConfirmCachedBind ----------
+
+func TestConfirmCachedBind(t *testing.T) {
+	ctx := context.Background()
+	u := localUser("vpn-ara", "vpn-password-1")
+	admin := localUser("root", "root-password-1")
+	off := localUser("zed", "zed-password-12")
+	off.IsActive = false
+	h := newHarness(t, u, admin, off)
+	h.groups.members[admin.ID] = map[string]bool{domain.AdminGroup: true}
+
+	got, err := h.svc.ConfirmCachedBind(ctx, u.ID, domain.MethodLDAP, "10.9.0.2")
+	if err != nil {
+		t.Fatalf("ConfirmCachedBind = %v", err)
+	}
+	if got.ID != u.ID {
+		t.Fatalf("user = %v, want %v", got.ID, u.ID)
+	}
+	if len(h.audits.entries) != 1 || h.audits.entries[0].Result != domain.ResultSuccess ||
+		h.audits.entries[0].Method != domain.MethodLDAP {
+		t.Fatalf("audit = %+v, want one ldap success", h.audits.entries)
+	}
+
+	if _, err := h.svc.ConfirmCachedBind(ctx, uuid.New(), domain.MethodLDAP, "10.9.0.2"); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("unknown user = %v, want unauthorized", err)
+	}
+	if _, err := h.svc.ConfirmCachedBind(ctx, off.ID, domain.MethodLDAP, "10.9.0.2"); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("disabled user = %v, want forbidden", err)
+	}
+	if _, err := h.svc.ConfirmCachedBind(ctx, admin.ID, domain.MethodLDAP, "10.9.0.2"); !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("admin = %v, want ErrMFARequired", err)
+	}
+	if _, err := h.svc.ConfirmCachedBind(ctx, u.ID, "password", "10.9.0.2"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("bad method = %v, want validation", err)
+	}
+	for _, e := range h.audits.entries[1:] {
+		if e.Result != domain.ResultFailure {
+			t.Errorf("audit entry = %+v, want failure", e)
+		}
+	}
+	if len(h.audits.entries) != 4 {
+		t.Errorf("audit entries = %d, want 4 (bad method never audits)", len(h.audits.entries))
+	}
+}
+
 // ---------- LoginLegacy ----------
 
 func TestLoginLegacyLocalSuccessAuditsProtocolMethod(t *testing.T) {

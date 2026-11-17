@@ -51,6 +51,13 @@ func TestFilterMatch(t *testing.T) {
 		{"(uid>=ara)", false},
 		{"(uid<=ara)", false},
 		{"(uid:caseExactMatch:=ara)", false},
+		// DN-valued equality normalizes spacing/casing (VPN boxes
+		// substitute their own DN templates into member= filters).
+		{"(memberOf=cn=eng,ou=groups,dc=identityhub)", true},
+		{"(memberOf=cn=eng, ou=groups, dc=identityhub)", true},
+		{"(memberOf=CN=ENG,OU=GROUPS,DC=IDENTITYHUB)", true},
+		{"(memberOf=cn=ops,ou=groups,dc=identityhub)", false},
+		{"(memberOf=not-a-dn)", false},
 		{`(|(uid=ara)(uid=b\6fb))`, true}, // hex escape decodes to 'bob'
 		{"(&(|(uid=bob)(uid=ara))(!(mail=bob@example.com)))", true},
 	}
@@ -64,6 +71,26 @@ func TestFilterMatch(t *testing.T) {
 				t.Errorf("match(%q) = %v, want %v", tc.filter, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFilterUnsupported(t *testing.T) {
+	for filter, want := range map[string]bool{
+		"(uid=ara)":                 false,
+		"(&(uid=ara)(mail=a@b.c))":  false,
+		"(uid>=ara)":                true,
+		"(uid<=ara)":                true,
+		"(uid:caseExactMatch:=ara)": true,
+		"(member:1.2.840.113556.1.4.1941:=uid=ara,ou=users,dc=identityhub)":      true,
+		"(&(objectClass=groupOfNames)(member:1.2.840.113556.1.4.1941:=uid=ara))": true,
+	} {
+		f, err := parseFilter(filter)
+		if err != nil {
+			t.Fatalf("parseFilter(%q) = %v", filter, err)
+		}
+		if got := f.unsupported(); got != want {
+			t.Errorf("unsupported(%q) = %v, want %v", filter, got, want)
+		}
 	}
 }
 

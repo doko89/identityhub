@@ -91,3 +91,33 @@ func escapeDNValue(v string) string {
 func sameDN(a, b string) bool {
 	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }
+
+// normalizeDN canonicalizes a DN for value comparison: lowercase
+// attribute types, trimmed values, no whitespace between RDNs. VPN boxes
+// and sync tools substitute their own DN templates into member= filters,
+// and those spellings (extra spaces, uppercased OU/DC) must still match
+// the served values.
+func normalizeDN(dn string) (string, error) {
+	parsed, err := goldap.ParseDN(strings.TrimSpace(dn))
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for i, rdn := range parsed.RDNs {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		for j, a := range rdn.Attributes {
+			if j > 0 {
+				b.WriteByte('+')
+			}
+			b.WriteString(strings.ToLower(strings.TrimSpace(a.Type)))
+			b.WriteByte('=')
+			// Values re-escape on rebuild: the parser decoded
+			// `\,` to a bare comma, which must not leak back as
+			// an RDN separator.
+			b.WriteString(escapeDNValue(strings.TrimSpace(a.Value)))
+		}
+	}
+	return b.String(), nil
+}

@@ -19,6 +19,9 @@ type Runner struct {
 	// ldapSync pulls the directory and applies it; nil disables the job
 	// (LDAP upstream not configured).
 	ldapSync func(ctx context.Context) error
+	// auditRetention bounds audit_log rows; <=0 keeps rows forever
+	// (AUDIT_RETENTION; audit data is never deleted by default).
+	auditRetention time.Duration
 }
 
 // NewRunner wires the worker on the shared pool.
@@ -31,6 +34,14 @@ func NewRunner(pool *pgxpool.Pool, interval time.Duration, log *slog.Logger) *Ru
 // schedules and logs it.
 func (r *Runner) WithLDAPSync(fn func(ctx context.Context) error) *Runner {
 	r.ldapSync = fn
+	return r
+}
+
+// WithAuditRetention prunes audit_log rows older than d on every pass.
+// Non-positive d keeps rows forever (the default: audit data is never
+// deleted unless the operator opts in).
+func (r *Runner) WithAuditRetention(d time.Duration) *Runner {
+	r.auditRetention = d
 	return r
 }
 
@@ -79,6 +90,13 @@ func (r *Runner) runOnce(ctx context.Context) {
 	} else if n > 0 {
 		r.log.Info("cleaned expired SAML requests", "count", n)
 	}
+	if r.auditRetention > 0 {
+		if n, err := CleanupOldAudit(ctx, r.pool, r.auditRetention); err != nil {
+			r.log.Error("cleanup old audit rows failed", "error", err)
+		} else if n > 0 {
+			r.log.Info("cleaned old audit rows", "count", n)
+		}
+	}
 }
 
 // CleanupExpiredSessions deletes scs rows past expiry. pgxstore never
@@ -118,6 +136,22 @@ func CleanupExpiredOIDC(ctx context.Context, pool *pgxpool.Pool) (int64, error) 
 // CleanupExpiredSAML deletes stashed SSO requests past their TTL.
 func CleanupExpiredSAML(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 	tag, err := pool.Exec(ctx, `DELETE FROM saml_requests WHERE expires_at < now()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CleanupOldAudit deletes audit rows older than retention. Every login
+// writes a row, so busy directories grow this table without bound;
+// retention is opt-in (AUDIT_RETENTION) because audit data is never
+// deleted by default.
+func CleanupOldAudit(ctx context.Context, pool *pgxpool.Pool, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		return 0, nil
+	}
+	tag, err := pool.Exec(ctx, `DELETE FROM audit_log WHERE at < now() - ($1::bigint * interval '1 second')`,
+		int64(retention/time.Second))
 	if err != nil {
 		return 0, err
 	}

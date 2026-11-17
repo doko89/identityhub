@@ -149,6 +149,8 @@ per-app MFA policy for regular users arrives with the app catalog.
 ldapsearch -H ldap://localhost:1389 -x \
   -D uid=ara,ou=users,dc=identityhub -w '...' \
   -b ou=users,dc=identityhub '(uid=ara)' mail memberOf
+# FortiGate group mapping, DN matching, and cache tuning
+# (LDAP_CACHE_TTL/LDAP_BIND_CACHE_TTL): docs/INTEGRATION.md §4.2–4.3
 
 # RADIUS (layeh/radius): PAP on UDP RADIUS_PORT (default 1812).
 # NAS devices register in radius_clients with nas_identifier = source
@@ -272,7 +274,7 @@ fresh admin key always comes from the browser.
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads + branding + provider registration, embedded SPA
 - `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy, per-NAS flood protection)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
-- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag, `00006` app new-tab, `00007` branding tagline, `00008` API keys)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag, `00006` app new-tab, `00007` branding tagline, `00008` API keys, `00009` LDAP indexes, `00010` user attrs, `00011` directory version)
 - `web` — React+Vite+TS SPA (vitest + eslint + playwright); `web/dist` is the embedded production build
 - `docs/INTEGRATION.md` — per-protocol operator guide; `docs/DECISIONS.md` — v1 scope decisions
 

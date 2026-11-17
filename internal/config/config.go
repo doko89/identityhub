@@ -34,6 +34,12 @@ const (
 	// in-process LDAP provider (TECH_SPEC §6.4). Operators serving the
 	// standard ports set LDAP_PORT=389/636 explicitly.
 	DefaultLDAPServerPort = 1389
+	// DefaultLDAPCacheTTL bounds whole-tree LDAP snapshots. Snapshots
+	// also refresh when the directory version moves; the TTL is the
+	// backstop for out-of-band writes.
+	DefaultLDAPCacheTTL = 5 * time.Minute
+	// DefaultLDAPBindCacheTTL bounds remembered local LDAP binds.
+	DefaultLDAPBindCacheTTL = time.Minute
 	// DefaultRADIUSPort is the standard RADIUS authentication port
 	// (TECH_SPEC §6.5).
 	DefaultRADIUSPort     = 1812
@@ -69,6 +75,9 @@ const (
 	envLDAPAllowedCIDRs = "LDAP_ALLOWED_CIDRS"
 	envLDAPTLSCertFile  = "LDAP_TLS_CERT_FILE"
 	envLDAPTLSKeyFile   = "LDAP_TLS_KEY_FILE"
+	envLDAPCacheTTL     = "LDAP_CACHE_TTL"
+	envLDAPBindCacheTTL = "LDAP_BIND_CACHE_TTL"
+	envAuditRetention   = "AUDIT_RETENTION"
 	// RADIUS provider (server) settings (TECH_SPEC §6.5).
 	envRADIUSEnabled = "RADIUS_ENABLED"
 	envRADIUSPort    = "RADIUS_PORT"
@@ -110,6 +119,9 @@ type Config struct {
 	SessionLifetime time.Duration
 	// WorkerSyncInterval is the period between worker sync/cleanup runs.
 	WorkerSyncInterval time.Duration
+	// AuditRetention bounds audit_log rows (AUDIT_RETENTION); the worker
+	// deletes older rows. 0 (default) keeps rows forever.
+	AuditRetention time.Duration
 	// BaseURL is the public origin used to build links emailed to users
 	// (password reset). No trailing slash.
 	BaseURL string
@@ -173,6 +185,13 @@ type LDAPProviderConfig struct {
 	// ldaps/starttls modes (TECH_SPEC §8: TLS 1.2 minimum).
 	TLSCertFile string
 	TLSKeyFile  string
+	// CacheTTL bounds whole-tree snapshots (default 5m). Snapshots
+	// also refresh when the directory version moves; 0 disables the
+	// tree cache (every search reads fresh).
+	CacheTTL time.Duration
+	// BindCacheTTL bounds remembered local binds (default 1m); 0
+	// disables the bind cache (every bind verifies the hash).
+	BindCacheTTL time.Duration
 }
 
 // Enabled reports whether the LDAP listener is configured.
@@ -258,10 +277,12 @@ func Load() (Config, error) {
 		From:     strings.TrimSpace(os.Getenv(envSMTPFrom)),
 	}
 	cfg.LDAPProvider = LDAPProviderConfig{
-		Mode:        strings.ToLower(strings.TrimSpace(os.Getenv(envLDAPMode))),
-		Port:        DefaultLDAPServerPort,
-		TLSCertFile: strings.TrimSpace(os.Getenv(envLDAPTLSCertFile)),
-		TLSKeyFile:  strings.TrimSpace(os.Getenv(envLDAPTLSKeyFile)),
+		Mode:         strings.ToLower(strings.TrimSpace(os.Getenv(envLDAPMode))),
+		Port:         DefaultLDAPServerPort,
+		TLSCertFile:  strings.TrimSpace(os.Getenv(envLDAPTLSCertFile)),
+		TLSKeyFile:   strings.TrimSpace(os.Getenv(envLDAPTLSKeyFile)),
+		CacheTTL:     DefaultLDAPCacheTTL,
+		BindCacheTTL: DefaultLDAPBindCacheTTL,
 	}
 	cfg.RADIUS = RADIUSConfig{Enabled: true, Port: DefaultRADIUSPort}
 	cfg.Storage = StorageConfig{
@@ -354,6 +375,9 @@ func Load() (Config, error) {
 		{envSessionIdle, &cfg.SessionIdle},
 		{envSessionLifetime, &cfg.SessionLifetime},
 		{envWorkerSyncInterval, &cfg.WorkerSyncInterval},
+		{envLDAPCacheTTL, &cfg.LDAPProvider.CacheTTL},
+		{envLDAPBindCacheTTL, &cfg.LDAPProvider.BindCacheTTL},
+		{envAuditRetention, &cfg.AuditRetention},
 	} {
 		if raw := strings.TrimSpace(os.Getenv(item.name)); raw != "" {
 			d, err := time.ParseDuration(raw)
@@ -401,6 +425,9 @@ func (c Config) Validate() error {
 	}
 	if c.WorkerSyncInterval <= 0 {
 		return fmt.Errorf("invalid WORKER_SYNC_INTERVAL %v: must be positive", c.WorkerSyncInterval)
+	}
+	if c.AuditRetention < 0 {
+		return fmt.Errorf("invalid AUDIT_RETENTION %v: must not be negative (0 keeps rows forever)", c.AuditRetention)
 	}
 	if u, err := url.Parse(c.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("invalid APP_BASE_URL %q: must be an http(s) URL with a host", c.BaseURL)
@@ -485,6 +512,12 @@ func (l LDAPProviderConfig) Validate() error {
 		if l.TLSCertFile == "" || l.TLSKeyFile == "" {
 			return fmt.Errorf("invalid LDAP_TLS_CERT_FILE/LDAP_TLS_KEY_FILE: both are required for LDAP_MODE=%s", l.Mode)
 		}
+	}
+	if l.CacheTTL < 0 {
+		return fmt.Errorf("invalid LDAP_CACHE_TTL %v: must not be negative (0 disables the tree cache)", l.CacheTTL)
+	}
+	if l.BindCacheTTL < 0 {
+		return fmt.Errorf("invalid LDAP_BIND_CACHE_TTL %v: must not be negative (0 disables the bind cache)", l.BindCacheTTL)
 	}
 	return nil
 }

@@ -33,9 +33,35 @@ type filter struct {
 	op       filterOp
 	attr     string // lowercase attribute name (equality/present/substring)
 	value    string // unescaped assertion value (equality)
+	norm     string // value canonicalized for DN-valued equality ("", unusable, when not a DN)
 	sub      []string
 	subFinal bool // substring ends with a literal (no trailing *)
 	children []*filter
+}
+
+// dnValued reports whether attr holds DNs (distinguishedNameMatch:
+// spacing/casing-insensitive comparison after normalization).
+func dnValued(attr string) bool {
+	switch attr {
+	case "member", "memberof", "uniquemember":
+		return true
+	}
+	return false
+}
+
+// unsupported reports whether the tree holds a node that can never match
+// (>=, <=, extensible). Callers log these: a box sending nested-group
+// matching rules would otherwise see silent empty results.
+func (f *filter) unsupported() bool {
+	if f.op == opNever {
+		return true
+	}
+	for _, k := range f.children {
+		if k.unsupported() {
+			return true
+		}
+	}
+	return false
 }
 
 // entry is one searchable directory entry: DN plus lowercase attribute
@@ -187,7 +213,15 @@ func (p *filterParser) parseSimple() (*filter, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &filter{op: opEquality, attr: attr, value: v}, nil
+		f := &filter{op: opEquality, attr: attr, value: v}
+		// Served DNs are already canonical, so normalizing the
+		// assertion once at parse time is enough for the match.
+		if dnValued(attr) {
+			if norm, err := normalizeDN(v); err == nil {
+				f.norm = norm
+			}
+		}
+		return f, nil
 	}
 	parts := strings.Split(raw, "*")
 	sub := make([]string, 0, len(parts))
@@ -285,6 +319,17 @@ func (f *filter) match(e entry) bool {
 			// presence above, so compare class names here.
 			for _, v := range e.attr("objectclass") {
 				if strings.EqualFold(v, f.value) {
+					return true
+				}
+			}
+			return false
+		}
+		if f.norm != "" {
+			// DN-valued equality: the served values are canonical,
+			// so the normalized assertion compares directly
+			// (case-insensitively, like every other value here).
+			for _, v := range e.attr(f.attr) {
+				if strings.EqualFold(v, f.norm) {
 					return true
 				}
 			}

@@ -70,7 +70,9 @@ type UserStore interface {
 	ByEmail(ctx context.Context, email string) (User, error)
 	List(ctx context.Context, f UserFilter) ([]User, int, error)
 	// AllActive lists every active user in one query (LDAP tree
-	// serving); paginated views keep using List.
+	// serving); paginated views keep using List. Only the served fields
+	// are filled (id, username, email, display name, active flag) —
+	// never password hashes.
 	AllActive(ctx context.Context) ([]User, error)
 	Update(ctx context.Context, u User) (User, error)
 	SetActive(ctx context.Context, id uuid.UUID, active bool) error

@@ -275,7 +275,69 @@ the target app's `mfa_required` flag. Integrate accordingly:
 - Service accounts: create a dedicated non-admin user per app, give it
   a 20+ char random password, bind only with that DN.
 
-### 4.2 Troubleshooting
+### 4.2 FortiGate (SSL-VPN / IPsec with group mapping)
+
+FortiGate authenticates with a bind, then maps the user to firewall
+groups with a separate group search — a passing "test connectivity"
+with empty groups means the group half mismatches, not the password.
+Groups are `groupOfNames` under `ou=groups,dc=identityhub` with full
+user DNs in `member`; user entries also carry `memberOf`.
+
+Server settings (`User & Authentication > LDAP Servers`):
+
+- Server Name/IP + port: IdP host + `LDAP_PORT` (use `ldaps` in
+  production; plaintext only inside trusted nets with
+  `LDAP_ALLOWED_CIDRS` set).
+- Common Name Identifier: `uid`.
+- Distinguished Name: `ou=users,dc=identityhub`, so the constructed
+  bind DN is `uid=<username>,ou=users,dc=identityhub`.
+- Bind Type: Regular (a service account DN), or per-user bind — either
+  way the connection must be bound; anonymous search is rejected.
+- Group Search Base: `ou=groups,dc=identityhub`, scope Subtree.
+- Group Object Filter: leave the default
+  `(&(objectClass=groupOfNames)(member=*))`, or narrow with the user
+  DN the same way (`member=uid=<username>,ou=users,dc=identityhub`).
+  DN comparison is spacing/casing-insensitive.
+
+Then map firewall user groups to the LDAP `cn` values (the names must
+match exactly), and verify from the FortiGate CLI before touching VPN
+policies:
+
+```bash
+diagnose test authserver ldap <server-name> <username> <password>
+# expect: authentication success + the matched group list
+```
+
+If groups stay empty, replicate the exact emitted filter with
+`ldapsearch` against the IdP: groups there mean the Forti template or
+the firewall-group name mapping is wrong, not the directory. Two
+sharp edges: empty groups carry no `member` attribute at all, and
+filters using LDAP matching rules (`member:1.2.840...:=...`,
+nested-group lookups) are not decodable by the underlying LDAP
+library — the server cannot respond to them, so clients must stick to
+equality/substring/presence filters (FortiGate's defaults do).
+
+### 4.3 Performance and scale
+
+Whole-tree searches serve from an in-memory snapshot that refreshes
+when the directory version moves (every user/group/membership/MFA
+write bumps it, from any process) or when the TTL lapses; verified
+local binds are remembered separately so boxes that re-bind every
+operation skip argon2. Both caches are version-gated, audit writes
+still run per bind, and directory (upstream) users are never cached:
+
+```bash
+LDAP_CACHE_TTL=5m        # tree snapshots (0 disables: every search reads fresh)
+LDAP_BIND_CACHE_TTL=60s  # remembered binds (0 disables: every bind verifies)
+```
+
+Two more knobs for busy directories: `pool_max_conns` in
+`DATABASE_URL` (the pool is shared by HTTP + LDAP; raise it under
+concurrent LDAP load), and `AUDIT_RETENTION` (e.g. `2160h` = 90 days)
+so the worker prunes `audit_log`, which otherwise grows one row per
+bind forever.
+
+### 4.4 Troubleshooting
 
 | Symptom | Cause / fix |
 |---------|-------------|
@@ -283,6 +345,7 @@ the target app's `mfa_required` flag. Integrate accordingly:
 | `invalid credentials` for a correct password | Wrong bind DN shape (must be `uid=<u>,ou=users,dc=identityhub`), disabled user, or MFA-required user (§4.1). |
 | Search returns nothing | Searching anonymously (bind first), or a filter outside the served subset — equality/presence/substring filters with AND/OR/NOT on `uid`/`cn`/`mail`/objectClass. |
 | Connection reset on StartTLS | Cert/key missing or TLS < 1.2. |
+| VPN login passes but groups are empty | Group search mismatch — see the FortiGate recipe (§4.2). |
 
 ## 5. RADIUS: VPN / Wi-Fi (PAP)
 

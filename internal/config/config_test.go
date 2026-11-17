@@ -195,6 +195,54 @@ func TestLoadLegacyProviderDefaults(t *testing.T) {
 	if !cfg.RADIUS.Enabled || cfg.RADIUS.Port != DefaultRADIUSPort {
 		t.Errorf("RADIUS = %+v, want enabled on %d", cfg.RADIUS, DefaultRADIUSPort)
 	}
+	if cfg.LDAPProvider.CacheTTL != DefaultLDAPCacheTTL {
+		t.Errorf("LDAP CacheTTL = %v, want %v", cfg.LDAPProvider.CacheTTL, DefaultLDAPCacheTTL)
+	}
+	if cfg.LDAPProvider.BindCacheTTL != DefaultLDAPBindCacheTTL {
+		t.Errorf("LDAP BindCacheTTL = %v, want %v", cfg.LDAPProvider.BindCacheTTL, DefaultLDAPBindCacheTTL)
+	}
+	if cfg.AuditRetention != 0 {
+		t.Errorf("AuditRetention = %v, want 0 (keep forever by default)", cfg.AuditRetention)
+	}
+}
+
+func TestLoadCacheAndRetention(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_MODE", "ldap")
+	setEnv(t, "LDAP_ALLOWED_CIDRS", "127.0.0.1/32")
+	setEnv(t, "LDAP_CACHE_TTL", "30s")
+	setEnv(t, "LDAP_BIND_CACHE_TTL", "0")
+	setEnv(t, "AUDIT_RETENTION", "2160h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LDAPProvider.CacheTTL != 30*time.Second {
+		t.Errorf("CacheTTL = %v, want 30s", cfg.LDAPProvider.CacheTTL)
+	}
+	if cfg.LDAPProvider.BindCacheTTL != 0 {
+		t.Errorf("BindCacheTTL = %v, want 0 (disabled)", cfg.LDAPProvider.BindCacheTTL)
+	}
+	if cfg.AuditRetention != 2160*time.Hour {
+		t.Errorf("AuditRetention = %v, want 2160h", cfg.AuditRetention)
+	}
+}
+
+func TestLoadCacheAndRetentionFailures(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_MODE", "ldap")
+	setEnv(t, "LDAP_ALLOWED_CIDRS", "127.0.0.1/32")
+	for env := range map[string]bool{"LDAP_CACHE_TTL": true, "LDAP_BIND_CACHE_TTL": true, "AUDIT_RETENTION": true} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv(env, "-1s")
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() with %s=-1s succeeded, want error", env)
+			}
+		})
+	}
 }
 
 func TestLoadLegacyProviders(t *testing.T) {
