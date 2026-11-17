@@ -31,6 +31,9 @@ web/dist-ssr/
 coverage.out
 coverage.html
 
+# Local asset uploads (STORAGE_DIR default)
+var/
+
 # Python caches (vendored skill scripts)
 __pycache__/
 *.pyc

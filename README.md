@@ -159,17 +159,65 @@ registration UI/API arrives with the app-catalog milestone; the
 `domain.RADIUSClientStore` port and Postgres repository (secrets
 sealed with ENC_KEY via AES-256-GCM) are already in place.
 
+## MFA (M5)
+
+TOTP (pquerna/otp behind `domain.TOTP`) + single-use recovery codes
+(`usecase/mfa`): QR enroll shown once, narrow window (current step + at
+most one previous, never the future step), atomic anti-replay (one
+UPDATE accepts a step only when newer than the recorded one — reused
+codes fail even under concurrency), seeds sealed with ENC_KEY, failed
+second-factor attempts emailed best-effort. Policy: admins always
+require MFA (login parks at setup until enrolled; `/api/admin/*`
+additionally requires a session factor verification); regular users by
+opt-in enroll and per-app `mfa_required` flags.
+
+```sh
+# Login flow: POST /api/auth/login → {mfa_required, setup_required?}
+#   → /mfa (verify) or /mfa?setup=1 (enroll doubles as the second step)
+#   → POST /api/auth/mfa/totp {code} or {recovery_code} (5/min/user + lockout)
+# Self-service: GET /api/account/mfa/status, POST /api/account/mfa/enroll(+/confirm),
+#   POST /api/account/mfa/disable, POST /api/account/mfa/recovery/regenerate
+#   (factor changes re-auth with the old factor)
+# MFA loss: POST /api/admin/users/:id/mfa/reset (audited), user re-enrolls
+# Password change with MFA: code fresh within 10 min or pass totp_code
+curl localhost:8080/api/my-apps  # dashboard (below), after login
+```
+
+## Dashboard + uploads (M6)
+
+App catalog (`usecase/app`): `GET /api/my-apps` lists visible apps
+whose bindings admit the user; `GET /api/apps/:slug/launch` resolves
+the admin-provided SSO entry (MFA-gated per policy — the client steps
+up and retries). No bindings = all active users allowed; with
+bindings, all-or-any evaluation (strictest-wins across the app's rows:
+one `all` binding makes the whole app require-all). Binding targets:
+`user` (user_id), `group` (group_id), `policy` (`group:<name>` or
+`email_domain:<domain>` clauses joined by `|`). OIDC authorize and
+SAML SSO enforce the same bindings, and legacy LDAP/RADIUS binds deny
+per-app-MFA users (the global LDAP tree keeps the admin-only gate —
+no app identity on the wire). Admin API: `/api/admin/apps` CRUD +
+`/bindings` sub-collection.
+
+Uploads (`usecase/asset` + `adapter/storage` local backend): `POST
+/api/uploads` (multipart `file` + `asset_type=avatar|app_logo|saas_logo`;
+avatars any user, logos admin-only) validates magic bytes (jpeg/png/
+webp, max 2 MB), re-encodes to webp server-side (pure-Go lossless,
+512px long edge — the `.webp` contract never trusts the client), and
+answers the public path; `GET /uploads/<type>/<uuid>.webp` serves
+`image/webp` with immutable caching. Storage via `domain.FileStorage`;
+`STORAGE_BACKEND=local` (dir `STORAGE_DIR`) in v1, S3 in M7.
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
 - `internal/domain` — entities + ports (imports no other internal package)
 - `internal/config` — env-only config + boot validation (LDAP/SMTP included)
-- `internal/usecase/{auth,user,audit,oidcflow,samlflow}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent + SAML assertion decisions
-- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`
-- `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, embedded SPA
-- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required)
+- `internal/usecase/{auth,user,audit,oidcflow,samlflow,mfa,app,asset}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent + SAML assertion decisions, TOTP/recovery/policy, app catalog + bindings + launch, webp uploads
+- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml,storage}` — pgx stores + goose runner, argon2id + TOTP + seed seal, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`, local file storage
+- `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads, embedded SPA
+- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
-- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag)
 - `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
 
 Dependency rule: `delivery → usecase → domain`; `adapter` implements
