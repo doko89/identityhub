@@ -62,7 +62,7 @@ describe("AdminGroupsPage", () => {
     );
     await waitFor(() => expect(getByText("ih_admin")).toBeDefined());
     fireEvent.click(getByRole("button", { name: "Delete" }));
-    fireEvent.click(getByRole("button", { name: "Yes" }));
+    fireEvent.click(getByRole("button", { name: "Delete group" }));
     await waitFor(() =>
       expect(getByText("the ih_admin group cannot be deleted")).toBeDefined(),
     );

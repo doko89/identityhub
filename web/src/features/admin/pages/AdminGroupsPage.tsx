@@ -1,5 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
-import { buttonStyle, inputStyle, labelStyle, secondaryStyle } from "@/shared/ui/formStyles";
+import { Button } from "@/shared/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import { Separator } from "@/shared/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
+import { Skeleton } from "@/shared/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/ui/table";
 import {
   ADMIN_PAGE_SIZE,
   addMember,
@@ -25,6 +52,7 @@ export function AdminGroupsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<AdminGroup | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminGroup | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async (nextOffset: number) => {
     setNotice(null);
@@ -43,6 +71,7 @@ export function AdminGroupsPage() {
   }, [load]);
 
   async function runDelete(g: AdminGroup) {
+    setDeleteBusy(true);
     setNotice(null);
     try {
       await deleteGroup(g.id);
@@ -53,106 +82,148 @@ export function AdminGroupsPage() {
     } catch (err) {
       setConfirmDelete(null);
       setNotice(toNotice(err));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Groups</h1>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
+      <h1 className="text-xl font-semibold">Groups</h1>
+      <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Membership drives app access and the admin flag (ih_admin members are administrators).
       </p>
 
-      <div style={{ marginBottom: 12 }}>
-        <button
-          type="button"
-          style={{ ...buttonStyle, width: "auto" }}
-          onClick={() => setShowCreate((v) => !v)}
-        >
-          {showCreate ? "Close" : "Add group"}
-        </button>
+      <div className="mb-3">
+        <Button type="button" onClick={() => setShowCreate(true)}>
+          Add group
+        </Button>
       </div>
 
       <Notice value={notice} />
 
-      {showCreate && (
-        <CreateGroupForm
-          onDone={(g) => {
-            setShowCreate(false);
-            void load(offset);
-            setSelected({ id: g.id, name: g.name, description: g.description, member_count: 0 });
-          }}
-          onError={setNotice}
-        />
-      )}
+      <Sheet open={showCreate} onOpenChange={setShowCreate}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Add group</SheetTitle>
+            <SheetDescription>Groups collect users for app access and admin grants.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <CreateGroupForm
+              onDone={(g) => {
+                setShowCreate(false);
+                void load(offset);
+                setSelected({ id: g.id, name: g.name, description: g.description, member_count: 0 });
+              }}
+              onError={setNotice}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={confirmDelete !== null} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {confirmDelete?.name}?</DialogTitle>
+            <DialogDescription>
+              The group and its app bindings disappear immediately. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteBusy}
+              onClick={() => { if (confirmDelete !== null) void runDelete(confirmDelete); }}
+            >
+              {deleteBusy ? "Deleting…" : "Delete group"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {groups === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading groups…</p>
+        <div className="flex flex-col gap-2" aria-label="Loading groups">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       )}
       {groups !== null && (
         <>
-          <div className="ih-table-wrap">
-            <table className="ih-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Description</th>
-                  <th>Members</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Members</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {groups.map((g) => (
-                  <tr key={g.id}>
-                    <td>{g.name}</td>
-                    <td style={{ whiteSpace: "normal" }}>{g.description || "—"}</td>
-                    <td>{g.member_count}</td>
-                    <td>
-                      <span className="ih-row-actions">
-                        <button type="button" style={rowLinkStyle} onClick={() => setSelected(g)}>
+                  <TableRow key={g.id}>
+                    <TableCell>{g.name}</TableCell>
+                    <TableCell className="whitespace-normal">{g.description || "—"}</TableCell>
+                    <TableCell>{g.member_count}</TableCell>
+                    <TableCell>
+                      <span className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-1"
+                          onClick={() => setSelected(g)}
+                        >
                           Members
-                        </button>
-                        {confirmDelete?.id === g.id ? (
-                          <span style={{ display: "inline-flex", gap: 4, fontSize: 13 }}>
-                            Delete {g.name}?
-                            <button type="button" style={dangerLinkStyle} onClick={() => void runDelete(g)}>
-                              Yes
-                            </button>
-                            <button type="button" style={rowLinkStyle} onClick={() => setConfirmDelete(null)}>
-                              No
-                            </button>
-                          </span>
-                        ) : (
-                          <button type="button" style={rowLinkStyle} onClick={() => setConfirmDelete(g)}>
-                            Delete
-                          </button>
-                        )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-1"
+                          onClick={() => setConfirmDelete(g)}
+                        >
+                          Delete
+                        </Button>
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <Pager offset={offset} total={total} onPage={(o) => void load(o)} />
         </>
       )}
 
-      {selected !== null && (
-        <GroupMembers
-          key={selected.id}
-          group={selected}
-          onError={setNotice}
-          onClose={() => setSelected(null)}
-          onCountChange={(delta) =>
-            setGroups((prev) =>
-              prev?.map((g) =>
-                g.id === selected.id ? { ...g, member_count: g.member_count + delta } : g,
-              ) ?? null,
-            )
-          }
-        />
-      )}
+      <Sheet open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Members of {selected?.name}</SheetTitle>
+            <SheetDescription>Add users by username, email, or ID.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {selected !== null && (
+              <GroupMembers
+                key={selected.id}
+                group={selected}
+                onError={setNotice}
+                onCountChange={(delta) =>
+                  setGroups((prev) =>
+                    prev?.map((g) =>
+                      g.id === selected.id ? { ...g, member_count: g.member_count + delta } : g,
+                    ) ?? null,
+                  )
+                }
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -184,19 +255,20 @@ function CreateGroupForm({
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="ih-panel" style={{ maxWidth: 480 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 12px" }}>Add group</h2>
-      <label style={labelStyle}>
-        Name
-        <input name="name" style={inputStyle} required />
-      </label>
-      <label style={{ ...labelStyle, marginBottom: 16 }}>
-        Description
-        <input name="description" style={inputStyle} />
-      </label>
-      <button type="submit" style={buttonStyle} disabled={busy}>
-        {busy ? "Creating…" : "Create group"}
-      </button>
+    <form onSubmit={(e) => void submit(e)}>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="new-group-name">Name</FieldLabel>
+          <Input id="new-group-name" name="name" required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-group-description">Description</FieldLabel>
+          <Input id="new-group-description" name="description" />
+        </Field>
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy ? "Creating…" : "Create group"}
+        </Button>
+      </FieldGroup>
     </form>
   );
 }
@@ -204,12 +276,10 @@ function CreateGroupForm({
 function GroupMembers({
   group,
   onError,
-  onClose,
   onCountChange,
 }: {
   group: AdminGroup;
   onError: (n: AdminNotice) => void;
-  onClose: () => void;
   onCountChange: (delta: number) => void;
 }) {
   const [members, setMembers] = useState<string[] | null>(null);
@@ -260,40 +330,32 @@ function GroupMembers({
   }
 
   return (
-    <section className="ih-panel" style={{ maxWidth: 560 }} aria-label={`Members of ${group.name}`}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>Members of {group.name}</h2>
-      <form
-        onSubmit={(e) => void add(e)}
-        style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}
-      >
-        <input
+    <div aria-label={`Members of ${group.name}`}>
+      <form onSubmit={(e) => void add(e)} className="mb-3 flex flex-wrap gap-2">
+        <Input
           name="login"
           placeholder="Username, email, or user ID"
           aria-label="User to add"
-          style={{ ...inputStyle, marginTop: 0, flex: "1 1 200px" }}
+          className="min-w-48 flex-1"
           required
         />
-        <button type="submit" style={{ ...secondaryStyle, width: "auto" }} disabled={busy}>
+        <Button type="submit" variant="outline" disabled={busy}>
           Add
-        </button>
-        <button type="button" style={{ ...secondaryStyle, width: "auto" }} onClick={onClose}>
-          Close
-        </button>
+        </Button>
       </form>
-      {members === null && (
-        <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>Loading members…</p>
-      )}
+      <Separator className="mb-2" />
+      {members === null && <p className="text-sm text-muted-foreground">Loading members…</p>}
       {members !== null && members.length === 0 && (
-        <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>No members yet.</p>
+        <p className="text-sm text-muted-foreground">No members yet.</p>
       )}
       {members !== null && members.length > 0 && (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
+        <ul className="m-0 list-none p-0 text-sm">
           {members.map((id) => (
             <MemberRow key={id} userId={id} busy={busy} onRemove={() => void remove(id)} />
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -318,34 +380,18 @@ function MemberRow({ userId, busy, onRemove }: { userId: string; busy: boolean; 
   }, [userId]);
 
   return (
-    <li
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "6px 0",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-      <button type="button" style={rowLinkStyle} disabled={busy} onClick={onRemove}>
+    <li className="flex items-center justify-between gap-2 border-b py-1.5 last:border-b-0">
+      <span className="overflow-hidden text-ellipsis">{label}</span>
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto shrink-0 p-1"
+        disabled={busy}
+        onClick={onRemove}
+      >
         Remove
-      </button>
+      </Button>
     </li>
   );
 }
-
-const rowLinkStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "var(--primary)",
-  fontSize: 13,
-  cursor: "pointer",
-};
-
-const dangerLinkStyle: React.CSSProperties = {
-  ...rowLinkStyle,
-  color: "var(--destructive)",
-  fontWeight: 600,
-};
