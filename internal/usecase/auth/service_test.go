@@ -1323,11 +1323,8 @@ func TestLoginLegacyDeniesAdminsWhenMFARequired(t *testing.T) {
 		Username: "root", Password: "root-password-1", IP: "10.9.0.4",
 		Method: domain.MethodLDAP,
 	})
-	if !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("admin LoginLegacy = %v, want ErrForbidden", err)
-	}
-	if !strings.Contains(err.Error(), "multi-factor") {
-		t.Errorf("error %q must name multi-factor authentication", err)
+	if !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("admin LoginLegacy = %v, want ErrMFARequired", err)
 	}
 	a := lastAudit(h)
 	if a.Method != domain.MethodLDAP || a.Result != domain.ResultFailure {
@@ -1353,8 +1350,8 @@ func TestLoginLegacyDeniesAdminEvenWhenDirectoryVerifies(t *testing.T) {
 	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
 		Username: "dir-root", Password: "dir-pass-0002", Method: domain.MethodRADIUS,
 	})
-	if !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("LDAP admin LoginLegacy = %v, want ErrForbidden", err)
+	if !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("LDAP admin LoginLegacy = %v, want ErrMFARequired", err)
 	}
 }
 

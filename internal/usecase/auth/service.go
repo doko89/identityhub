@@ -30,6 +30,12 @@ import (
 // with an explicit message (PRD §5.1).
 var ErrDirectoryUnavailable = errors.New("directory unavailable")
 
+// ErrMFARequired signals that a legacy bind was denied because the
+// account must use MFA (TECH_SPEC §6.4–6.5). Legacy delivery maps it to
+// a protocol-level invalid-credentials response with an explanatory
+// diagnostic (there is no "MFA required" code in LDAP/RADIUS).
+var ErrMFARequired = errors.New("multi-factor authentication is required for this account; legacy bind is not allowed")
+
 const (
 	// MinPasswordLength is the v1 password policy floor (PRD §6.10).
 	MinPasswordLength = 12
@@ -212,7 +218,7 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 		if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, "mfa required"); err != nil {
 			return domain.User{}, err
 		}
-		return domain.User{}, fmt.Errorf("%w: multi-factor authentication is required for this account; legacy bind is not allowed", domain.ErrForbidden)
+		return domain.User{}, ErrMFARequired
 	}
 	if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultSuccess, in.IP, ""); err != nil {
 		return domain.User{}, err
