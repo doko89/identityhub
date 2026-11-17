@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { KeyRound, Pencil, Plus, RotateCcw, ShieldCheck } from "lucide-react";
 import { ApiError } from "@/shared/api/client";
+import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -468,12 +469,26 @@ function EditUserForm({
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor="edit-avatar">Avatar URL</FieldLabel>
-          <Input
-            id="edit-avatar"
-            value={avatarUrl}
-            onChange={(e) => setAvatarUrl(e.target.value)}
-          />
+          <FieldLabel htmlFor="edit-avatar-upload">Avatar</FieldLabel>
+          <ImageDropzone
+            id="edit-avatar-upload"
+            assetType="avatar"
+            label="Upload user avatar"
+            hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+            onUploaded={(url) => setAvatarUrl(url)}
+            className="rounded-full"
+          >
+            {avatarUrl !== "" ? (
+              <Avatar className="size-16">
+                <AvatarImage src={avatarUrl} alt="" />
+                <AvatarFallback>{user.username.slice(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+            ) : (
+              <div className="flex size-16 items-center justify-center rounded-full border border-dashed text-xs text-muted-foreground">
+                No avatar
+              </div>
+            )}
+          </ImageDropzone>
         </Field>
         <Field orientation="horizontal">
           <Checkbox

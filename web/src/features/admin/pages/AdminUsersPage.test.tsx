@@ -68,6 +68,40 @@ describe("AdminUsersPage", () => {
     await waitFor(() => expect(getByText("bob@example.com")).toBeDefined());
   });
 
+  it("uploads an avatar in the edit sheet and saves its URL", async () => {
+    const uploadedUrl = "/uploads/avatar/aaa.webp";
+    let patchBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/admin/users?")) {
+        return Response.json({ users: [alice], total: 1 });
+      }
+      if (u === "/api/uploads" && init?.method === "POST") {
+        expect((init.body as FormData).get("asset_type")).toBe("avatar");
+        return Response.json({ id: "aaa", url: uploadedUrl, width: 1, height: 1, byte_size: 3 });
+      }
+      expect(init?.method).toBe("PATCH");
+      patchBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({ user: { ...alice, avatar_url: uploadedUrl } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminUsersPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("alice@example.com")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Edit alice" }));
+    const sheet = getByRole("dialog", { name: "Edit alice" });
+    expect(within(sheet).getByText("No avatar")).toBeDefined();
+    const input = sheet.querySelector("#edit-avatar-upload") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["img"], "a.png", { type: "image/png" })] } });
+    await waitFor(() => expect(within(sheet).queryByText("No avatar")).toBeNull());
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patchBody).not.toBeNull());
+    expect(patchBody?.["avatar_url"]).toBe(uploadedUrl);
+  });
+
   it("shows the backend message on failure", async () => {
     vi.stubGlobal(
       "fetch",
