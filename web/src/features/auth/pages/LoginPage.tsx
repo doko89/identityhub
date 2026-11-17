@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useBrand } from "@/features/branding/BrandProvider";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import { Spinner } from "@/shared/ui/spinner";
 
 // Login page (DESIGN §5.1 layout). Posts to POST /api/auth/login; on
 // success the browser continues to ?next= (the OIDC authorize request)
@@ -18,107 +24,91 @@ export function LoginPage() {
 
   return (
     <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        ...background,
-      }}
+      className="flex min-h-screen items-center justify-center p-4"
+      style={background}
     >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 380,
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          background: "var(--background)",
-          padding: 24,
-        }}
-      >
-        {brand?.logo_url !== undefined && brand.logo_url !== "" && (
-          <img src={brand.logo_url} alt="" style={{ height: 28, marginBottom: 8 }} />
-        )}
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>{orgName}</h1>
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
-          Sign in
-        </p>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setNotice(null);
-            try {
-              const form = new FormData(e.currentTarget);
-              const res = await fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  username: form.get("username"),
-                  password: form.get("password"),
-                }),
-              });
-              if (!res.ok) {
-                const data = (await res.json().catch(() => null)) as { error?: string } | null;
-                setNotice(data?.error ?? "Sign-in failed. Try again.");
-                return;
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          {brand?.logo_url !== undefined && brand.logo_url !== "" && (
+            <img src={brand.logo_url} alt="" className="mb-2 h-7" />
+          )}
+          <CardTitle>{orgName}</CardTitle>
+          <CardDescription>Sign in</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setNotice(null);
+              try {
+                const form = new FormData(e.currentTarget);
+                const res = await fetch("/api/auth/login", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    username: form.get("username"),
+                    password: form.get("password"),
+                  }),
+                });
+                if (!res.ok) {
+                  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+                  setNotice(data?.error ?? "Sign-in failed. Try again.");
+                  return;
+                }
+                const data = (await res.json().catch(() => null)) as {
+                  mfa_required?: boolean;
+                  setup_required?: boolean;
+                } | null;
+                const next = safeNext(searchParams.get("next"));
+                if (data?.mfa_required) {
+                  const setup = data.setup_required ? "setup=1&" : "";
+                  window.location.href = `/mfa?${setup}next=${encodeURIComponent(next)}`;
+                  return;
+                }
+                window.location.href = next;
+              } catch {
+                setNotice("Cannot reach the server. Try again.");
+              } finally {
+                setBusy(false);
               }
-              const data = (await res.json().catch(() => null)) as {
-                mfa_required?: boolean;
-                setup_required?: boolean;
-              } | null;
-              const next = safeNext(searchParams.get("next"));
-              if (data?.mfa_required) {
-                const setup = data.setup_required ? "setup=1&" : "";
-                window.location.href = `/mfa?${setup}next=${encodeURIComponent(next)}`;
-                return;
-              }
-              window.location.href = next;
-            } catch {
-              setNotice("Cannot reach the server. Try again.");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <label style={{ display: "block", fontSize: 14, marginBottom: 12 }}>
-            Username
-            <input
-              name="username"
-              autoComplete="username"
-              style={inputStyle}
-              required
-            />
-          </label>
-          <label style={{ display: "block", fontSize: 14, marginBottom: 16 }}>
-            Password
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              style={inputStyle}
-              required
-            />
-          </label>
-          <button type="submit" style={buttonStyle} disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-        <p style={{ fontSize: 13, textAlign: "right", margin: "12px 0 0" }}>
-          <Link to="/forgot-password" style={{ color: "var(--primary)" }}>
-            Forgot password?
-          </Link>
-        </p>
-        {notice !== null && (
-          <p role="alert" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-            {notice}
+            }}
+          >
+            <FieldGroup>
+              {notice !== null && (
+                <Alert variant="destructive">
+                  <AlertTitle>Sign-in failed</AlertTitle>
+                  <AlertDescription>{notice}</AlertDescription>
+                </Alert>
+              )}
+              <Field>
+                <FieldLabel htmlFor="login-username">Username</FieldLabel>
+                <Input id="login-username" name="username" autoComplete="username" required />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="login-password">Password</FieldLabel>
+                <Input
+                  id="login-password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </Field>
+              <Button type="submit" className="w-full" disabled={busy}>
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                {busy ? "Signing in…" : "Sign in"}
+              </Button>
+            </FieldGroup>
+          </form>
+          <p className="mt-3 text-right text-sm">
+            <Link to="/forgot-password" className="text-primary hover:underline">
+              Forgot password?
+            </Link>
           </p>
-        )}
-        <p style={{ fontSize: 12, color: "var(--muted-foreground)", marginBottom: 0 }}>
-          © {orgName}
-        </p>
-      </div>
+          <p className="mb-0 text-xs text-muted-foreground">© {orgName}</p>
+        </CardContent>
+      </Card>
     </main>
   );
 }
@@ -130,28 +120,3 @@ function safeNext(next: string | null): string {
   }
   return "/";
 }
-
-const inputStyle: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  boxSizing: "border-box",
-  marginTop: 4,
-  padding: "8px 12px",
-  border: "1px solid var(--input)",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--background)",
-  color: "var(--foreground)",
-  fontSize: 14,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  border: "none",
-  borderRadius: "calc(var(--radius) - 2px)",
-  background: "var(--primary)",
-  color: "var(--primary-foreground)",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-};
