@@ -1,10 +1,12 @@
 package ldap
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -75,37 +77,82 @@ func TestNewPlainOK(t *testing.T) {
 	s.Stop()
 }
 
-// fakeConn is a minimal net.Conn for the whitelist hook.
+// fakeConn is a net.Pipe-backed conn with a spoofed remote address for
+// the whitelist hook (the hook closes rejected connections, so the
+// conn must be real).
 type fakeConn struct {
 	net.Conn
+	peer   net.Conn
 	remote string
 }
 
-func (f fakeConn) RemoteAddr() net.Addr {
+func newFakeConn(t *testing.T, remote string) *fakeConn {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	return &fakeConn{Conn: a, peer: b, remote: remote}
+}
+
+func (f *fakeConn) RemoteAddr() net.Addr {
 	addr, _ := net.ResolveTCPAddr("tcp", f.remote)
 	return addr
 }
 
+// closedByHook reports whether the hook side was closed: the peer read
+// hits EOF (a read timeout means the connection is still open).
+func (f *fakeConn) closedByHook(t *testing.T) bool {
+	t.Helper()
+	_ = f.peer.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var one [1]byte
+	_, err := f.peer.Read(one[:])
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return false
+	}
+	return true
+}
+
 func TestAllowConnWhitelist(t *testing.T) {
 	hook := allowConn([]*net.IPNet{mustCIDR(t, "10.0.0.0/8"), mustCIDR(t, "192.168.1.50/32")}, testLogger())
-	if err := hook(fakeConn{remote: "10.1.2.3:3890"}); err != nil {
-		t.Errorf("whitelisted 10.1.2.3 rejected: %v", err)
+	// Rejection closes the connection (the hook itself returns nil to
+	// dodge the library's nil-channel panic on the error path).
+	allowed := newFakeConn(t, "10.1.2.3:3890")
+	if err := hook(allowed); err != nil {
+		t.Errorf("whitelisted 10.1.2.3 hook = %v", err)
 	}
-	if err := hook(fakeConn{remote: "192.168.1.50:9999"}); err != nil {
-		t.Errorf("whitelisted bare IP rejected: %v", err)
+	if allowed.closedByHook(t) {
+		t.Error("whitelisted 10.1.2.3 connection closed, want open")
 	}
-	if err := hook(fakeConn{remote: "11.0.0.1:3890"}); err == nil {
-		t.Error("outside 11.0.0.1 allowed, want rejection")
+	bare := newFakeConn(t, "192.168.1.50:9999")
+	if err := hook(bare); err != nil {
+		t.Errorf("whitelisted bare IP hook = %v", err)
+	}
+	if bare.closedByHook(t) {
+		t.Error("whitelisted bare-IP connection closed, want open")
+	}
+	outside := newFakeConn(t, "11.0.0.1:3890")
+	if err := hook(outside); err != nil {
+		t.Errorf("outside hook = %v, want nil (close signals rejection)", err)
+	}
+	if !outside.closedByHook(t) {
+		t.Error("outside 11.0.0.1 connection left open, want closed")
 	}
 	if err := hook(nil); err == nil {
-		t.Error("nil conn allowed, want rejection")
+		t.Error("nil conn hook = nil, want error")
 	}
 }
 
 func TestAllowConnEmptyMeansUnrestricted(t *testing.T) {
 	hook := allowConn(nil, testLogger())
-	if err := hook(fakeConn{remote: "203.0.113.7:3890"}); err != nil {
-		t.Errorf("empty whitelist rejected: %v", err)
+	open := newFakeConn(t, "203.0.113.7:3890")
+	if err := hook(open); err != nil {
+		t.Errorf("empty whitelist hook = %v", err)
+	}
+	if open.closedByHook(t) {
+		t.Error("empty-whitelist connection closed, want open")
 	}
 }
 

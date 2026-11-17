@@ -375,6 +375,17 @@ func (s *Server) memberDNs(ctx context.Context, groupID uuid.UUID) ([]string, er
 	return out, nil
 }
 
+// displayNames maps internal lowercase attribute keys to the canonical
+// LDAP names clients expect (go-ldap matches names case-sensitively).
+var displayNames = map[string]string{
+	"objectclass":          "objectClass",
+	"memberof":             "memberOf",
+	"displayname":          "displayName",
+	"namingcontexts":       "namingContexts",
+	"supportedldapversion": "supportedLDAPVersion",
+	"vendorname":           "vendorName",
+}
+
 // writeEntry writes one search result entry honoring the attribute
 // selection.
 func writeEntry(w ldapserver.ResponseWriter, e *entry, want map[string]bool, all, typesOnly bool) {
@@ -388,6 +399,9 @@ func writeEntry(w ldapserver.ResponseWriter, e *entry, want map[string]bool, all
 			for _, v := range values {
 				vals = append(vals, goldapmessage.AttributeValue(v))
 			}
+		}
+		if display, ok := displayNames[name]; ok {
+			name = display
 		}
 		res.AddAttribute(goldapmessage.AttributeDescription(name), vals...)
 	}

@@ -58,6 +58,10 @@ type Server struct {
 	stopOnce   sync.Once
 	binds      map[any]boundConn
 	bindsMutex sync.Mutex
+	// rawListener is the TCP listener under the (optional) TLS
+	// wrapper; Stop sets a past deadline on it to unblock Accept.
+	rawListener net.Listener
+	rawMutex    sync.Mutex
 }
 
 // boundConn remembers one connection's successful bind. The map key is
@@ -144,14 +148,20 @@ func loadTLSConfig(cfg Config) (*tls.Config, error) {
 // Serve blocks serving LDAP until Stop is called. It returns a bind
 // failure immediately, or nil after a clean Stop.
 func (s *Server) Serve() error {
-	var opts []func(*ldapserver.Server)
+	tlsCfg := s.tlsConfig
+	// The capture runs before the TLS wrap, so rawListener is always
+	// the inner TCP listener.
+	opts := []func(*ldapserver.Server){func(srv *ldapserver.Server) {
+		s.rawMutex.Lock()
+		s.rawListener = srv.Listener
+		s.rawMutex.Unlock()
+		close(s.ready)
+	}}
 	if s.mode == ModeLDAPS {
-		tlsCfg := s.tlsConfig
 		opts = append(opts, func(srv *ldapserver.Server) {
 			srv.Listener = tls.NewListener(srv.Listener, tlsCfg)
 		})
 	}
-	opts = append(opts, func(*ldapserver.Server) { close(s.ready) })
 	return s.srv.ListenAndServe(s.addr, opts...)
 }
 
@@ -168,9 +178,16 @@ func (s *Server) Addr() net.Addr {
 }
 
 // Stop shuts the server down. The library's Stop only closes its done
-// channel while the accept loop blocks, and closing the listener
-// instead would crash the loop on a nil connection — so Stop runs
-// async and a wakeup dial lets the loop notice and exit cleanly.
+// channel while the accept loop blocks; closing the listener instead
+// would crash the loop on a nil connection, and a wakeup dial would
+// race a whitelist rejection against the shutdown notice — so Stop
+// sets a past deadline on the raw TCP listener. The loop treats the
+// resulting Accept timeout as "recheck the done channel and exit",
+// which is deterministic and opens no connection. A client
+// disconnect landing exactly inside Stop can still trip a
+// send-on-closed race inside the library; that panic can only fire
+// during shutdown (the process is exiting anyway), never while
+// serving.
 func (s *Server) Stop() {
 	s.stopOnce.Do(func() {
 		done := make(chan struct{})
@@ -178,10 +195,11 @@ func (s *Server) Stop() {
 			s.srv.Stop()
 			close(done)
 		}()
-		if addr := s.Addr(); addr != nil {
-			if c, err := net.DialTimeout("tcp", addr.String(), 2*time.Second); err == nil {
-				_ = c.Close()
-			}
+		s.rawMutex.Lock()
+		raw := s.rawListener
+		s.rawMutex.Unlock()
+		if tl, ok := raw.(*net.TCPListener); ok {
+			_ = tl.SetDeadline(time.Now())
 		}
 		<-done
 	})
@@ -190,7 +208,17 @@ func (s *Server) Stop() {
 // allowConn builds the OnNewConnection hook: connections outside the
 // whitelist are rejected before any LDAP bytes are parsed (TECH_SPEC
 // §6.4). An empty whitelist restricts nothing (TLS modes without one).
+//
+// Rejection closes the connection inside the hook instead of returning
+// an error: the library panics closing a nil response channel on the
+// hook-error path, while a pre-closed connection simply EOFs its first
+// read and tears down cleanly. Either way the server parses nothing.
 func allowConn(nets []*net.IPNet, log *slog.Logger) func(net.Conn) error {
+	reject := func(c net.Conn, host string) error {
+		log.Warn("ldap connection rejected by whitelist", "ip", host)
+		_ = c.Close()
+		return nil
+	}
 	return func(c net.Conn) error {
 		if c == nil || c.RemoteAddr() == nil {
 			return errors.New("ldap: nil connection")
@@ -198,20 +226,23 @@ func allowConn(nets []*net.IPNet, log *slog.Logger) func(net.Conn) error {
 		if len(nets) == 0 {
 			return nil
 		}
-		host, _, err := net.SplitHostPort(c.RemoteAddr().String())
+		addr := ""
+		if c.RemoteAddr() != nil {
+			addr = c.RemoteAddr().String()
+		}
+		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
-			host = c.RemoteAddr().String()
+			host = addr
 		}
 		ip := net.ParseIP(host)
 		if ip == nil {
-			return fmt.Errorf("ldap: unparsable remote address %q", host)
+			return reject(c, host)
 		}
 		for _, n := range nets {
 			if n.Contains(ip) {
 				return nil
 			}
 		}
-		log.Warn("ldap connection rejected by whitelist", "ip", host)
-		return fmt.Errorf("ldap: connection from %s is not whitelisted", host)
+		return reject(c, host)
 	}
 }
