@@ -383,6 +383,20 @@ func TestProviderRegistrationE2E(t *testing.T) {
 		t.Fatalf("delete NAS = %d, want 204", code)
 	}
 
+	// Partial app PATCH (docs/INTEGRATION.md §6): omitted keys keep
+	// their values, so flipping per-app MFA needs one key only.
+	if code, body := doJSON(t, r, http.MethodPatch, fx.srv.URL+"/api/admin/apps/"+appOIDC, map[string]any{
+		"mfa_required": true,
+	}); code != 200 {
+		t.Fatalf("partial PATCH app = %d (%v), want 200", code, body)
+	} else {
+		app, _ := body["app"].(map[string]any)
+		slug, _ := app["slug"].(string)
+		if app["mfa_required"] != true || !strings.HasPrefix(slug, "prov-wiki-") {
+			t.Fatalf("partial PATCH lost stored values: %v", app)
+		}
+	}
+
 	// Guards: a plain user registers nothing.
 	bob := fx.mkuser("prov-bob")
 	b := fx.browser()

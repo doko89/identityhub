@@ -68,29 +68,53 @@ func (h *Handlers) handleLaunch(w http.ResponseWriter, req *http.Request) {
 // ---------- admin: app catalog ----------
 
 type adminAppRequest struct {
-	Slug         string `json:"slug"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	IconURL      string `json:"icon_url"`
-	LaunchURL    string `json:"launch_url"`
-	GroupLabel   string `json:"group_label"`
-	ProviderType string `json:"provider_type"`
-	IsVisible    *bool  `json:"is_visible"`
-	SortOrder    int    `json:"sort_order"`
-	MFARequired  bool   `json:"mfa_required"`
+	Slug         *string `json:"slug"`
+	Name         *string `json:"name"`
+	Description  *string `json:"description"`
+	IconURL      *string `json:"icon_url"`
+	LaunchURL    *string `json:"launch_url"`
+	GroupLabel   *string `json:"group_label"`
+	ProviderType *string `json:"provider_type"`
+	IsVisible    *bool   `json:"is_visible"`
+	SortOrder    *int    `json:"sort_order"`
+	MFARequired  *bool   `json:"mfa_required"`
 }
 
-func (r adminAppRequest) toApplication() domain.Application {
-	visible := true
+// applyTo overlays the keys present in the body onto base. Create passes
+// a zero app (visible by default); update passes the stored row so
+// omitted keys keep their values.
+func (r adminAppRequest) applyTo(base domain.Application) domain.Application {
+	if r.Slug != nil {
+		base.Slug = *r.Slug
+	}
+	if r.Name != nil {
+		base.Name = *r.Name
+	}
+	if r.Description != nil {
+		base.Description = *r.Description
+	}
+	if r.IconURL != nil {
+		base.IconURL = *r.IconURL
+	}
+	if r.LaunchURL != nil {
+		base.LaunchURL = *r.LaunchURL
+	}
+	if r.GroupLabel != nil {
+		base.GroupLabel = *r.GroupLabel
+	}
+	if r.ProviderType != nil {
+		base.ProviderType = domain.ProviderType(*r.ProviderType)
+	}
 	if r.IsVisible != nil {
-		visible = *r.IsVisible
+		base.IsVisible = *r.IsVisible
 	}
-	return domain.Application{
-		Slug: r.Slug, Name: r.Name, Description: r.Description,
-		IconURL: r.IconURL, LaunchURL: r.LaunchURL, GroupLabel: r.GroupLabel,
-		ProviderType: domain.ProviderType(r.ProviderType),
-		IsVisible:    visible, SortOrder: r.SortOrder, MFARequired: r.MFARequired,
+	if r.SortOrder != nil {
+		base.SortOrder = *r.SortOrder
 	}
+	if r.MFARequired != nil {
+		base.MFARequired = *r.MFARequired
+	}
+	return base
 }
 
 // handleAdminListApps pages the whole catalog including invisible apps.
@@ -114,7 +138,7 @@ func (h *Handlers) handleAdminCreateApp(w http.ResponseWriter, req *http.Request
 	if !decodeJSON(w, req, &in) {
 		return
 	}
-	a, err := h.apps.CreateApp(req.Context(), in.toApplication())
+	a, err := h.apps.CreateApp(req.Context(), in.applyTo(domain.Application{IsVisible: true}))
 	if err != nil {
 		h.writeError(w, req, err)
 		return
@@ -137,8 +161,8 @@ func (h *Handlers) handleAdminGetApp(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"app": appJSON(a)})
 }
 
-// handleAdminUpdateApp rewrites an application. Only keys present in the
-// body change; is_visible defaults to the stored value when omitted.
+// handleAdminUpdateApp patches an application. Only keys present in the
+// body change; omitted keys keep their stored values.
 func (h *Handlers) handleAdminUpdateApp(w http.ResponseWriter, req *http.Request) {
 	var in adminAppRequest
 	if !decodeJSON(w, req, &in) {
@@ -154,11 +178,8 @@ func (h *Handlers) handleAdminUpdateApp(w http.ResponseWriter, req *http.Request
 		h.writeError(w, req, err)
 		return
 	}
-	next := in.toApplication()
+	next := in.applyTo(current)
 	next.ID = id
-	if in.IsVisible == nil {
-		next.IsVisible = current.IsVisible
-	}
 	updated, err := h.apps.UpdateApp(req.Context(), next)
 	if err != nil {
 		h.writeError(w, req, err)
