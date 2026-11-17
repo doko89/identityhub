@@ -94,12 +94,72 @@ func TestLoadFailures(t *testing.T) {
 }
 
 func TestValidateDirect(t *testing.T) {
-	cfg := Config{AppEnv: "development", HTTPPort: 8080, DatabaseURL: "postgres://x/db", LogFormat: "text", SessionIdle: time.Minute, SessionLifetime: time.Hour, WorkerSyncInterval: time.Minute}
+	cfg := Config{AppEnv: "development", HTTPPort: 8080, DatabaseURL: "postgres://x/db", LogFormat: "text", SessionIdle: time.Minute, SessionLifetime: time.Hour, WorkerSyncInterval: time.Minute, BaseURL: "http://localhost:8080"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	cfg.HTTPPort = 0
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() with port 0 = nil, want error")
+	}
+}
+
+func TestLoadLDAPAndSMTP(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "LDAP_URL", "ldaps://dir.example.com:636")
+	setEnv(t, "LDAP_BASE_DN", "dc=example,dc=com")
+	setEnv(t, "LDAP_BIND_DN", "cn=svc,dc=example,dc=com")
+	setEnv(t, "LDAP_BIND_PASSWORD", "s3cret")
+	setEnv(t, "LDAP_USER_FILTER", "(department=IT)")
+	setEnv(t, "LDAP_ADMIN_GROUP_DN", "cn=admins,ou=groups,dc=example,dc=com")
+	setEnv(t, "SMTP_HOST", "mail.example.com")
+	setEnv(t, "SMTP_FROM", "idp@example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.LDAP.Enabled() || cfg.LDAP.Timeout != DefaultLDAPTimeout {
+		t.Errorf("LDAP = %+v, want enabled with default timeout", cfg.LDAP)
+	}
+	if !cfg.SMTP.Enabled() || cfg.SMTP.Port != 587 {
+		t.Errorf("SMTP = %+v, want enabled with port 587", cfg.SMTP)
+	}
+	if cfg.BaseURL != DefaultBaseURL {
+		t.Errorf("BaseURL = %q, want default", cfg.BaseURL)
+	}
+}
+
+func TestLoadLDAPSMTPFailures(t *testing.T) {
+	validURL := "postgres://localhost:5432/identityhub"
+	validKey := testEncKey(t)
+
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"LDAP_URL without base DN", map[string]string{"LDAP_URL": "ldap://dir:389"}},
+		{"LDAP_URL bad scheme", map[string]string{"LDAP_URL": "http://dir:389", "LDAP_BASE_DN": "dc=x"}},
+		{"LDAP user filter unbalanced", map[string]string{"LDAP_URL": "ldap://dir:389", "LDAP_BASE_DN": "dc=x", "LDAP_USER_FILTER": "((uid=*)))"}},
+		{"LDAP timeout bad", map[string]string{"LDAP_URL": "ldap://dir:389", "LDAP_BASE_DN": "dc=x", "LDAP_TIMEOUT": "nope"}},
+		{"SMTP without from", map[string]string{"SMTP_HOST": "mail.example.com"}},
+		{"SMTP bad port", map[string]string{"SMTP_HOST": "mail.example.com", "SMTP_FROM": "a@b.c", "SMTP_PORT": "abc"}},
+		{"base URL bad", map[string]string{"APP_BASE_URL": "notaurl"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"DATABASE_URL", "ENC_KEY", "LDAP_URL", "LDAP_BASE_DN", "LDAP_USER_FILTER", "LDAP_TIMEOUT", "SMTP_HOST", "SMTP_FROM", "SMTP_PORT", "APP_BASE_URL"} {
+				t.Setenv(k, "")
+			}
+			t.Setenv("DATABASE_URL", validURL)
+			t.Setenv("ENC_KEY", validKey)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() = nil error, want failure")
+			}
+		})
 	}
 }
