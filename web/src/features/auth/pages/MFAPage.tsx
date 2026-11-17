@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Download } from "lucide-react";
+import { downloadRecoveryCodes } from "@/shared/download";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
@@ -95,7 +97,7 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
                     required
                   />
                 ) : (
-                  <InputOTP id="mfa-code" maxLength={6} value={code} onChange={setCode} required>
+                  <InputOTP id="mfa-code" maxLength={6} value={code} onChange={setCode} required containerClassName="justify-center">
                     <InputOTPGroup>
                       <InputOTPSlot index={0} />
                       <InputOTPSlot index={1} />
@@ -243,6 +245,7 @@ function EnrollFlow({ next }: { next: string }) {
                     <Field>
                       <FieldLabel htmlFor="enroll-code">6-digit code</FieldLabel>
                       <InputOTP
+                        containerClassName="justify-center"
                         id="enroll-code"
                         maxLength={6}
                         value={confirm}
@@ -278,6 +281,15 @@ function EnrollFlow({ next }: { next: string }) {
                     <li key={c}>{c}</li>
                   ))}
                 </ul>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => downloadRecoveryCodes(codes)}
+                >
+                  <Download data-icon="inline-start" />
+                  Download codes (.txt)
+                </Button>
                 <Button
                   type="button"
                   className="w-full"

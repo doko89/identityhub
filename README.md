@@ -201,7 +201,7 @@ no app identity on the wire). Admin API: `/api/admin/apps` CRUD +
 Uploads (`usecase/asset` + `adapter/storage` local backend): `POST
 /api/uploads` (multipart `file` + `asset_type=avatar|app_logo|saas_logo`;
 avatars any user, logos admin-only) validates magic bytes (jpeg/png/
-webp, max 2 MB), re-encodes to webp server-side (pure-Go lossless,
+webp, max 10 MB), re-encodes to webp server-side (pure-Go lossless,
 512px long edge — the `.webp` contract never trusts the client), and
 answers the public path; `GET /uploads/<type>/<uuid>.webp` serves
 `image/webp` with immutable caching. Storage via `domain.FileStorage`:

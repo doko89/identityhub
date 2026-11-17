@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Download } from "lucide-react";
+import { downloadRecoveryCodes } from "@/shared/download";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
@@ -265,14 +267,15 @@ export function AccountMFAPage() {
                       <li key={c}>{c}</li>
                     ))}
                   </ul>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mt-3"
-                    onClick={() => setCodes(null)}
-                  >
-                    I saved my codes
-                  </Button>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => downloadRecoveryCodes(codes)}>
+                      <Download data-icon="inline-start" />
+                      Download codes (.txt)
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setCodes(null)}>
+                      I saved my codes
+                    </Button>
+                  </div>
                 </div>
               </>
             )}
@@ -301,7 +304,15 @@ function CodeInput({
   disabled: boolean;
 }) {
   return (
-    <InputOTP id={id} maxLength={6} value={value} onChange={onChange} disabled={disabled} required>
+    <InputOTP
+      id={id}
+      maxLength={6}
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      required
+      containerClassName="justify-center"
+    >
       <InputOTPGroup>
         <InputOTPSlot index={0} />
         <InputOTPSlot index={1} />

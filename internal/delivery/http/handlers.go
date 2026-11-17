@@ -346,6 +346,60 @@ func (h *Handlers) handleChangePassword(w http.ResponseWriter, req *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"sessions_revoked": revoked})
 }
 
+type updateAccountAvatarRequest struct {
+	AvatarURL string `json:"avatar_url"`
+}
+
+// handleUpdateAccountAvatar attaches an uploaded image as the session
+// user's own avatar. Only server-issued /uploads/ URLs are accepted:
+// arbitrary URLs would turn every avatar <img> into an SSRF/tracking
+// vector; the admin console stays the only place that may set other
+// values.
+func (h *Handlers) handleUpdateAccountAvatar(w http.ResponseWriter, req *http.Request) {
+	var in updateAccountAvatarRequest
+	if !decodeJSON(w, req, &in) {
+		return
+	}
+	if !validSelfAvatarURL(in.AvatarURL) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "avatar_url must be an /uploads/ image URL"})
+		return
+	}
+	u := mustUser(req.Context())
+	updated, err := h.users.UpdateProfile(req.Context(), u.ID, u.DisplayName, u.Email, in.AvatarURL)
+	if err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	groups, err := h.groups.GroupsOfUser(req.Context(), updated.ID)
+	if err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	isAdmin, err := h.groups.IsMember(req.Context(), updated.ID, domain.AdminGroup)
+	if err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": userJSON(updated, groupNames(groups), isAdmin)})
+}
+
+// validSelfAvatarURL accepts only relative /uploads/ paths produced by
+// POST /api/uploads: no scheme, host, parent traversal or whitespace.
+func validSelfAvatarURL(s string) bool {
+	if s == "" || len(s) > 512 || !strings.HasPrefix(s, "/uploads/") || len(s) <= len("/uploads/") {
+		return false
+	}
+	if strings.Contains(s, "..") || strings.Contains(s, "://") || strings.Contains(s, "\\") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] <= 0x20 || s[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 type forgotPasswordRequest struct {
 	Login string `json:"login"` // username or email
 }

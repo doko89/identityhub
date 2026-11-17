@@ -11,7 +11,7 @@ function png(size = 10): File {
 }
 
 describe("validateImageFile", () => {
-  it("accepts jpeg, png and webp within 2 MB", () => {
+  it("accepts jpeg, png and webp within 10 MB", () => {
     expect(validateImageFile(png())).toBeNull();
     expect(
       validateImageFile(new File([new Uint8Array(10)], "a.jpg", { type: "image/jpeg" })),
@@ -21,9 +21,9 @@ describe("validateImageFile", () => {
     ).toBeNull();
   });
 
-  it("rejects files larger than 2 MB", () => {
-    const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "big.png", { type: "image/png" });
-    expect(validateImageFile(big)).toContain("2 MB");
+  it("rejects files larger than 10 MB", () => {
+    const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "big.png", { type: "image/png" });
+    expect(validateImageFile(big)).toContain("10 MB");
   });
 
   it("rejects empty files", () => {

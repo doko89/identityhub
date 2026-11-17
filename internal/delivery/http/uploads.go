@@ -11,9 +11,9 @@ import (
 	"github.com/identityhub/identityhub/internal/domain"
 )
 
-// maxUploadFormBytes caps the multipart form: 2 MB of image plus header
-// headroom (TECH_SPEC §8 enforces 2 MB on the image itself).
-const maxUploadFormBytes = (2 << 20) + (64 << 10)
+// maxUploadFormBytes caps the multipart form: 10 MB of image plus header
+// headroom (TECH_SPEC §8 enforces 10 MB on the image itself).
+const maxUploadFormBytes = (10 << 20) + (64 << 10)
 
 // handleUpload stores one image as webp (TECH_SPEC §6.7). Any signed-in
 // user may upload an avatar; app/SaaS logos are admin-only.

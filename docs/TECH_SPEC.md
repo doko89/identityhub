@@ -208,7 +208,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - `POST /api/uploads` (multipart: `file` + `asset_type` = `avatar`|`app_logo`|`saas_logo`): users may upload an avatar for their own account; `app_logo`/`saas_logo` are admin-only. Response: public path.
 - `GET /uploads/<assetType>/<uuid>.webp` — public read with `Cache-Control: public, max-age=31536000, immutable`.
 - Flow: the frontend converts to webp via the Canvas API first (saves bandwidth + instant preview), then the backend still validates and re-encodes to webp via the library (max 512px long edge, quality 80) — the `.webp` contract is guaranteed by the server, not the client.
-- Validation: jpeg/png/webp input, max 2 MB (check magic bytes, not the extension); random UUID filenames.
+- Validation: jpeg/png/webp input, max 10 MB (check magic bytes, not the extension); random UUID filenames.
 - Storage goes through the `domain.FileStorage` interface (`Put/Get/Delete`) with 2 backends in `adapter/storage`: `local` (filesystem, served by Go/reverse proxy) and `s3` (minio-go, S3-compatible). Selected via env `STORAGE_BACKEND=local|s3` (+ endpoint/bucket/credentials for s3). The S3 backend is nice-to-have, built after local is stable.
 
 ## 7. Branding/Theme
@@ -223,7 +223,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - All secrets come from env/secret store; no secrets in the repo or logs.
 - Rate limits: login 10/min/IP + 5/min/user; TOTP verify 5/min/user; forgot-password 3/hour/email + 10/hour/IP; progressive lockout.
 - Reset tokens: 256-bit random, stored hashed, 15-minute TTL, single-use, one active token per user; forgot responses always generic so account existence is not leaked.
-- Uploads: reject non-jpeg/png/webp (magic bytes), 2 MB and dimension caps, UUID filenames with no user input in the path, serve as `image/webp` + `nosniff`; app/SaaS logos are admin-only.
+- Uploads: reject non-jpeg/png/webp (magic bytes), 10 MB and dimension caps, UUID filenames with no user input in the path, serve as `image/webp` + `nosniff`; app/SaaS logos are admin-only.
 - LDAP provider: modes `ldap`/`ldaps`/`starttls`; TLS 1.2+ with managed certificates; plaintext boots only with a non-empty `LDAP_ALLOWED_CIDRS`; whitelist enforced at connection accept, before any bind or search is parsed.
 - TOTP: reject reuse of an accepted code (atomic `last_step`), encrypted seeds, enroll shows the QR exactly once.
 - Sessions: `HttpOnly + Secure + SameSite=Lax` cookies, 30-minute idle timeout, 12-hour absolute.

@@ -124,7 +124,7 @@ export function AdminBrandingPage() {
                     id="logo-upload"
                     assetType="app_logo"
                     label="Upload a logo file"
-                    description="JPEG, PNG or WebP, max 2 MB. Fills the logo URL above."
+                    description="JPEG, PNG or WebP, max 10 MB. Fills the logo URL above."
                     onUploaded={(url) => set("logo_url", url)}
                   />
                   <Field>
@@ -141,7 +141,7 @@ export function AdminBrandingPage() {
                     id="favicon-upload"
                     assetType="app_logo"
                     label="Upload a favicon file"
-                    description="JPEG, PNG or WebP, max 2 MB. Fills the favicon URL above."
+                    description="JPEG, PNG or WebP, max 10 MB. Fills the favicon URL above."
                     onUploaded={(url) => set("favicon_url", url)}
                   />
                   <div className="grid grid-cols-2 gap-x-3">
@@ -186,7 +186,7 @@ export function AdminBrandingPage() {
                     id="login-bg-upload"
                     assetType="app_logo"
                     label="Upload a background file"
-                    description="JPEG, PNG or WebP, max 2 MB. Fills the background URL above."
+                    description="JPEG, PNG or WebP, max 10 MB. Fills the background URL above."
                     onUploaded={(url) => set("login_background_url", url)}
                   />
                   <Field>

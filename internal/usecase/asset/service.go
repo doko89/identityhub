@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	// MaxUploadBytes is the 2 MB input cap (TECH_SPEC §8). Magic bytes,
+	// MaxUploadBytes is the 10 MB input cap (TECH_SPEC §8). Magic bytes,
 	// not the extension, decide the format.
-	MaxUploadBytes = 2 << 20
+	MaxUploadBytes = 10 << 20
 	// MaxDimension caps the long edge; larger images scale down.
 	MaxDimension = 512
 )
@@ -62,7 +62,7 @@ func (s *Service) Upload(ctx context.Context, actorID *uuid.UUID, assetType stri
 		return domain.Asset{}, fmt.Errorf("asset: read upload: %w", err)
 	}
 	if len(raw) > MaxUploadBytes {
-		return domain.Asset{}, fmt.Errorf("%w: image exceeds 2 MB", domain.ErrValidation)
+		return domain.Asset{}, fmt.Errorf("%w: image exceeds 10 MB", domain.ErrValidation)
 	}
 	if len(raw) == 0 {
 		return domain.Asset{}, fmt.Errorf("%w: empty image", domain.ErrValidation)

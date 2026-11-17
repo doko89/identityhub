@@ -84,7 +84,7 @@ export function AccountPage() {
                 id="avatar-upload"
                 assetType="avatar"
                 label="Profile picture"
-                description="JPEG, PNG or WebP, max 2 MB. The image is stored and its URL is shown below."
+                description="JPEG, PNG or WebP, max 10 MB. The image is stored and its URL is shown below."
                 initialUrl={user.avatar_url}
               />
             </div>

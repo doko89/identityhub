@@ -725,6 +725,38 @@ func TestChangePasswordFailures(t *testing.T) {
 	}
 }
 
+func TestUpdateAccountAvatar(t *testing.T) {
+	u := localUser("ara", "old-password-12")
+	h := newAPI(t, u)
+	h.login(t, "ara", "old-password-12")
+
+	code, out := h.do(http.MethodPost, "/api/account/avatar", map[string]string{"avatar_url": "/uploads/avatar/9.webp"})
+	if code != http.StatusOK {
+		t.Fatalf("attach = %d, %v", code, out)
+	}
+	if out["user"].(map[string]any)["avatar_url"] != "/uploads/avatar/9.webp" {
+		t.Fatalf("avatar_url = %v", out)
+	}
+	// Reflected by /api/auth/me.
+	code, out = h.do(http.MethodGet, "/api/auth/me", nil)
+	if code != http.StatusOK || out["user"].(map[string]any)["avatar_url"] != "/uploads/avatar/9.webp" {
+		t.Fatalf("me = %d, %v", code, out)
+	}
+	// Rejections: empty, external, traversal, wrong prefix, bare prefix.
+	for _, bad := range []string{"", "https://evil.example/x.png", "/uploads/../etc/passwd", "/other/x.png", "/uploads/"} {
+		code, _ := h.do(http.MethodPost, "/api/account/avatar", map[string]string{"avatar_url": bad})
+		if code != http.StatusBadRequest {
+			t.Errorf("avatar_url %q = %d, want 400", bad, code)
+		}
+	}
+	// Unauthenticated.
+	plain := newAPI(t, u)
+	code, _ = plain.do(http.MethodPost, "/api/account/avatar", map[string]string{"avatar_url": "/uploads/avatar/9.webp"})
+	if code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated = %d, want 401", code)
+	}
+}
+
 func TestForgotResetFlow(t *testing.T) {
 	u := localUser("ara", "old-password-12")
 	h := newAPI(t, u, ldapUser("dirara"))

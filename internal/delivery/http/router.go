@@ -65,6 +65,7 @@ func (h *Handlers) mount(r *chi.Mux) {
 	h.mountSAML(r)
 	r.With(h.requireUser).Get("/api/auth/me", h.handleMe)
 	r.With(h.requireUser).Post("/api/account/password/change", h.handleChangePassword)
+	r.With(h.requireUser).Post("/api/account/avatar", h.handleUpdateAccountAvatar)
 	h.mountMFA(r)
 	h.mountApps(r)
 	if h.branding != nil {

@@ -6,9 +6,9 @@ import { ApiError } from "@/shared/api/client";
 
 export type AssetType = "avatar" | "app_logo" | "saas_logo";
 
-// MAX_UPLOAD_BYTES mirrors the backend's 2 MB input cap; the client
+// MAX_UPLOAD_BYTES mirrors the backend's 10 MB input cap; the client
 // rejects larger files before any byte leaves the browser.
-export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
@@ -21,13 +21,13 @@ export interface UploadResult {
 }
 
 // validateImageFile mirrors the server rules (asset/service.go): non-empty,
-// at most 2 MB, jpeg/png/webp. It returns the user-facing problem, if any.
+// at most 10 MB, jpeg/png/webp. It returns the user-facing problem, if any.
 export function validateImageFile(file: File): string | null {
   if (file.size === 0) {
     return "That file is empty. Choose an image to upload.";
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    return "That image is larger than 2 MB. Choose a smaller file.";
+    return "That image is larger than 10 MB. Choose a smaller file.";
   }
   if (!isAcceptedImage(file)) {
     return "That file is not a JPEG, PNG or WebP image.";

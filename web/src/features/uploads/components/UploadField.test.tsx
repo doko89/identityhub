@@ -40,9 +40,9 @@ describe("UploadField", () => {
     const { container, getByRole } = render(
       <UploadField id="u" assetType="avatar" label="Avatar" />,
     );
-    pickFile(container, png("big.png", 2 * 1024 * 1024 + 1));
+    pickFile(container, png("big.png", 10 * 1024 * 1024 + 1));
     await waitFor(() => expect(getByRole("alert")).toBeDefined());
-    expect(getByRole("alert").textContent).toContain("2 MB");
+    expect(getByRole("alert").textContent).toContain("10 MB");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -60,12 +60,12 @@ describe("UploadField", () => {
   it("shows the backend message when the upload fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ error: "image exceeds 2 MB" }, { status: 400 })),
+      vi.fn(async () => Response.json({ error: "image exceeds 10 MB" }, { status: 400 })),
     );
     const { container, getByRole } = render(
       <UploadField id="u" assetType="avatar" label="Avatar" />,
     );
     pickFile(container, png());
-    await waitFor(() => expect(getByRole("alert").textContent).toContain("image exceeds 2 MB"));
+    await waitFor(() => expect(getByRole("alert").textContent).toContain("image exceeds 10 MB"));
   });
 });

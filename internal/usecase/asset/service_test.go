@@ -169,6 +169,9 @@ func TestUploadRejects(t *testing.T) {
 	if _, err := svc.Upload(ctx, nil, domain.AssetAvatar, bytes.NewReader(nil)); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("empty upload must fail validation, got %v", err)
 	}
+	if MaxUploadBytes != 10<<20 {
+		t.Fatalf("MaxUploadBytes = %d, want 10 MB", MaxUploadBytes)
+	}
 	big := bytes.NewReader(make([]byte, MaxUploadBytes+1))
 	if _, err := svc.Upload(ctx, nil, domain.AssetAvatar, big); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("oversize upload must fail validation, got %v", err)
