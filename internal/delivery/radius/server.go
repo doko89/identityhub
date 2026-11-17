@@ -48,12 +48,14 @@ var ErrServerShutdown = radius.ErrServerShutdown
 
 // Server is one in-process RADIUS listener.
 type Server struct {
-	addr    string
-	encKey  [32]byte
-	auth    *usecaseauth.Service
-	clients domain.RADIUSClientStore
-	log     *slog.Logger
-	srv     *radius.PacketServer
+	addr      string
+	encKey    [32]byte
+	auth      *usecaseauth.Service
+	clients   domain.RADIUSClientStore
+	log       *slog.Logger
+	srv       *radius.PacketServer
+	ready     chan struct{}
+	localAddr net.Addr
 }
 
 // New validates cfg and builds the server. The UDP socket binds in
@@ -72,7 +74,7 @@ func New(cfg Config, d Deps) (*Server, error) {
 	if slogLog == nil {
 		slogLog = slog.Default()
 	}
-	s := &Server{addr: cfg.Addr, encKey: cfg.EncKey, auth: d.Auth, clients: d.Clients, log: slogLog}
+	s := &Server{addr: cfg.Addr, encKey: cfg.EncKey, auth: d.Auth, clients: d.Clients, log: slogLog, ready: make(chan struct{})}
 	s.srv = &radius.PacketServer{
 		Addr:         cfg.Addr,
 		SecretSource: s,
@@ -89,8 +91,16 @@ func (s *Server) Serve() error {
 	if err != nil {
 		return fmt.Errorf("radius: listen %s: %w", s.addr, err)
 	}
+	s.localAddr = conn.LocalAddr()
+	close(s.ready)
 	return s.srv.Serve(conn)
 }
+
+// Ready closes once the socket is bound; Addr is valid after that.
+func (s *Server) Ready() <-chan struct{} { return s.ready }
+
+// Addr returns the bound socket address (valid after Ready).
+func (s *Server) Addr() net.Addr { return s.localAddr }
 
 // Shutdown drains handlers and closes the socket.
 func (s *Server) Shutdown(ctx context.Context) error {
