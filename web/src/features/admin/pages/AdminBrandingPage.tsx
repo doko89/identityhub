@@ -2,7 +2,21 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchBranding, type Branding } from "@/features/branding/api";
 import { UploadField } from "@/features/uploads/components/UploadField";
-import { buttonStyle, inputStyle, labelStyle } from "@/shared/ui/formStyles";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent } from "@/shared/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Spinner } from "@/shared/ui/spinner";
+import { Textarea } from "@/shared/ui/textarea";
 import { updateBranding, type BrandingPatch } from "../api";
 import { Notice, toNotice, type AdminNotice } from "../components/adminUi";
 
@@ -64,128 +78,136 @@ export function AdminBrandingPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Branding</h1>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
+      <h1 className="text-xl font-semibold">Branding</h1>
+      <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Organization theme for the login page and the whole app. Changes apply immediately.
       </p>
       <Notice value={notice} />
       {saved && (
-        <p role="status" style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-          Saved. The new theme is live.
-        </p>
+        <Alert role="status" className="mb-4">
+          <AlertDescription>Saved. The new theme is live.</AlertDescription>
+        </Alert>
       )}
       {brand === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading branding…</p>
+        <div className="flex max-w-md flex-col gap-3" aria-label="Loading branding">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+        </div>
       )}
       {brand !== null && (
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <form onSubmit={(e) => void submit(e)} className="ih-panel" style={{ flex: "1 1 320px", margin: 0 }}>
-            <label style={labelStyle}>
-              Organization name
-              <input
-                name="org_name"
-                style={inputStyle}
-                value={brand.org_name}
-                onChange={(e) => set("org_name", e.target.value)}
-              />
-            </label>
-            <label style={labelStyle}>
-              Logo URL
-              <input
-                name="logo_url"
-                style={inputStyle}
-                value={brand.logo_url}
-                onChange={(e) => set("logo_url", e.target.value)}
-                placeholder="/uploads/logo.png"
-              />
-            </label>
-            <div style={{ margin: "-4px 0 12px" }}>
-              <UploadField
-                id="logo-upload"
-                assetType="app_logo"
-                label="Upload a logo file"
-                description="JPEG, PNG or WebP, max 2 MB. Fills the logo URL above."
-                onUploaded={(url) => set("logo_url", url)}
-              />
-            </div>
-            <label style={labelStyle}>
-              Favicon URL
-              <input
-                name="favicon_url"
-                style={inputStyle}
-                value={brand.favicon_url}
-                onChange={(e) => set("favicon_url", e.target.value)}
-                placeholder="/uploads/favicon.ico"
-              />
-            </label>
-            <div style={{ margin: "-4px 0 12px" }}>
-              <UploadField
-                id="favicon-upload"
-                assetType="app_logo"
-                label="Upload a favicon file"
-                description="JPEG, PNG or WebP, max 2 MB. Fills the favicon URL above."
-                onUploaded={(url) => set("favicon_url", url)}
-              />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-              <label style={labelStyle}>
-                Primary color
-                <input
-                  name="primary_color"
-                  style={inputStyle}
-                  value={brand.primary_color}
-                  onChange={(e) => set("primary_color", e.target.value)}
-                  placeholder="#4f46e5"
-                />
-              </label>
-              <label style={labelStyle}>
-                Theme
-                <select
-                  name="theme"
-                  style={inputStyle}
-                  value={brand.theme}
-                  onChange={(e) => set("theme", e.target.value)}
-                >
-                  <option value="">system</option>
-                  <option value="system">system</option>
-                  <option value="light">light</option>
-                  <option value="dark">dark</option>
-                </select>
-              </label>
-            </div>
-            <label style={labelStyle}>
-              Login background URL
-              <input
-                name="login_background_url"
-                style={inputStyle}
-                value={brand.login_background_url}
-                onChange={(e) => set("login_background_url", e.target.value)}
-                placeholder="/uploads/login-bg.jpg"
-              />
-            </label>
-            <div style={{ margin: "-4px 0 12px" }}>
-              <UploadField
-                id="login-bg-upload"
-                assetType="app_logo"
-                label="Upload a background file"
-                description="JPEG, PNG or WebP, max 2 MB. Fills the background URL above."
-                onUploaded={(url) => set("login_background_url", url)}
-              />
-            </div>
-            <label style={{ ...labelStyle, marginBottom: 16 }}>
-              Custom CSS (max 10 KB, sanitized on the server)
-              <textarea
-                name="custom_css"
-                style={{ ...inputStyle, minHeight: 90, fontFamily: "monospace", fontSize: 12 }}
-                value={brand.custom_css}
-                onChange={(e) => set("custom_css", e.target.value)}
-                placeholder=".login-card { … }"
-              />
-            </label>
-            <button type="submit" style={buttonStyle} disabled={busy}>
-              {busy ? "Saving…" : "Save branding"}
-            </button>
-          </form>
+        <div className="flex flex-wrap items-start gap-6">
+          <Card className="min-w-80 flex-1">
+            <CardContent>
+              <form onSubmit={(e) => void submit(e)}>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="brand-org">Organization name</FieldLabel>
+                    <Input
+                      id="brand-org"
+                      name="org_name"
+                      value={brand.org_name}
+                      onChange={(e) => set("org_name", e.target.value)}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="brand-logo">Logo URL</FieldLabel>
+                    <Input
+                      id="brand-logo"
+                      name="logo_url"
+                      value={brand.logo_url}
+                      onChange={(e) => set("logo_url", e.target.value)}
+                      placeholder="/uploads/logo.png"
+                    />
+                  </Field>
+                  <UploadField
+                    id="logo-upload"
+                    assetType="app_logo"
+                    label="Upload a logo file"
+                    description="JPEG, PNG or WebP, max 2 MB. Fills the logo URL above."
+                    onUploaded={(url) => set("logo_url", url)}
+                  />
+                  <Field>
+                    <FieldLabel htmlFor="brand-favicon">Favicon URL</FieldLabel>
+                    <Input
+                      id="brand-favicon"
+                      name="favicon_url"
+                      value={brand.favicon_url}
+                      onChange={(e) => set("favicon_url", e.target.value)}
+                      placeholder="/uploads/favicon.ico"
+                    />
+                  </Field>
+                  <UploadField
+                    id="favicon-upload"
+                    assetType="app_logo"
+                    label="Upload a favicon file"
+                    description="JPEG, PNG or WebP, max 2 MB. Fills the favicon URL above."
+                    onUploaded={(url) => set("favicon_url", url)}
+                  />
+                  <div className="grid grid-cols-2 gap-x-3">
+                    <Field>
+                      <FieldLabel htmlFor="brand-color">Primary color</FieldLabel>
+                      <Input
+                        id="brand-color"
+                        name="primary_color"
+                        value={brand.primary_color}
+                        onChange={(e) => set("primary_color", e.target.value)}
+                        placeholder="#4f46e5"
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="brand-theme">Theme</FieldLabel>
+                      <Select
+                        value={brand.theme === "" ? "system" : brand.theme}
+                        onValueChange={(v) => set("theme", v)}
+                      >
+                        <SelectTrigger id="brand-theme">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="system">system</SelectItem>
+                          <SelectItem value="light">light</SelectItem>
+                          <SelectItem value="dark">dark</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                  <Field>
+                    <FieldLabel htmlFor="brand-bg">Login background URL</FieldLabel>
+                    <Input
+                      id="brand-bg"
+                      name="login_background_url"
+                      value={brand.login_background_url}
+                      onChange={(e) => set("login_background_url", e.target.value)}
+                      placeholder="/uploads/login-bg.jpg"
+                    />
+                  </Field>
+                  <UploadField
+                    id="login-bg-upload"
+                    assetType="app_logo"
+                    label="Upload a background file"
+                    description="JPEG, PNG or WebP, max 2 MB. Fills the background URL above."
+                    onUploaded={(url) => set("login_background_url", url)}
+                  />
+                  <Field>
+                    <FieldLabel htmlFor="brand-css">Custom CSS (max 10 KB, sanitized on the server)</FieldLabel>
+                    <Textarea
+                      id="brand-css"
+                      name="custom_css"
+                      className="min-h-24 font-mono text-xs"
+                      value={brand.custom_css}
+                      onChange={(e) => set("custom_css", e.target.value)}
+                      placeholder=".login-card { … }"
+                    />
+                  </Field>
+                  <Button type="submit" className="w-full" disabled={busy}>
+                    {busy ? <Spinner data-icon="inline-start" /> : null}
+                    {busy ? "Saving…" : "Save branding"}
+                  </Button>
+                </FieldGroup>
+              </form>
+            </CardContent>
+          </Card>
           <Preview brand={brand} />
         </div>
       )}
@@ -200,46 +222,31 @@ function Preview({ brand }: { brand: Branding }) {
   const primary = /^#[0-9a-fA-F]{6}$/.test(brand.primary_color) ? brand.primary_color : "#4f46e5";
   const dark = brand.theme === "dark";
   return (
-    <div style={{ flex: "0 1 300px" }} aria-label="Login preview">
-      <p style={{ fontSize: 12, color: "var(--muted-foreground)", margin: "0 0 8px" }}>Preview</p>
+    <div className="w-75 shrink-0" aria-label="Login preview">
+      <p className="mt-0 mb-2 text-xs text-muted-foreground">Preview</p>
       <div
+        className="rounded-xl border p-5"
         style={{
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
           background: dark ? "#09090b" : "#ffffff",
           color: dark ? "#fafafa" : "#18181b",
-          padding: 20,
         }}
       >
         {brand.logo_url !== "" && (
-          <img src={brand.logo_url} alt="" style={{ height: 24, marginBottom: 8 }} />
+          <img src={brand.logo_url} alt="" className="mb-2 h-6" />
         )}
-        <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 2px" }}>{orgName}</p>
-        <p style={{ fontSize: 12, color: dark ? "#a1a1aa" : "#71717a", margin: "0 0 12px" }}>
+        <p className="mt-0 mb-0.5 text-base font-semibold">{orgName}</p>
+        <p className="mt-0 mb-3 text-xs" style={{ color: dark ? "#a1a1aa" : "#71717a" }}>
           Sign in
         </p>
         <div
-          style={{
-            border: "1px solid var(--input)",
-            borderRadius: "calc(var(--radius) - 2px)",
-            padding: "6px 10px",
-            fontSize: 12,
-            color: dark ? "#a1a1aa" : "#71717a",
-            marginBottom: 8,
-          }}
+          className="mb-2 rounded-md border px-2.5 py-1.5 text-xs"
+          style={{ color: dark ? "#a1a1aa" : "#71717a" }}
         >
           Username
         </div>
         <div
-          style={{
-            background: primary,
-            color: "#ffffff",
-            borderRadius: "calc(var(--radius) - 2px)",
-            padding: "8px 10px",
-            fontSize: 13,
-            fontWeight: 600,
-            textAlign: "center",
-          }}
+          className="rounded-md px-2.5 py-2 text-center text-sm font-semibold text-white"
+          style={{ background: primary }}
         >
           Sign in
         </div>
