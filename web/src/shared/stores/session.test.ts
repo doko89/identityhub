@@ -66,4 +66,15 @@ describe("useSessionStore", () => {
     expect(useSessionStore.getState().user).toBeNull();
     expect(useSessionStore.getState().status).toBe("signed-out");
   });
+
+  it("setUser replaces the cached user without fetching", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ user }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { load, setUser } = useSessionStore.getState();
+    setUser({ ...user, avatar_url: "/uploads/avatar/9.webp" });
+    expect(useSessionStore.getState().user).toMatchObject({ avatar_url: "/uploads/avatar/9.webp" });
+    expect(useSessionStore.getState().status).toBe("signed-in");
+    await expect(load()).resolves.toMatchObject({ avatar_url: "/uploads/avatar/9.webp" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

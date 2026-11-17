@@ -12,6 +12,9 @@ interface SessionState {
   load: () => Promise<SessionUser | null>;
   // clear drops the cached session (used after sign-out).
   clear: () => void;
+  // setUser replaces the cached user (used after a profile change
+  // whose response already carries the user, e.g. avatar update).
+  setUser: (user: SessionUser) => void;
 }
 
 let inflight: Promise<SessionUser | null> | null = null;
@@ -48,6 +51,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
   clear: () => {
     set({ status: "signed-out", user: null });
+  },
+  setUser: (user: SessionUser) => {
+    set({ status: "signed-in", user });
   },
 }));
 

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useBrand } from "@/features/branding/BrandProvider";
+import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
 import { errorMessage } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
+import { Card, CardContent, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -16,8 +16,6 @@ export function ForgotPasswordPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const brand = useBrand();
-  const orgName = brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,11 +45,11 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <AuthBrandHeader />
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <h1 className="text-xl leading-none font-semibold">{orgName}</h1>
-          <CardDescription>Reset your password</CardDescription>
+          <h2 className="text-xl leading-none font-semibold">Reset your password</h2>
         </CardHeader>
         <CardContent>
           {sent ? (

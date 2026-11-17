@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Download } from "lucide-react";
 import { downloadRecoveryCodes } from "@/shared/download";
+import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
@@ -66,10 +67,11 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <AuthBrandHeader />
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <h1 className="text-xl leading-none font-semibold">Two-step verification</h1>
+          <h2 className="text-xl leading-none font-semibold">Two-step verification</h2>
           <CardDescription>
             {stepup ? "This app needs a second factor." : "Enter the code from your authenticator app."}
           </CardDescription>
@@ -203,10 +205,11 @@ function EnrollFlow({ next }: { next: string }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[radial-gradient(60rem_30rem_at_50%_-10%,var(--accent),transparent)] p-4">
+      <AuthBrandHeader />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <h1 className="text-xl leading-none font-semibold">Set up two-step verification</h1>
+          <h2 className="text-xl leading-none font-semibold">Set up two-step verification</h2>
           {!started && (
             <CardDescription>You will scan a QR code with your authenticator app.</CardDescription>
           )}

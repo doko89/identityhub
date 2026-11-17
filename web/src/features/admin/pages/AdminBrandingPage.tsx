@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchBranding, type Branding } from "@/features/branding/api";
-import { UploadField } from "@/features/uploads/components/UploadField";
+import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -111,39 +111,41 @@ export function AdminBrandingPage() {
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="brand-logo">Logo URL</FieldLabel>
-                    <Input
-                      id="brand-logo"
-                      name="logo_url"
-                      value={brand.logo_url}
-                      onChange={(e) => set("logo_url", e.target.value)}
-                      placeholder="/uploads/logo.png"
-                    />
+                    <FieldLabel htmlFor="logo-upload">Logo</FieldLabel>
+                    <ImageDropzone
+                      id="logo-upload"
+                      assetType="app_logo"
+                      label="Upload logo"
+                      hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+                      onUploaded={(url) => set("logo_url", url)}
+                    >
+                      {brand.logo_url !== "" ? (
+                        <img src={brand.logo_url} alt="" className="h-12 w-48 border object-contain" />
+                      ) : (
+                        <div className="flex h-12 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                          No logo yet
+                        </div>
+                      )}
+                    </ImageDropzone>
                   </Field>
-                  <UploadField
-                    id="logo-upload"
-                    assetType="app_logo"
-                    label="Upload a logo file"
-                    description="JPEG, PNG or WebP, max 10 MB. Fills the logo URL above."
-                    onUploaded={(url) => set("logo_url", url)}
-                  />
                   <Field>
-                    <FieldLabel htmlFor="brand-favicon">Favicon URL</FieldLabel>
-                    <Input
-                      id="brand-favicon"
-                      name="favicon_url"
-                      value={brand.favicon_url}
-                      onChange={(e) => set("favicon_url", e.target.value)}
-                      placeholder="/uploads/favicon.ico"
-                    />
+                    <FieldLabel htmlFor="favicon-upload">Favicon</FieldLabel>
+                    <ImageDropzone
+                      id="favicon-upload"
+                      assetType="app_logo"
+                      label="Upload favicon"
+                      hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+                      onUploaded={(url) => set("favicon_url", url)}
+                    >
+                      {brand.favicon_url !== "" ? (
+                        <img src={brand.favicon_url} alt="" className="size-10 border object-contain" />
+                      ) : (
+                        <div className="flex size-10 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                          None
+                        </div>
+                      )}
+                    </ImageDropzone>
                   </Field>
-                  <UploadField
-                    id="favicon-upload"
-                    assetType="app_logo"
-                    label="Upload a favicon file"
-                    description="JPEG, PNG or WebP, max 10 MB. Fills the favicon URL above."
-                    onUploaded={(url) => set("favicon_url", url)}
-                  />
                   <div className="grid grid-cols-2 gap-x-3">
                     <Field>
                       <FieldLabel htmlFor="brand-color">Primary color</FieldLabel>
@@ -173,22 +175,27 @@ export function AdminBrandingPage() {
                     </Field>
                   </div>
                   <Field>
-                    <FieldLabel htmlFor="brand-bg">Login background URL</FieldLabel>
-                    <Input
-                      id="brand-bg"
-                      name="login_background_url"
-                      value={brand.login_background_url}
-                      onChange={(e) => set("login_background_url", e.target.value)}
-                      placeholder="/uploads/login-bg.jpg"
-                    />
+                    <FieldLabel htmlFor="login-bg-upload">Login background</FieldLabel>
+                    <ImageDropzone
+                      id="login-bg-upload"
+                      assetType="app_logo"
+                      label="Upload login background"
+                      hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
+                      onUploaded={(url) => set("login_background_url", url)}
+                    >
+                      {brand.login_background_url !== "" ? (
+                        <img
+                          src={brand.login_background_url}
+                          alt=""
+                          className="h-20 w-48 border object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-20 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                          No background yet
+                        </div>
+                      )}
+                    </ImageDropzone>
                   </Field>
-                  <UploadField
-                    id="login-bg-upload"
-                    assetType="app_logo"
-                    label="Upload a background file"
-                    description="JPEG, PNG or WebP, max 10 MB. Fills the background URL above."
-                    onUploaded={(url) => set("login_background_url", url)}
-                  />
                   <Field>
                     <FieldLabel htmlFor="brand-css">Custom CSS (max 10 KB, sanitized on the server)</FieldLabel>
                     <Textarea

@@ -211,7 +211,7 @@ export function AdminAppsPage() {
       )}
       {apps !== null && (
         <>
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-lg border bg-card">
             <Table>
               <TableHeader>
                 <TableRow>

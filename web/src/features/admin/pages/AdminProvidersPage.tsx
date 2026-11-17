@@ -202,7 +202,7 @@ function OIDCSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNo
         </Alert>
       )}
       {clients !== null && clients.length > 0 && (
-        <div className="mb-3 overflow-x-auto rounded-lg border">
+        <div className="mb-3 overflow-x-auto rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -377,7 +377,7 @@ function SAMLSection({ apps, onError }: { apps: AdminApp[]; onError: (n: AdminNo
     <section className="mb-8" aria-label="SAML service providers">
       <h2 className="mb-2 text-base font-semibold">SAML service providers</h2>
       {sps !== null && sps.length > 0 && (
-        <div className="mb-3 overflow-x-auto rounded-lg border">
+        <div className="mb-3 overflow-x-auto rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -535,7 +535,7 @@ function RADIUSSection({ apps, onError }: { apps: AdminApp[]; onError: (n: Admin
         </Alert>
       )}
       {clients !== null && clients.length > 0 && (
-        <div className="mb-3 overflow-x-auto rounded-lg border">
+        <div className="mb-3 overflow-x-auto rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

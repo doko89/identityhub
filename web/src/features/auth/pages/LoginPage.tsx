@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { AuthBrandHeader } from "@/features/auth/components/AuthBrandHeader";
 import { useBrand } from "@/features/branding/BrandProvider";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
+import { Card, CardContent, CardHeader } from "@/shared/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -16,7 +17,6 @@ export function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const brand = useBrand();
-  const orgName = brand?.org_name !== undefined && brand.org_name !== "" ? brand.org_name : "IdentityHub";
   const background =
     brand?.login_background_url !== undefined && brand.login_background_url !== ""
       ? { backgroundImage: `url("${brand.login_background_url}")`, backgroundSize: "cover" }
@@ -24,16 +24,13 @@ export function LoginPage() {
 
   return (
     <main
-      className="flex min-h-screen items-center justify-center p-4"
+      className="flex min-h-screen flex-col items-center justify-center gap-6 p-4"
       style={background}
     >
+      <AuthBrandHeader />
       <Card className="w-full max-w-sm">
         <CardHeader>
-          {brand?.logo_url !== undefined && brand.logo_url !== "" && (
-            <img src={brand.logo_url} alt="" className="mb-2 h-7" />
-          )}
-          <h1 className="text-xl leading-none font-semibold">{orgName}</h1>
-          <CardDescription>Sign in</CardDescription>
+          <h2 className="text-xl leading-none font-semibold">Sign in</h2>
         </CardHeader>
         <CardContent>
           <form
@@ -106,7 +103,6 @@ export function LoginPage() {
               Forgot password?
             </Link>
           </p>
-          <p className="mb-0 text-xs text-muted-foreground">© {orgName}</p>
         </CardContent>
       </Card>
     </main>

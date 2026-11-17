@@ -1,4 +1,5 @@
 import { ApiError } from "@/shared/api/client";
+import type { SessionUser } from "@/shared/api/session";
 
 // Typed client for the self-service account API (TECH_SPEC §6.1).
 // Failures throw ApiError carrying the HTTP status and the user-facing
@@ -54,4 +55,22 @@ export async function getMFAStatus(): Promise<MFAStatus> {
     throw await toApiError(res);
   }
   return (await res.json()) as MFAStatus;
+}
+
+// ---------- avatar ----------
+
+// updateAccountAvatar attaches an uploaded image as the session user's
+// own avatar (POST /api/account/avatar). The server only accepts
+// /uploads/ URLs it issued itself.
+export async function updateAccountAvatar(avatarUrl: string): Promise<SessionUser> {
+  const res = await fetch("/api/account/avatar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ avatar_url: avatarUrl }),
+  });
+  if (!res.ok) {
+    throw await toApiError(res);
+  }
+  const data = (await res.json()) as { user: SessionUser };
+  return data.user;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSessionStore } from "@/shared/stores/session";
-import { UploadField } from "@/features/uploads/components/UploadField";
+import { updateAccountAvatar } from "@/features/account/api";
+import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader } from "@/shared/ui/card";
@@ -9,11 +10,17 @@ import { Separator } from "@/shared/ui/separator";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 // Account overview: who is signed in, links to the self-service pages,
-// and the avatar uploader (POST /api/uploads, result shown inline).
+// and the avatar itself, which uploads (POST /api/uploads) and attaches
+// (POST /api/account/avatar) a dropped or picked image.
 export function AccountPage() {
   const loadSession = useSessionStore((s) => s.load);
+  const setUser = useSessionStore((s) => s.setUser);
   const user = useSessionStore((s) => s.user);
   const [ready, setReady] = useState(false);
+
+  async function attachAvatar(url: string): Promise<void> {
+    setUser(await updateAccountAvatar(url));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -55,10 +62,19 @@ export function AccountPage() {
           ) : (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
-                <Avatar className="size-10">
-                  {user.avatar_url !== "" && <AvatarImage src={user.avatar_url} alt="" />}
-                  <AvatarFallback>{initials(user.display_name || user.username)}</AvatarFallback>
-                </Avatar>
+                <ImageDropzone
+                  id="avatar-upload"
+                  assetType="avatar"
+                  label="Change profile picture"
+                  hint="Drop image or click to browse. JPEG, PNG or WebP, max 10 MB."
+                  onUploaded={attachAvatar}
+                  className="shrink-0 rounded-full"
+                >
+                  <Avatar className="size-10">
+                    {user.avatar_url !== "" && <AvatarImage src={user.avatar_url} alt="" />}
+                    <AvatarFallback>{initials(user.display_name || user.username)}</AvatarFallback>
+                  </Avatar>
+                </ImageDropzone>
                 <div>
                   <p className="text-sm font-semibold">{user.display_name || user.username}</p>
                   <p className="text-sm text-muted-foreground">
@@ -79,14 +95,6 @@ export function AccountPage() {
                   Two-step verification
                 </Link>
               </nav>
-              <Separator />
-              <UploadField
-                id="avatar-upload"
-                assetType="avatar"
-                label="Profile picture"
-                description="JPEG, PNG or WebP, max 10 MB. The image is stored and its URL is shown below."
-                initialUrl={user.avatar_url}
-              />
             </div>
           )}
         </CardContent>

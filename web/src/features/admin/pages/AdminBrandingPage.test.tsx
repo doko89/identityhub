@@ -63,7 +63,8 @@ describe("AdminBrandingPage", () => {
     expect(patched).toMatchObject({ org_name: "Globex", theme: "light" });
   });
 
-  it("fills the logo URL from an uploaded file", async () => {
+  it("uploads a logo file and saves its URL", async () => {
+    let patched: unknown = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -73,19 +74,23 @@ describe("AdminBrandingPage", () => {
             { status: 201 },
           );
         }
+        if (init?.method === "PATCH") {
+          patched = JSON.parse(String(init.body)) as unknown;
+          return Response.json({ branding: { ...brand, logo_url: "/uploads/app_logo/9.webp" } });
+        }
         return Response.json({ branding: brand });
       }),
     );
-    const { container, getByLabelText } = render(shell(<AdminBrandingPage />));
+    const { container, getByLabelText, getByRole } = render(shell(<AdminBrandingPage />));
     await waitFor(() => expect(getByLabelText("Organization name")).toBeDefined());
     const picker = container.querySelector("#logo-upload") as HTMLInputElement;
     fireEvent.change(picker, {
       target: { files: [new File([new Uint8Array(10)], "logo.png", { type: "image/png" })] },
     });
     await waitFor(() =>
-      expect((getByLabelText("Logo URL") as HTMLInputElement).value).toBe(
-        "/uploads/app_logo/9.webp",
-      ),
+      expect(container.querySelector('img[src="/uploads/app_logo/9.webp"]')).not.toBeNull(),
     );
+    fireEvent.click(getByRole("button", { name: "Save branding" }));
+    await waitFor(() => expect(patched).toMatchObject({ logo_url: "/uploads/app_logo/9.webp" }));
   });
 });

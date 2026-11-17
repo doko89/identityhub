@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { KeyRound, Pencil, Plus, RotateCcw, ShieldCheck } from "lucide-react";
 import { ApiError } from "@/shared/api/client";
+import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -87,18 +89,32 @@ export function AdminUsersPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Users</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-semibold">Users</h1>
+        <span className="rounded-full border bg-card px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+          {total} total
+        </span>
+        <div className="ml-auto">
+          <Button type="button" onClick={() => setShowCreate(true)}>
+            <Plus className="size-4" />
+            Add user
+          </Button>
+        </div>
+      </div>
       <p className="mt-1 mb-4 text-sm text-muted-foreground">
         Local and LDAP accounts. Deactivation revokes every session immediately.
       </p>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void load(0);
-        }}
-        className="mb-3 flex flex-wrap gap-2"
-      >
+      <Notice value={notice} />
+
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void load(0);
+          }}
+          className="flex flex-wrap items-center gap-2 border-b p-3"
+        >
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -129,12 +145,100 @@ export function AdminUsersPage() {
         <Button type="submit" variant="outline">
           Search
         </Button>
-        <Button type="button" onClick={() => setShowCreate(true)}>
-          Add user
-        </Button>
-      </form>
+        {users !== null && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {total === 0 ? "No users" : `Showing ${offset + 1}–${offset + users.length} of ${total}`}
+          </span>
+        )}
+        </form>
 
-      <Notice value={notice} />
+        {users === null && notice === null && (
+          <div className="flex flex-col gap-2 p-3" aria-label="Loading users">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        )}
+        {users !== null && (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Display name</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Admin</TableHead>
+                    <TableHead>
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="size-8">
+                            {u.avatar_url !== "" && <AvatarImage src={u.avatar_url} alt="" />}
+                            <AvatarFallback>
+                              {initials(u.display_name || u.username)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="font-medium">{u.username}</p>
+                            <p className="truncate font-mono text-xs text-muted-foreground">
+                              {u.email || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{u.display_name || "—"}</TableCell>
+                      <TableCell>
+                        {u.source === "ldap" ? (
+                          <Badge variant="outline">ldap</Badge>
+                        ) : (
+                          <Badge variant="secondary">{u.source}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {u.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Disabled</Badge>}
+                      </TableCell>
+                      <TableCell>
+                        {u.is_admin ? (
+                          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary">
+                            <ShieldCheck className="size-3.5" />
+                            Admin
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex gap-0.5">
+                          <RowButton
+                            label={`Edit ${u.username}`}
+                            title="Edit"
+                            onClick={() => setEditing(u)}
+                          >
+                            <Pencil className="size-4" />
+                          </RowButton>
+                          <PasswordButton user={u} onError={setNotice} />
+                          <MFAResetButton user={u} onError={setNotice} />
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="border-t px-3 py-2.5">
+              <Pager offset={offset} total={total} onPage={(o) => void load(o)} className="" />
+            </div>
+          </>
+        )}
+      </div>
 
       <Sheet open={showCreate} onOpenChange={setShowCreate}>
         <SheetContent>
@@ -178,64 +282,40 @@ export function AdminUsersPage() {
         </SheetContent>
       </Sheet>
 
-      {users === null && notice === null && (
-        <div className="flex flex-col gap-2" aria-label="Loading users">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-      )}
-      {users !== null && (
-        <>
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Display name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Admin</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell>{u.username}</TableCell>
-                    <TableCell>{u.display_name || "—"}</TableCell>
-                    <TableCell>{u.email || "—"}</TableCell>
-                    <TableCell>{u.source}</TableCell>
-                    <TableCell>
-                      {u.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Disabled</Badge>}
-                    </TableCell>
-                    <TableCell>{u.is_admin ? "Yes" : "No"}</TableCell>
-                    <TableCell>
-                      <span className="flex gap-1">
-                        <RowButton label="Edit" onClick={() => setEditing(u)} />
-                        <PasswordButton user={u} onError={setNotice} />
-                        <MFAResetButton user={u} onError={setNotice} />
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <Pager offset={offset} total={total} onPage={(o) => void load(o)} />
-        </>
-      )}
     </div>
   );
 }
 
-function RowButton({ label, onClick }: { label: string; onClick: () => void }) {
+function RowButton({
+  label,
+  title,
+  onClick,
+  children,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
-    <Button type="button" variant="link" size="sm" className="h-auto p-1" onClick={onClick}>
-      {label}
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      title={title}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {children}
     </Button>
   );
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.slice(0, 1) ?? "";
+  const second = parts.length > 1 ? (parts[1]?.slice(0, 1) ?? "") : "";
+  return (first + second).toUpperCase() || "?";
 }
 
 function CreateUserForm({
@@ -438,7 +518,9 @@ function PasswordButton({ user, onError }: { user: AdminUser; onError: (n: Admin
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <RowButton label="Password" onClick={() => setOpen(true)} />
+      <RowButton label={`Set password for ${user.username}`} title="Set password" onClick={() => setOpen(true)}>
+        <KeyRound className="size-4" />
+      </RowButton>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Set password for {user.username}</DialogTitle>
@@ -494,7 +576,9 @@ function MFAResetButton({ user, onError }: { user: AdminUser; onError: (n: Admin
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <RowButton label="Reset MFA" onClick={() => setOpen(true)} />
+      <RowButton label={`Reset MFA for ${user.username}`} title="Reset MFA" onClick={() => setOpen(true)}>
+        <RotateCcw className="size-4" />
+      </RowButton>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reset MFA for {user.username}</DialogTitle>

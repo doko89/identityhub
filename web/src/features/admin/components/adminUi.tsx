@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { cn } from "cn";
 import { ApiError } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -49,20 +50,23 @@ export function Notice({ value }: { value: AdminNotice | null }) {
   );
 }
 
-// Pager renders Prev/Next over a limit/offset list.
+// Pager renders Prev/Next over a limit/offset list. Pass className to
+// place it in a card footer; the default keeps the standalone spacing.
 export function Pager({
   offset,
   total,
   onPage,
+  className,
 }: {
   offset: number;
   total: number;
   onPage: (offset: number) => void;
+  className?: string;
 }) {
   const page = Math.floor(offset / ADMIN_PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / ADMIN_PAGE_SIZE));
   return (
-    <div className="mt-3 flex items-center gap-2 text-sm">
+    <div className={cn("flex items-center gap-2 text-sm", className ?? "mt-3")}>
       <Button
         type="button"
         variant="outline"
