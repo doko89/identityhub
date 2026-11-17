@@ -171,7 +171,18 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		}
 		files = local
 	case config.StorageS3:
-		return nil, fmt.Errorf("wire storage: STORAGE_BACKEND=s3 lands in M7 (local is the v1 backend)")
+		s3, err := storage.NewS3(storage.S3Config{
+			Endpoint: cfg.Storage.S3Endpoint, Bucket: cfg.Storage.S3Bucket,
+			Access: cfg.Storage.S3Access, Secret: cfg.Storage.S3Secret,
+			UseSSL: cfg.Storage.S3UseSSL,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("wire storage: %w", err)
+		}
+		if err := s3.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("wire storage: %w", err)
+		}
+		files = s3
 	default:
 		return nil, fmt.Errorf("wire storage: unknown backend %q", cfg.Storage.Backend)
 	}
