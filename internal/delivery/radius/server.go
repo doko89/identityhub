@@ -43,6 +43,9 @@ type Deps struct {
 	Log     *slog.Logger
 }
 
+// ErrServerShutdown is returned by Serve after a clean Shutdown.
+var ErrServerShutdown = radius.ErrServerShutdown
+
 // Server is one in-process RADIUS listener.
 type Server struct {
 	addr    string

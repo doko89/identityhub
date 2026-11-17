@@ -1,6 +1,6 @@
 // Command identityhub is the single IdentityHub binary (TECH_SPEC §3).
 //
-//	identityhub serve        # HTTP API + embedded web/ (+ LDAP/RADIUS from M4)
+//	identityhub serve        # HTTP API + embedded web/ + LDAP/RADIUS providers
 //	identityhub worker       # LDAP sync, email outbox, cleanup jobs
 //	identityhub migrate      # goose up (also: down, status)
 //	identityhub create-admin # bootstrap the first ih_admin member
@@ -27,6 +27,8 @@ import (
 	adaptersaml "github.com/identityhub/identityhub/internal/adapter/saml"
 	"github.com/identityhub/identityhub/internal/config"
 	deliveryhttp "github.com/identityhub/identityhub/internal/delivery/http"
+	deliveryldap "github.com/identityhub/identityhub/internal/delivery/ldap"
+	deliveryradius "github.com/identityhub/identityhub/internal/delivery/radius"
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
@@ -82,20 +84,22 @@ func setup(ctx context.Context) (config.Config, *slog.Logger, *postgres.DB, erro
 // services is the wired M1 dependency graph. main.go is the only
 // concrete wiring site (TECH_SPEC §4).
 type services struct {
-	auth         *usecaseauth.Service
-	users        *usecaseuser.Service
-	audits       *usecaseaudit.Service
-	groups       *postgres.GroupRepository
-	registry     *postgres.SessionRegistryRepository
-	dir          domain.Directory // nil when LDAP_URL is unset
-	oidc         domain.OIDCProvider
-	oidcFlow     *usecaseoidcflow.Service
-	challenges   *postgres.OIDCChallengeRepository
-	oidcClients  *postgres.OIDCClientRepository
-	saml         domain.SAMLProvider
-	samlFlow     *usecasesamlflow.Service
-	samlRequests *postgres.SAMLRequestRepository
-	samlSPs      *postgres.SAMLSPRepository
+	auth          *usecaseauth.Service
+	users         *usecaseuser.Service
+	audits        *usecaseaudit.Service
+	usersRepo     *postgres.UserRepository
+	groups        *postgres.GroupRepository
+	radiusClients *postgres.RADIUSClientRepository
+	registry      *postgres.SessionRegistryRepository
+	dir           domain.Directory // nil when LDAP_URL is unset
+	oidc          domain.OIDCProvider
+	oidcFlow      *usecaseoidcflow.Service
+	challenges    *postgres.OIDCChallengeRepository
+	oidcClients   *postgres.OIDCClientRepository
+	saml          domain.SAMLProvider
+	samlFlow      *usecasesamlflow.Service
+	samlRequests  *postgres.SAMLRequestRepository
+	samlSPs       *postgres.SAMLSPRepository
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -183,7 +187,8 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		return nil, fmt.Errorf("wire saml: %w", err)
 	}
 	return &services{
-		auth: authSvc, users: userSvc, audits: audits, groups: groups,
+		auth: authSvc, users: userSvc, audits: audits, usersRepo: users,
+		groups: groups, radiusClients: postgres.NewRADIUSClientRepository(db),
 		registry: registry, dir: dir, oidc: oidcProvider, oidcFlow: oidcFlow,
 		challenges: challenges, oidcClients: oidcClients,
 		saml: samlProvider, samlFlow: samlFlow,
@@ -234,6 +239,18 @@ func runServe(args []string) error {
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 
+	ldapSrv, err := startLDAPProvider(cfg, log, svc)
+	if err != nil {
+		return err
+	}
+	radiusSrv, err := startRADIUSProvider(cfg, log, svc)
+	if err != nil {
+		if ldapSrv != nil {
+			ldapSrv.Stop()
+		}
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:           handler,
@@ -246,6 +263,12 @@ func runServe(args []string) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+		if ldapSrv != nil {
+			ldapSrv.Stop()
+		}
+		if radiusSrv != nil {
+			_ = radiusSrv.Shutdown(shutdownCtx)
+		}
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	log.Info("serving HTTP", "port", cfg.HTTPPort, "env", cfg.AppEnv)
@@ -253,6 +276,77 @@ func runServe(args []string) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
+}
+
+// startLDAPProvider boots the in-process LDAP listener (TECH_SPEC §6.4).
+// It returns (nil, nil) when LDAP_MODE is empty. Bind failures fail the
+// boot: exactly one of the error channel or Ready fires.
+func startLDAPProvider(cfg config.Config, log *slog.Logger, svc *services) (*deliveryldap.Server, error) {
+	if !cfg.LDAPProvider.Enabled() {
+		log.Info("LDAP provider disabled (set LDAP_MODE=ldap|ldaps|starttls to enable)")
+		return nil, nil
+	}
+	srv, err := deliveryldap.New(deliveryldap.Config{
+		Mode:         cfg.LDAPProvider.Mode,
+		Addr:         fmt.Sprintf(":%d", cfg.LDAPProvider.Port),
+		AllowedCIDRs: cfg.LDAPProvider.AllowedCIDRs,
+		TLSCertFile:  cfg.LDAPProvider.TLSCertFile,
+		TLSKeyFile:   cfg.LDAPProvider.TLSKeyFile,
+	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Log: log})
+	if err != nil {
+		return nil, fmt.Errorf("ldap provider: %w", err)
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve() }()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return nil, fmt.Errorf("ldap provider: %w", err)
+		}
+		return nil, errors.New("ldap provider: server exited immediately")
+	case <-srv.Ready():
+	case <-time.After(5 * time.Second):
+		return nil, errors.New("ldap provider: startup timeout")
+	}
+	log.Info("serving LDAP", "mode", cfg.LDAPProvider.Mode, "port", cfg.LDAPProvider.Port)
+	return srv, nil
+}
+
+// startRADIUSProvider boots the in-process RADIUS listener (TECH_SPEC
+// §6.5). Late socket failures are logged loudly instead of silently
+// killing authentication.
+func startRADIUSProvider(cfg config.Config, log *slog.Logger, svc *services) (*deliveryradius.Server, error) {
+	if !cfg.RADIUS.Enabled {
+		log.Info("RADIUS provider disabled (set RADIUS_ENABLED=true to enable)")
+		return nil, nil
+	}
+	srv, err := deliveryradius.New(deliveryradius.Config{
+		Addr: fmt.Sprintf(":%d", cfg.RADIUS.Port), EncKey: cfg.EncKey,
+	}, deliveryradius.Deps{Auth: svc.auth, Clients: svc.radiusClients, Log: log})
+	if err != nil {
+		return nil, fmt.Errorf("radius provider: %w", err)
+	}
+	running := make(chan error, 1)
+	go func() { running <- srv.Serve() }()
+	// Serve pre-binds the socket, so a bind failure is already waiting;
+	// give the goroutine a scheduling slice, then treat silence as up.
+	timer := time.NewTimer(200 * time.Millisecond)
+	select {
+	case err := <-running:
+		timer.Stop()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("radius provider: server exited immediately")
+	case <-timer.C:
+	}
+	go func() {
+		if err := <-running; err != nil && !errors.Is(err, deliveryradius.ErrServerShutdown) {
+			log.Error("radius server exited unexpectedly", "error", err)
+		}
+	}()
+	log.Info("serving RADIUS", "port", cfg.RADIUS.Port)
+	return srv, nil
 }
 
 func runWorker(args []string) error {
