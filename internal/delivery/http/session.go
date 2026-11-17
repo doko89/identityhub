@@ -20,6 +20,10 @@ const (
 	SessionMFAVerifiedAt = "mfa_verified_at"
 	// SessionPendingMFAUserID holds the user id between step-up steps.
 	SessionPendingMFAUserID = "pending_mfa_user_id"
+	// SessionAuthTime holds the RFC3339Nano time the password login
+	// completed. SAML ForceAuthn compares it against the stashed request's
+	// creation time to prove the login is fresh (saml-profiles §4.1.3.4).
+	SessionAuthTime = "auth_time"
 )
 
 // SessionConfig carries the cookie/timeout decisions from internal/config.

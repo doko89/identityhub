@@ -133,11 +133,11 @@ func (r *SAMLRequestRepository) Create(ctx context.Context, sr domain.SAMLReques
 
 // Get loads a live request; expired or missing ones report ErrNotFound.
 func (r *SAMLRequestRepository) Get(ctx context.Context, challenge string) (domain.SAMLRequest, error) {
-	const q = `SELECT challenge, method, target, content_type, expires_at
+	const q = `SELECT challenge, method, target, content_type, expires_at, created_at
 		FROM saml_requests WHERE challenge = $1 AND expires_at > now()`
 	var sr domain.SAMLRequest
 	if err := r.db.Pool.QueryRow(ctx, q, challenge).
-		Scan(&sr.Challenge, &sr.Method, &sr.Target, &sr.ContentType, &sr.ExpiresAt); err != nil {
+		Scan(&sr.Challenge, &sr.Method, &sr.Target, &sr.ContentType, &sr.ExpiresAt, &sr.CreatedAt); err != nil {
 		return domain.SAMLRequest{}, mapReadError(err)
 	}
 	return sr, nil

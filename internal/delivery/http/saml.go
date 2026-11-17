@@ -67,9 +67,10 @@ func (h *Handlers) handleSAMLSSO(w http.ResponseWriter, req *http.Request) {
 		h.stashAndRedirectToLogin(w, req, r, initiated, authReq)
 		return
 	}
-	if authReq.ForceAuthn {
+	if authReq.ForceAuthn && !h.forceAuthnSatisfied(req, challenge) {
 		// ForceAuthn re-authenticates directly: drop the session and make
-		// the browser log in again (saml-profiles §4.1.3.4).
+		// the browser log in again (saml-profiles §4.1.3.4). The replay
+		// after a fresh login carries a newer auth time and proceeds.
 		h.destroySession(req)
 		h.stashAndRedirectToLogin(w, req, r, initiated, authReq)
 		return
@@ -226,6 +227,26 @@ func (h *Handlers) ssoSessionUser(req *http.Request) (domain.User, bool) {
 	return u, true
 }
 
+// forceAuthnSatisfied reports whether the session login is fresh enough
+// for a ForceAuthn request: the password login must have completed after
+// the SSO request was stashed. Direct (unstashed) requests and sessions
+// without an auth time never satisfy ForceAuthn — the browser must log
+// in again.
+func (h *Handlers) forceAuthnSatisfied(req *http.Request, challenge string) bool {
+	if challenge == "" {
+		return false
+	}
+	authTime, err := time.Parse(time.RFC3339Nano, h.sessions.GetString(req.Context(), SessionAuthTime))
+	if err != nil {
+		return false
+	}
+	sr, err := h.samlRequests.Get(req.Context(), challenge)
+	if err != nil {
+		return false
+	}
+	return !authTime.Before(sr.CreatedAt)
+}
+
 // finishSSO issues the signed Response for either SSO shape.
 func (h *Handlers) finishSSO(ctx context.Context, w http.ResponseWriter, r *http.Request, initiated bool, authReq domain.SAMLAuthnRequest, decision domain.SAMLDecision) error {
 	if initiated {
@@ -290,9 +311,14 @@ func (h *Handlers) sessionUserID(req *http.Request) *uuid.UUID {
 	return &id
 }
 
-// withReplayableBody reads a POST body up to the cap and restores it so
-// the adapter can parse the live request and the stash can replay the
-// exact bytes later. GET requests pass through untouched.
+// rawBodyKey carries the untouched POST bytes past the adapter's parse:
+// parsing consumes the body, but the stash must replay the exact bytes so
+// signatures still verify.
+type rawBodyKey struct{}
+
+// withReplayableBody reads a POST body up to the cap, keeps a copy in the
+// request context for stashing, and restores it for parsing. GET requests
+// pass through untouched.
 func withReplayableBody(req *http.Request) (*http.Request, error) {
 	if req.Method != http.MethodPost {
 		return req, nil
@@ -305,20 +331,17 @@ func withReplayableBody(req *http.Request) (*http.Request, error) {
 	if len(raw) > maxSAMLRequestBytes {
 		return nil, errors.New("body too large")
 	}
-	req.Body = io.NopCloser(bytes.NewReader(raw))
-	return req, nil
+	out := req.WithContext(context.WithValue(req.Context(), rawBodyKey{}, string(raw)))
+	out.Body = io.NopCloser(bytes.NewReader(raw))
+	return out, nil
 }
 
-// rawBodyOf returns the current POST body bytes (after withReplayableBody
-// restored them) for stashing.
+// rawBodyOf returns the untouched POST body bytes for stashing.
 func rawBodyOf(r *http.Request) string {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxSAMLRequestBytes+1))
-	_ = r.Body.Close()
-	r.Body = io.NopCloser(bytes.NewReader(raw))
-	if err != nil {
-		return ""
+	if raw, ok := r.Context().Value(rawBodyKey{}).(string); ok {
+		return raw
 	}
-	return string(raw)
+	return ""
 }
 
 // hasSAMLRequest reports whether the request carries a SAML protocol

@@ -5,8 +5,8 @@ login via LDAP/local, SSO via OIDC/SAML, legacy via LDAP/RADIUS, plus MFA,
 an app dashboard, and branding. See [PRD.md](PRD.md),
 [TECH_SPEC.md](docs/TECH_SPEC.md), [DESIGN.md](docs/DESIGN.md).
 
-Status: M2 OIDC provider (code+PKCE, refresh rotation, discovery/JWKS) + consent page.
-Protocols and MFA land in M2–M7.
+Status: M3 SAML IdP (metadata, signed assertions, SSO/SLO) over M2 OIDC + M1 login.
+Legacy protocols and MFA land in M4–M7.
 
 ## Quickstart
 
@@ -94,16 +94,46 @@ code-replay revocation). Admin UI/API for client registration arrives
 with the app-catalog milestone; the `domain.OIDCClientStore` port and
 Postgres repository are already in place.
 
+## SAML (M3)
+
+IdP endpoints (crewjam/saml behind `domain.SAMLProvider`; NameID =
+username; attributes `email`/`displayName`/`groups`; assertion and
+response both signed; AuthnRequests verified when signed, replay-checked
+by request ID):
+
+```sh
+curl localhost:8080/saml/metadata
+# SP-initiated (Redirect or POST binding):
+#   GET /saml/sso?SAMLRequest=...&RelayState=...[&SigAlg=...&Signature=...]
+#   → /login?next=... (when logged out) → auto-submit form to the SP ACS
+# IdP-initiated (dashboard launch):
+#   GET /saml/sso?sp=<entityID>&RelayState=...
+# Single logout: GET|POST /saml/slo (LogoutRequest → signed LogoutResponse;
+#   bare request → local logout + redirect home)
+```
+
+SPs register by metadata import: `saml.ParseSPMetadata` extracts
+entityID, the default POST ACS, the preferred SLO endpoint and the
+signing certificate into `saml_sps` (raw XML kept for audit). The IdP
+signing key persists in `saml_keys`, so the metadata certificate is
+stable across restarts. One real SP (crewjam/saml client) passes
+end-to-end in `internal/delivery/http/saml_integration_test.go
+-tags=integration`: Redirect + signed POST SSO, login-round-trip stash
+replay, signed-redirect tamper rejection, IdP-initiated SSO, SLO with
+session kill, ForceAuthn/IsPassive, and rejection paths. Admin UI/API
+for SP registration arrives with the app-catalog milestone; the
+`domain.SAMLSPStore` port and Postgres repository are already in place.
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
 - `internal/domain` — entities + ports (imports no other internal package)
 - `internal/config` — env-only config + boot validation (LDAP/SMTP included)
-- `internal/usecase/{auth,user,audit,oidcflow}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent decisions
-- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`
+- `internal/usecase/{auth,user,audit,oidcflow,samlflow}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit, OIDC authorize/consent + SAML assertion decisions
+- `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml}` — pgx stores + goose runner, argon2id, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, embedded SPA
-- `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC cleanup)
-- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage)
+- `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash)
 - `web` — React+Vite+TS SPA; `web/dist` is the embedded production build
 
 Dependency rule: `delivery → usecase → domain`; `adapter` implements

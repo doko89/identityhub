@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -183,6 +184,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	h.sessions.Put(req.Context(), SessionUserID, u.ID.String())
+	h.sessions.Put(req.Context(), SessionAuthTime, time.Now().UTC().Format(time.RFC3339Nano))
 	if err := h.registry.Register(req.Context(), u.ID, h.sessions.Token(req.Context())); err != nil {
 		h.writeError(w, req, err)
 		return

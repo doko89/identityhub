@@ -58,6 +58,7 @@ type SAMLRequest struct {
 	Target      string // raw query (GET) or raw body (POST)
 	ContentType string // POST content type for form replay
 	ExpiresAt   time.Time
+	CreatedAt   time.Time // stash time; ForceAuthn compares auth time to it
 }
 
 // SAMLRequestStore persists SSO requests with a short TTL.
