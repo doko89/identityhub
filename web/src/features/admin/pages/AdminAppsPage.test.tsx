@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminAppsPage } from "./AdminAppsPage";
@@ -70,21 +70,17 @@ describe("AdminAppsPage", () => {
         return Response.json({ apps: [wiki], total: 1 });
       }),
     );
-    const { container, getByRole, getByText } = render(
+    const { getByRole, getByText } = render(
       <MemoryRouter>
         <AdminAppsPage />
       </MemoryRouter>,
     );
     await waitFor(() => expect(getByText("Wiki")).toBeDefined());
     fireEvent.click(getByRole("button", { name: "Add application" }));
-    const form = container.querySelector("form.ih-panel") as HTMLFormElement;
-    const set = (name: string, value: string) => {
-      const input = form.querySelector(`[name="${name}"]`) as HTMLInputElement;
-      fireEvent.change(input, { target: { value } });
-    };
-    set("slug", "crm");
-    set("name", "CRM");
-    fireEvent.click(getByRole("button", { name: "Create application" }));
+    const sheet = getByRole("dialog", { name: "Add application" });
+    fireEvent.change(within(sheet).getByLabelText("Slug"), { target: { value: "crm" } });
+    fireEvent.change(within(sheet).getByLabelText("Name"), { target: { value: "CRM" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
     await waitFor(() => expect(getByText("CRM")).toBeDefined());
     expect(posted).toMatchObject({ slug: "crm", name: "CRM", provider_type: "oidc" });
   });

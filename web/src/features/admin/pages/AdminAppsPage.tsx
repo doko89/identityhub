@@ -1,5 +1,41 @@
 import { useCallback, useEffect, useState } from "react";
-import { buttonStyle, inputStyle, labelStyle, secondaryStyle } from "@/shared/ui/formStyles";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { Separator } from "@/shared/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
+import { Skeleton } from "@/shared/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/ui/table";
 import {
   ADMIN_PAGE_SIZE,
   createApp,
@@ -29,6 +65,7 @@ export function AdminAppsPage() {
   const [editing, setEditing] = useState<AdminApp | null>(null);
   const [bindingsFor, setBindingsFor] = useState<AdminApp | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminApp | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async (nextOffset: number) => {
     setNotice(null);
@@ -47,6 +84,7 @@ export function AdminAppsPage() {
   }, [load]);
 
   async function runDelete(a: AdminApp) {
+    setDeleteBusy(true);
     setNotice(null);
     try {
       await deleteApp(a.id);
@@ -58,130 +96,171 @@ export function AdminAppsPage() {
     } catch (err) {
       setConfirmDelete(null);
       setNotice(toNotice(err));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>Applications</h1>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 16px" }}>
+      <h1 className="text-xl font-semibold">Applications</h1>
+      <p className="mt-1 mb-4 text-sm text-muted-foreground">
         The SSO catalog. Bindings decide who sees each app on the dashboard.
       </p>
 
-      <div style={{ marginBottom: 12 }}>
-        <button
-          type="button"
-          style={{ ...buttonStyle, width: "auto" }}
-          onClick={() => setShowCreate((v) => !v)}
-        >
-          {showCreate ? "Close" : "Add application"}
-        </button>
+      <div className="mb-3">
+        <Button type="button" onClick={() => setShowCreate(true)}>
+          Add application
+        </Button>
       </div>
 
       <Notice value={notice} />
 
-      {showCreate && (
-        <AppForm
-          title="Add application"
-          submitLabel="Create application"
-          onSubmit={(patch) => createApp(patch).then(({ app }) => app)}
-          onDone={(app) => {
-            setShowCreate(false);
-            setApps((prev) => (prev === null ? [app] : [app, ...prev]));
-            setTotal((t) => t + 1);
-          }}
-          onError={setNotice}
-        />
-      )}
+      <Sheet open={showCreate} onOpenChange={setShowCreate}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Add application</SheetTitle>
+            <SheetDescription>Register one catalog row for the app.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <AppForm
+              submitLabel="Create application"
+              onSubmit={(patch) => createApp(patch).then(({ app }) => app)}
+              onDone={(app) => {
+                setShowCreate(false);
+                setApps((prev) => (prev === null ? [app] : [app, ...prev]));
+                setTotal((t) => t + 1);
+              }}
+              onError={setNotice}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      {editing !== null && (
-        <AppForm
-          title={`Edit ${editing.slug}`}
-          submitLabel="Save"
-          initial={editing}
-          onSubmit={(patch) => updateApp(editing.id, patch).then(({ app }) => app)}
-          onDone={(app) => {
-            setEditing(null);
-            setApps((prev) => prev?.map((x) => (x.id === app.id ? app : x)) ?? null);
-          }}
-          onError={setNotice}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      <Sheet open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Edit {editing?.slug}</SheetTitle>
+            <SheetDescription>Catalog row, visibility, and per-app MFA.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {editing !== null && (
+              <AppForm
+                key={editing.id}
+                submitLabel="Save"
+                initial={editing}
+                onSubmit={(patch) => updateApp(editing.id, patch).then(({ app }) => app)}
+                onDone={(app) => {
+                  setEditing(null);
+                  setApps((prev) => prev?.map((x) => (x.id === app.id ? app : x)) ?? null);
+                }}
+                onError={setNotice}
+                onClose={() => setEditing(null)}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={bindingsFor !== null} onOpenChange={(open) => { if (!open) setBindingsFor(null); }}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Bindings of {bindingsFor?.slug}</SheetTitle>
+            <SheetDescription>
+              Who sees this app. Eval mode &quot;any&quot; grants on the first match, &quot;all&quot;
+              requires every binding to match.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {bindingsFor !== null && (
+              <BindingsPanel key={bindingsFor.id} app={bindingsFor} onError={setNotice} />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={confirmDelete !== null} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {confirmDelete?.slug}?</DialogTitle>
+            <DialogDescription>
+              The app and its protocol credentials disappear immediately. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteBusy}
+              onClick={() => { if (confirmDelete !== null) void runDelete(confirmDelete); }}
+            >
+              {deleteBusy ? "Deleting…" : "Delete application"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {apps === null && notice === null && (
-        <p style={{ fontSize: 14, color: "var(--muted-foreground)" }}>Loading applications…</p>
+        <div className="flex flex-col gap-2" aria-label="Loading applications">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       )}
       {apps !== null && (
         <>
-          <div className="ih-table-wrap">
-            <table className="ih-table">
-              <thead>
-                <tr>
-                  <th>Slug</th>
-                  <th>Name</th>
-                  <th>Protocol</th>
-                  <th>Visible</th>
-                  <th>MFA</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Slug</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Protocol</TableHead>
+                  <TableHead>Visible</TableHead>
+                  <TableHead>MFA</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {apps.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.slug}</td>
-                    <td>{a.name}</td>
-                    <td>{a.provider_type}</td>
-                    <td>{a.is_visible ? "Yes" : "No"}</td>
-                    <td>{a.mfa_required ? "Required" : "—"}</td>
-                    <td>
-                      <span className="ih-row-actions">
-                        <button type="button" style={rowLinkStyle} onClick={() => setEditing(a)}>
-                          Edit
-                        </button>
-                        <button type="button" style={rowLinkStyle} onClick={() => setBindingsFor(a)}>
-                          Bindings
-                        </button>
-                        {confirmDelete?.id === a.id ? (
-                          <span style={{ display: "inline-flex", gap: 4, fontSize: 13 }}>
-                            Delete {a.slug}?
-                            <button type="button" style={dangerLinkStyle} onClick={() => void runDelete(a)}>
-                              Yes
-                            </button>
-                            <button type="button" style={rowLinkStyle} onClick={() => setConfirmDelete(null)}>
-                              No
-                            </button>
-                          </span>
-                        ) : (
-                          <button type="button" style={rowLinkStyle} onClick={() => setConfirmDelete(a)}>
-                            Delete
-                          </button>
-                        )}
+                  <TableRow key={a.id}>
+                    <TableCell>{a.slug}</TableCell>
+                    <TableCell>{a.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{a.provider_type}</Badge>
+                    </TableCell>
+                    <TableCell>{a.is_visible ? "Yes" : "No"}</TableCell>
+                    <TableCell>{a.mfa_required ? "Required" : "—"}</TableCell>
+                    <TableCell>
+                      <span className="flex gap-1">
+                        <RowButton label="Edit" onClick={() => setEditing(a)} />
+                        <RowButton label="Bindings" onClick={() => setBindingsFor(a)} />
+                        <RowButton label="Delete" onClick={() => setConfirmDelete(a)} />
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <Pager offset={offset} total={total} onPage={(o) => void load(o)} />
         </>
-      )}
-
-      {bindingsFor !== null && (
-        <BindingsPanel
-          key={bindingsFor.id}
-          app={bindingsFor}
-          onError={setNotice}
-          onClose={() => setBindingsFor(null)}
-        />
       )}
     </div>
   );
 }
 
+function RowButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button type="button" variant="link" size="sm" className="h-auto p-1" onClick={onClick}>
+      {label}
+    </Button>
+  );
+}
+
 function AppForm({
-  title,
   submitLabel,
   initial,
   onSubmit,
@@ -189,7 +268,6 @@ function AppForm({
   onError,
   onClose,
 }: {
-  title: string;
   submitLabel: string;
   initial?: AdminApp;
   onSubmit: (patch: AppPatch) => Promise<AdminApp>;
@@ -198,6 +276,9 @@ function AppForm({
   onClose?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [providerType, setProviderType] = useState(initial?.provider_type ?? "oidc");
+  const [isVisible, setIsVisible] = useState(initial?.is_visible ?? true);
+  const [mfaRequired, setMfaRequired] = useState(initial?.mfa_required ?? false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -212,9 +293,9 @@ function AppForm({
         icon_url: String(form.get("icon_url") ?? ""),
         launch_url: String(form.get("launch_url") ?? ""),
         group_label: String(form.get("group_label") ?? ""),
-        provider_type: String(form.get("provider_type") ?? ""),
-        is_visible: (form.get("is_visible") as string | null) === "on",
-        mfa_required: (form.get("mfa_required") as string | null) === "on",
+        provider_type: providerType,
+        is_visible: isVisible,
+        mfa_required: mfaRequired,
       };
       if (sortRaw !== "") {
         patch.sort_order = Number(sortRaw);
@@ -228,83 +309,108 @@ function AppForm({
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="ih-panel" style={{ maxWidth: 520 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 12px" }}>{title}</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-        <label style={labelStyle}>
-          Slug
-          <input name="slug" style={inputStyle} defaultValue={initial?.slug ?? ""} required />
-        </label>
-        <label style={labelStyle}>
-          Name
-          <input name="name" style={inputStyle} defaultValue={initial?.name ?? ""} required />
-        </label>
-      </div>
-      <label style={labelStyle}>
-        Description
-        <input name="description" style={inputStyle} defaultValue={initial?.description ?? ""} />
-      </label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-        <label style={labelStyle}>
-          Protocol
-          <select name="provider_type" style={inputStyle} defaultValue={initial?.provider_type ?? "oidc"}>
-            <option value="oidc">oidc</option>
-            <option value="saml">saml</option>
-            <option value="ldap">ldap</option>
-            <option value="radius">radius</option>
-          </select>
-        </label>
-        <label style={labelStyle}>
-          Dashboard group
-          <input name="group_label" style={inputStyle} defaultValue={initial?.group_label ?? ""} />
-        </label>
-      </div>
-      <label style={labelStyle}>
-        Launch URL
-        <input name="launch_url" style={inputStyle} defaultValue={initial?.launch_url ?? ""} placeholder="https://…" />
-      </label>
-      <label style={labelStyle}>
-        Icon URL
-        <input name="icon_url" style={inputStyle} defaultValue={initial?.icon_url ?? ""} placeholder="/uploads/….png" />
-      </label>
-      <label style={labelStyle}>
-        Sort order
-        <input
-          name="sort_order"
-          type="number"
-          style={inputStyle}
-          defaultValue={initial !== undefined ? initial.sort_order : ""}
-          placeholder="0"
-        />
-      </label>
-      <div style={{ display: "flex", gap: 16, marginBottom: 16, fontSize: 14 }}>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input name="is_visible" type="checkbox" defaultChecked={initial?.is_visible ?? true} />
-          Visible
-        </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input name="mfa_required" type="checkbox" defaultChecked={initial?.mfa_required ?? false} />
-          Require MFA
-        </label>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {onClose !== undefined && (
-          <button type="button" style={secondaryStyle} onClick={onClose}>
-            Cancel
-          </button>
-        )}
-        <button type="submit" style={buttonStyle} disabled={busy}>
-          {busy ? "Saving…" : submitLabel}
-        </button>
-      </div>
+    <form onSubmit={(e) => void submit(e)}>
+      <FieldGroup>
+        <div className="grid grid-cols-2 gap-x-3">
+          <Field>
+            <FieldLabel htmlFor="app-slug">Slug</FieldLabel>
+            <Input id="app-slug" name="slug" defaultValue={initial?.slug ?? ""} required />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="app-name">Name</FieldLabel>
+            <Input id="app-name" name="name" defaultValue={initial?.name ?? ""} required />
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="app-description">Description</FieldLabel>
+          <Input id="app-description" name="description" defaultValue={initial?.description ?? ""} />
+        </Field>
+        <div className="grid grid-cols-2 gap-x-3">
+          <Field>
+            <FieldLabel htmlFor="app-protocol">Protocol</FieldLabel>
+            <Select value={providerType} onValueChange={setProviderType}>
+              <SelectTrigger id="app-protocol">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="oidc">oidc</SelectItem>
+                <SelectItem value="saml">saml</SelectItem>
+                <SelectItem value="ldap">ldap</SelectItem>
+                <SelectItem value="radius">radius</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="app-group">Dashboard group</FieldLabel>
+            <Input id="app-group" name="group_label" defaultValue={initial?.group_label ?? ""} />
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="app-launch">Launch URL</FieldLabel>
+          <Input
+            id="app-launch"
+            name="launch_url"
+            defaultValue={initial?.launch_url ?? ""}
+            placeholder="https://…"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="app-icon">Icon URL</FieldLabel>
+          <Input
+            id="app-icon"
+            name="icon_url"
+            defaultValue={initial?.icon_url ?? ""}
+            placeholder="/uploads/….png"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="app-sort">Sort order</FieldLabel>
+          <Input
+            id="app-sort"
+            name="sort_order"
+            type="number"
+            defaultValue={initial !== undefined ? initial.sort_order : ""}
+            placeholder="0"
+          />
+        </Field>
+        <div className="flex gap-4">
+          <Field orientation="horizontal">
+            <Checkbox
+              id="app-visible"
+              checked={isVisible}
+              onCheckedChange={(v) => setIsVisible(v === true)}
+            />
+            <FieldLabel htmlFor="app-visible">Visible</FieldLabel>
+          </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="app-mfa"
+              checked={mfaRequired}
+              onCheckedChange={(v) => setMfaRequired(v === true)}
+            />
+            <FieldLabel htmlFor="app-mfa">Require MFA</FieldLabel>
+          </Field>
+        </div>
+        <div className="flex gap-2">
+          {onClose !== undefined && (
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+          )}
+          <Button type="submit" className="flex-1" disabled={busy}>
+            {busy ? "Saving…" : submitLabel}
+          </Button>
+        </div>
+      </FieldGroup>
     </form>
   );
 }
 
-function BindingsPanel({ app, onError, onClose }: { app: AdminApp; onError: (n: AdminNotice) => void; onClose: () => void }) {
+function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNotice) => void }) {
   const [bindings, setBindings] = useState<AppBinding[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState("user");
+  const [evalMode, setEvalMode] = useState("any");
 
   const load = useCallback(async () => {
     try {
@@ -324,13 +430,11 @@ function BindingsPanel({ app, onError, onClose }: { app: AdminApp; onError: (n: 
     setBusy(true);
     try {
       const form = new FormData(e.currentTarget as HTMLFormElement);
-      const bindingType = String(form.get("binding_type") ?? "user");
       const target = String(form.get("target") ?? "").trim();
-      const evalMode = String(form.get("eval_mode") ?? "any");
-      const b: NewBinding = { binding_type: bindingType, eval_mode: evalMode };
-      if (bindingType === "user") {
+      const b: NewBinding = { binding_type: kind, eval_mode: evalMode };
+      if (kind === "user") {
         b.user_id = await resolveUserId(target);
-      } else if (bindingType === "group") {
+      } else if (kind === "group") {
         b.group_id = await resolveGroupId(target);
       } else {
         b.policy_expr = target;
@@ -338,6 +442,7 @@ function BindingsPanel({ app, onError, onClose }: { app: AdminApp; onError: (n: 
       await createBinding(app.id, b);
       (e.currentTarget as HTMLFormElement).reset();
       setKind("user");
+      setEvalMode("any");
       await load();
     } catch (err) {
       onError(toNotice(err));
@@ -359,76 +464,74 @@ function BindingsPanel({ app, onError, onClose }: { app: AdminApp; onError: (n: 
   }
 
   return (
-    <section className="ih-panel" style={{ maxWidth: 640 }} aria-label={`Bindings of ${app.slug}`}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>
-        Bindings of {app.slug}
-      </h2>
-      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: "0 0 12px" }}>
-        Who sees this app. Eval mode &quot;any&quot; grants on the first match, &quot;all&quot;
-        requires every binding to match.
-      </p>
-      <form onSubmit={(e) => void add(e)} style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <select
-          name="binding_type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          style={{ ...inputStyle, marginTop: 0, width: 110 }}
-          aria-label="Binding type"
-        >
-          <option value="user">user</option>
-          <option value="group">group</option>
-          <option value="policy">policy</option>
-        </select>
-        <input
+    <div aria-label={`Bindings of ${app.slug}`}>
+      <form onSubmit={(e) => void add(e)} className="mb-3 flex flex-wrap gap-2">
+        <Select value={kind} onValueChange={setKind}>
+          <SelectTrigger aria-label="Binding type" className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="user">user</SelectItem>
+            <SelectItem value="group">group</SelectItem>
+            <SelectItem value="policy">policy</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input
           name="target"
-          placeholder={kind === "policy" ? "policy expression" : kind === "group" ? "Group name or ID" : "Username, email, or ID"}
+          placeholder={
+            kind === "policy"
+              ? "policy expression"
+              : kind === "group"
+                ? "Group name or ID"
+                : "Username, email, or ID"
+          }
           aria-label="Binding target"
-          style={{ ...inputStyle, marginTop: 0, flex: "1 1 180px" }}
+          className="min-w-44 flex-1"
           required
         />
-        <select name="eval_mode" defaultValue="any" style={{ ...inputStyle, marginTop: 0, width: 90 }} aria-label="Eval mode">
-          <option value="any">any</option>
-          <option value="all">all</option>
-        </select>
-        <button type="submit" style={{ ...secondaryStyle, width: "auto" }} disabled={busy}>
+        <Select value={evalMode} onValueChange={setEvalMode}>
+          <SelectTrigger aria-label="Eval mode" className="w-24">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">any</SelectItem>
+            <SelectItem value="all">all</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button type="submit" variant="outline" disabled={busy}>
           Add
-        </button>
-        <button type="button" style={{ ...secondaryStyle, width: "auto" }} onClick={onClose}>
-          Close
-        </button>
+        </Button>
       </form>
-      {bindings === null && (
-        <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>Loading bindings…</p>
-      )}
+      <Separator className="mb-2" />
+      {bindings === null && <p className="text-sm text-muted-foreground">Loading bindings…</p>}
       {bindings !== null && bindings.length === 0 && (
-        <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-          No bindings: nobody sees this app yet.
-        </p>
+        <p className="text-sm text-muted-foreground">No bindings: nobody sees this app yet.</p>
       )}
       {bindings !== null && bindings.length > 0 && (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
+        <ul className="m-0 list-none p-0 text-sm">
           {bindings.map((b) => (
             <li
               key={b.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "6px 0",
-                borderBottom: "1px solid var(--border)",
-              }}
+              className="flex items-center justify-between gap-2 border-b py-1.5 last:border-b-0"
             >
               <span>
                 <code>{b.binding_type}</code> · {bindingTarget(b)} · {b.eval_mode}
               </span>
-              <button type="button" style={rowLinkStyle} disabled={busy} onClick={() => void remove(b.id)}>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto shrink-0 p-1"
+                disabled={busy}
+                onClick={() => void remove(b.id)}
+              >
                 Remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -437,18 +540,3 @@ function bindingTarget(b: AppBinding): string {
   if (b.group_id !== undefined) return b.group_id;
   return b.policy_expr ?? "—";
 }
-
-const rowLinkStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "var(--primary)",
-  fontSize: 13,
-  cursor: "pointer",
-};
-
-const dangerLinkStyle: React.CSSProperties = {
-  ...rowLinkStyle,
-  color: "var(--destructive)",
-  fontWeight: 600,
-};
