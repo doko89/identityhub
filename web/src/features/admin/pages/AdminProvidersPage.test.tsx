@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminProvidersPage } from "./AdminProvidersPage";
@@ -73,23 +73,22 @@ describe("AdminProvidersPage", () => {
 
   it("registers an OIDC client and shows the secret once", async () => {
     const { calls } = stubAll();
-    const { container, getByRole, getByText } = render(
+    const { getByRole, getByText } = render(
       <MemoryRouter>
         <AdminProvidersPage />
       </MemoryRouter>,
     );
     await waitFor(() => expect(getByRole("button", { name: "Register OIDC client" })).toBeDefined());
     fireEvent.click(getByRole("button", { name: "Register OIDC client" }));
-    const section = container.querySelector('section[aria-label="OIDC clients"]') as HTMLElement;
-    const set = (name: string, value: string) => {
-      const input = section.querySelector(`[name="${name}"]`) as HTMLInputElement;
-      fireEvent.change(input, { target: { value } });
-    };
-    set("client_id", "wiki-web");
-    set("redirect_uris", "https://wiki.example.com/cb");
-    set("scopes", "openid");
-    const form = section.querySelector("form") as HTMLFormElement;
-    fireEvent.submit(form);
+    const sheet = getByRole("dialog", { name: "Register OIDC client" });
+    fireEvent.change(within(sheet).getByLabelText("Client ID"), { target: { value: "wiki-web" } });
+    fireEvent.change(within(sheet).getByLabelText("Redirect URIs (space or comma separated)"), {
+      target: { value: "https://wiki.example.com/cb" },
+    });
+    fireEvent.change(within(sheet).getByLabelText("Scopes (space or comma separated)"), {
+      target: { value: "openid" },
+    });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Register client" }));
     await waitFor(() => expect(getByText("sekret-sekali")).toBeDefined());
     const post = calls.find((c) => c.method === "POST" && c.url === "/api/admin/oidc/clients");
     expect(post?.body).toBe(
