@@ -77,6 +77,14 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+@layer base {
+  /* Tailwind v4 defaults border-color to currentColor; shadcn components
+     use plain `border` and expect the --border token (DESIGN.md §2). */
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
