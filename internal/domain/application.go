@@ -90,6 +90,14 @@ type RADIUSClient struct {
 	SharedSecretEnc []byte
 }
 
+// RADIUSClientStore is the port for the NAS shared-secret registry
+// (TECH_SPEC §5, §6.5). Secrets are stored sealed with ENC_KEY
+// (crypto.Seal); callers seal before Create and open after read.
+type RADIUSClientStore interface {
+	Create(ctx context.Context, c RADIUSClient) (RADIUSClient, error)
+	ByNASIdentifier(ctx context.Context, nasIdentifier string) (RADIUSClient, error)
+}
+
 // ApplicationStore is the port for the app catalog and provider configs.
 type ApplicationStore interface {
 	Create(ctx context.Context, a Application) (Application, error)
