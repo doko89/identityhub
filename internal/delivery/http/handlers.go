@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseapikey "github.com/identityhub/identityhub/internal/usecase/apikey"
 	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
@@ -65,6 +66,10 @@ type Handlers struct {
 	// catalog applications. Nil in tests that predate M7 provider
 	// registration; the routes are skipped then.
 	providers *usecaseapp.ProviderService
+	// APIKeys mints and verifies personal CLI keys. Nil in tests that
+	// predate API keys; the routes and the Bearer fallback are skipped
+	// then.
+	apiKeys *usecaseapikey.Service
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -103,6 +108,8 @@ type HandlerDeps struct {
 	Branding *usecasebranding.Service
 	// Providers is nil in tests that do not cover provider registration.
 	Providers *usecaseapp.ProviderService
+	// APIKeys is nil in tests that do not cover personal API keys.
+	APIKeys *usecaseapikey.Service
 }
 
 // NewHandlers builds the API handlers.
@@ -121,6 +128,7 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		saml: d.SAML, samlFlow: d.SAMLFlow, samlRequests: d.SAMLRequests, samlSPs: d.SAMLSPs,
 		mfa: d.MFA, apps: d.Apps, assets: d.Assets, storage: d.Storage,
 		sealer: d.Sealer, branding: d.Branding, providers: d.Providers,
+		apiKeys: d.APIKeys,
 	}
 }
 

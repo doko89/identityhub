@@ -5,6 +5,7 @@
 GO ?= go
 NPM ?= npm
 BINARY := bin/identityhub
+CLI_BINARY := bin/identityhub-cli
 
 TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5434/identityhub
 PLAYWRIGHT_BASE_URL ?= http://localhost:8080
@@ -14,7 +15,7 @@ export
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup db db-stop db-test build web-install web-build serve worker
+.PHONY: help setup db db-stop db-test build build-cli web-install web-build serve worker
 .PHONY: migrate migrate-down migrate-status create-admin
 .PHONY: vet fmt fmt-write test test-cover test-integration
 .PHONY: test-web test-e2e check clean
@@ -43,6 +44,9 @@ db-test: ## Start the integration-test Postgres (docker, port 5434)
 
 build: web-build ## Build web/dist + the Go binary into bin/
 	$(GO) build -o $(BINARY) ./cmd/identityhub
+
+build-cli: ## Build the management CLI into bin/
+	$(GO) build -o $(CLI_BINARY) ./cmd/identityhub-cli
 
 web-install: ## Install frontend dependencies
 	cd web && $(NPM) ci

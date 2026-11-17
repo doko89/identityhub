@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseapikey "github.com/identityhub/identityhub/internal/usecase/apikey"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
 	usecaseuser "github.com/identityhub/identityhub/internal/usecase/user"
@@ -414,6 +415,7 @@ type apiHarness struct {
 	audits *fakeAuditStore
 	mailer *fakeMailer
 	dir    *fakeDirectory
+	keys   *fakeAPIKeys
 	admin  domain.Group
 }
 
@@ -445,6 +447,11 @@ func newAPI(t *testing.T, users ...domain.User) *apiHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.keys = newFakeAPIKeys()
+	apiKeySvc, err := usecaseapikey.New(usecaseapikey.Deps{Keys: h.keys, Audit: audits})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sm := scs.New()
 	sm.Cookie.Name = "identityhub_session"
 	sm.Cookie.HttpOnly = true
@@ -453,6 +460,7 @@ func newAPI(t *testing.T, users ...domain.User) *apiHarness {
 		Sessions: sm, Registry: &fakeRegistry{}, Auth: authSvc, Users: userSvc,
 		Audits: audits, Groups: h.groups, Directory: h.dir,
 		Limiter: NewLimiter(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		APIKeys: apiKeySvc,
 	})
 	h.server = httptest.NewServer(NewRouter(Deps{Sessions: sm, DB: stubDB{}, Handlers: handlers}))
 	t.Cleanup(h.server.Close)

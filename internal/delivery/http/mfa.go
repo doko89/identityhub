@@ -328,10 +328,17 @@ func (h *Handlers) handleAdminMFAReset(w http.ResponseWriter, req *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// checkPasswordChangeMFA enforces PRD §6.10 re-auth: users with MFA need
-// a verification within mfaReAuthWindow or a fresh code with the
-// request. It answers the failure itself and reports whether to proceed.
+// checkPasswordChangeMFA enforces PRD §6.10 re-auth for password changes.
 func (h *Handlers) checkPasswordChangeMFA(w http.ResponseWriter, req *http.Request, u domain.User, code string) bool {
+	return h.checkReAuth(w, req, u, code, "to change the password")
+}
+
+// checkReAuth enforces step-up re-auth for sensitive self-service actions
+// (password change, API key issuance): users with MFA need a verification
+// within mfaReAuthWindow or a fresh code with the request. action names
+// the guarded operation in the failure message. It answers the failure
+// itself and reports whether to proceed.
+func (h *Handlers) checkReAuth(w http.ResponseWriter, req *http.Request, u domain.User, code, action string) bool {
 	has, err := h.mfa.HasTOTP(req.Context(), u.ID)
 	if err != nil {
 		h.writeError(w, req, err)
@@ -345,7 +352,7 @@ func (h *Handlers) checkPasswordChangeMFA(w http.ResponseWriter, req *http.Reque
 	}
 	if strings.TrimSpace(code) == "" {
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error":        "recent second-factor verification is required to change the password",
+			"error":        "recent second-factor verification is required " + action,
 			"mfa_required": true,
 		})
 		return false

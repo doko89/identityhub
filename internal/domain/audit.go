@@ -16,6 +16,7 @@ const (
 	MethodRADIUS   = "radius"
 	MethodOIDC     = "oidc"
 	MethodSAML     = "saml"
+	MethodAPIKey   = "apikey"
 )
 
 // Audit results recorded in audit_log.result.

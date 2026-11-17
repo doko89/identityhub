@@ -31,6 +31,7 @@ import (
 	deliveryldap "github.com/identityhub/identityhub/internal/delivery/ldap"
 	deliveryradius "github.com/identityhub/identityhub/internal/delivery/radius"
 	"github.com/identityhub/identityhub/internal/domain"
+	usecaseapikey "github.com/identityhub/identityhub/internal/usecase/apikey"
 	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
@@ -112,6 +113,7 @@ type services struct {
 	sealer        domain.SeedSealer
 	branding      *usecasebranding.Service
 	providers     *usecaseapp.ProviderService
+	apiKeys       *usecaseapikey.Service
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -263,6 +265,12 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if err != nil {
 		return nil, fmt.Errorf("wire providers: %w", err)
 	}
+	apiKeySvc, err := usecaseapikey.New(usecaseapikey.Deps{
+		Keys: postgres.NewAPIKeyRepository(db), Audit: audits,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire apikeys: %w", err)
+	}
 	return &services{
 		auth: authSvc, users: userSvc, audits: audits, usersRepo: users,
 		groups: groups, radiusClients: postgres.NewRADIUSClientRepository(db),
@@ -271,7 +279,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		saml: samlProvider, samlFlow: samlFlow,
 		samlRequests: samlRequests, samlSPs: samlSPs,
 		mfa: mfaSvc, apps: appSvc, assets: assetSvc, files: files, sealer: sealer,
-		branding: brandingSvc, providers: providerSvc,
+		branding: brandingSvc, providers: providerSvc, apiKeys: apiKeySvc,
 	}, nil
 }
 
@@ -325,7 +333,7 @@ func runServe(args []string) error {
 		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
 		SAML: svc.saml, SAMLFlow: svc.samlFlow, SAMLRequests: svc.samlRequests, SAMLSPs: svc.samlSPs,
 		MFA: svc.mfa, Apps: svc.apps, Assets: svc.assets, Storage: svc.files, Sealer: svc.sealer,
-		Branding: svc.branding, Providers: svc.providers,
+		Branding: svc.branding, Providers: svc.providers, APIKeys: svc.apiKeys,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 

@@ -33,6 +33,8 @@ const (
 	ActionMFARecoveryRegen   = "mfa_recovery_regenerate"
 	ActionMFAReset           = "mfa_reset"
 	ActionBrandingUpdate     = "branding_update"
+	ActionAPIKeyCreate       = "api_key_create"
+	ActionAPIKeyRevoke       = "api_key_revoke"
 )
 
 // Service validates and persists audit entries.

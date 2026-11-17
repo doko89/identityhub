@@ -74,3 +74,59 @@ export async function updateAccountAvatar(avatarUrl: string): Promise<SessionUse
   const data = (await res.json()) as { user: SessionUser };
   return data.user;
 }
+
+// ---------- API keys ----------
+
+export interface APIKey {
+  id: string;
+  name: string;
+  prefix: string;
+  created_with_mfa: boolean;
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface CreateAPIKeyInput {
+  name: string;
+  // expires_in_days sets a TTL; omitted means the key never expires.
+  expires_in_days?: number;
+  // totp_code is the re-auth factor, required when the user has MFA and
+  // the session's last verification is older than 10 minutes.
+  totp_code?: string;
+}
+
+// listAPIKeys returns the session user's keys, newest first.
+export async function listAPIKeys(): Promise<APIKey[]> {
+  const res = await fetch("/api/account/api-keys");
+  if (!res.ok) {
+    throw await toApiError(res);
+  }
+  const data = (await res.json()) as { api_keys: APIKey[] };
+  return data.api_keys;
+}
+
+// createAPIKey mints one personal key for the identityhub CLI. The
+// secret is returned once and cannot be recovered later.
+export async function createAPIKey(
+  input: CreateAPIKeyInput,
+): Promise<{ api_key: APIKey; secret: string }> {
+  const res = await fetch("/api/account/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw await toApiError(res);
+  }
+  return (await res.json()) as { api_key: APIKey; secret: string };
+}
+
+// revokeAPIKey revokes one of the session user's keys.
+export async function revokeAPIKey(id: string): Promise<void> {
+  const res = await fetch(`/api/account/api-keys/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw await toApiError(res);
+  }
+}

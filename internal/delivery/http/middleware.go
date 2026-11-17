@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,12 +29,22 @@ type Sessions interface {
 
 type ctxKey int
 
-const userCtxKey ctxKey = 1
+const (
+	userCtxKey   ctxKey = 1
+	apiKeyCtxKey ctxKey = 2
+)
 
 // currentUser returns the authenticated user loaded by requireUser.
 func currentUser(ctx context.Context) (domain.User, bool) {
 	u, ok := ctx.Value(userCtxKey).(domain.User)
 	return u, ok
+}
+
+// currentAPIKey returns the personal API key behind a Bearer-authenticated
+// request (absent for session requests).
+func currentAPIKey(ctx context.Context) (domain.APIKey, bool) {
+	k, ok := ctx.Value(apiKeyCtxKey).(domain.APIKey)
+	return k, ok
 }
 
 // mustUser returns the authenticated user or panics: requireUser runs
@@ -46,27 +57,82 @@ func mustUser(ctx context.Context) domain.User {
 	return u
 }
 
-// requireUser loads the session user or answers 401. Disabled users lose
+// requireUser loads the session user, or the API-key owner when the
+// request carries a Bearer token instead of a session cookie. A request
+// with a session identity always takes the session path; Bearer is only
+// the fallback for sessionless clients (the CLI). Disabled users lose
 // access on the next request (no caching).
 func (h *Handlers) requireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		raw := h.sessions.GetString(req.Context(), SessionUserID)
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		if raw := h.sessions.GetString(req.Context(), SessionUserID); raw != "" {
+			h.serveSessionUser(w, req, next, raw)
 			return
 		}
-		u, err := h.users.GetUser(req.Context(), id)
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
-			return
-		}
-		if !u.IsActive {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account disabled"})
-			return
-		}
-		next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), userCtxKey, u)))
+		h.serveBearerUser(w, req, next)
 	})
+}
+
+// serveSessionUser is the cookie path of requireUser.
+func (h *Handlers) serveSessionUser(w http.ResponseWriter, req *http.Request, next http.Handler, raw string) {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	u, err := h.users.GetUser(req.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	if !u.IsActive {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account disabled"})
+		return
+	}
+	next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), userCtxKey, u)))
+}
+
+// serveBearerUser is the API-key path of requireUser: it resolves the
+// Bearer secret to its owner and stashes both in the context. Unknown,
+// revoked and expired secrets all answer the same 401.
+func (h *Handlers) serveBearerUser(w http.ResponseWriter, req *http.Request, next http.Handler) {
+	secret, ok := bearerToken(req)
+	if !ok || h.apiKeys == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	k, err := h.apiKeys.Authenticate(req.Context(), secret)
+	if err != nil {
+		if errors.Is(err, domain.ErrUnauthorized) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+			return
+		}
+		h.writeError(w, req, err)
+		return
+	}
+	u, err := h.users.GetUser(req.Context(), k.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	if !u.IsActive {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account disabled"})
+		return
+	}
+	ctx := context.WithValue(req.Context(), userCtxKey, u)
+	next.ServeHTTP(w, req.WithContext(context.WithValue(ctx, apiKeyCtxKey, k)))
+}
+
+// bearerToken extracts the Bearer credential, if the request has one.
+func bearerToken(req *http.Request) (string, bool) {
+	h := req.Header.Get("Authorization")
+	if h == "" {
+		return "", false
+	}
+	scheme, token, _ := strings.Cut(h, " ")
+	if token == "" || !strings.EqualFold(scheme, "bearer") {
+		return "", false
+	}
+	return token, true
 }
 
 // requireAdmin answers 403 unless the session user is an ih_admin member.
@@ -87,7 +153,18 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator access required"})
 			return
 		}
-		if h.mfa != nil && h.sessions.GetString(req.Context(), SessionMFAVerifiedAt) == "" {
+		// Bearer requests carry no session to step up: the key must have
+		// been issued from an MFA-verified session instead (admins always
+		// have MFA, so their keys always are).
+		if k, ok := currentAPIKey(req.Context()); ok {
+			if h.mfa != nil && !k.CreatedWithMFA {
+				writeJSON(w, http.StatusForbidden, map[string]any{
+					"error":        "multi-factor authentication is required for administrators",
+					"mfa_required": true,
+				})
+				return
+			}
+		} else if h.mfa != nil && h.sessions.GetString(req.Context(), SessionMFAVerifiedAt) == "" {
 			writeJSON(w, http.StatusForbidden, map[string]any{
 				"error":        "multi-factor authentication is required for administrators",
 				"mfa_required": true,

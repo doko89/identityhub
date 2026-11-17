@@ -94,6 +94,9 @@ export function AccountPage() {
                 <Link to="/account/mfa" className="text-primary hover:underline">
                   Two-step verification
                 </Link>
+                <Link to="/account/api-keys" className="text-primary hover:underline">
+                  API keys
+                </Link>
               </nav>
             </div>
           )}

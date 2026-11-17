@@ -68,6 +68,7 @@ func (h *Handlers) mount(r *chi.Mux) {
 	r.With(h.requireUser).Post("/api/account/avatar", h.handleUpdateAccountAvatar)
 	h.mountMFA(r)
 	h.mountApps(r)
+	h.mountAPIKeys(r)
 	if h.branding != nil {
 		r.Get("/api/branding", h.handleGetBranding)
 	}
@@ -145,6 +146,17 @@ func (h *Handlers) mountApps(r *chi.Mux) {
 		r.With(h.requireUser).Post("/api/uploads", h.handleUpload)
 		r.Get("/uploads/*", h.handleUploadServe)
 	}
+}
+
+// mountAPIKeys registers the self-service key routes. Skipped when the
+// service is unwired (unit tests that predate API keys).
+func (h *Handlers) mountAPIKeys(r *chi.Mux) {
+	if h.apiKeys == nil {
+		return
+	}
+	r.With(h.requireUser).Get("/api/account/api-keys", h.handleListAPIKeys)
+	r.With(h.requireUser).Post("/api/account/api-keys", h.handleCreateAPIKey)
+	r.With(h.requireUser).Delete("/api/account/api-keys/{id}", h.handleRevokeAPIKey)
 }
 
 // handleHealthz is the liveness probe: it answers without touching the

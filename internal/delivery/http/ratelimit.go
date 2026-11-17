@@ -37,6 +37,11 @@ const (
 	// is a support case, not a login flow.
 	UploadPerUserLimit  = 30
 	UploadPerUserWindow = time.Hour
+
+	// API key issuance is capped per user and hour; keys are long-lived
+	// credentials, so creation is rare by design.
+	APIKeyPerUserLimit  = 10
+	APIKeyPerUserWindow = time.Hour
 )
 
 type window struct {

@@ -226,9 +226,39 @@ capped at 10.000 newest rows. Per-protocol operator guide (a non-dev
 admin adds an OIDC app following it alone): `docs/INTEGRATION.md`; v1
 scope decisions: `docs/DECISIONS.md`.
 
+## API keys + CLI
+
+Personal API keys (`/account/api-keys` in the console, or
+`POST /api/account/api-keys` with `{"name","expires_in_days?"}`) authenticate
+the `identityhub-cli` management tool and any Bearer client. Only the SHA-256
+hash is stored; the `ih_...` secret is shown once. A key inherits its
+owner's permissions, so admin keys are only issued from MFA-verified
+sessions (admins always have MFA) — that issuance is what satisfies the
+admin MFA gate for Bearer requests. Users with MFA step up with a TOTP code
+when the session verification is older than 10 minutes. `GET` lists,
+`DELETE /api/account/api-keys/{id}` revokes with immediate effect.
+
+```sh
+make build-cli
+export IDENTITYHUB_API_KEY=ih_...   # from /account/api-keys
+identityhub-cli whoami
+identityhub-cli users list --q ara
+identityhub-cli groups members add <group-id> --user <user-id>
+identityhub-cli apps create --slug wiki --name Wiki --provider-type oidc
+identityhub-cli audit list --result failure --limit 20
+identityhub-cli --json branding get  # every command speaks --json too
+```
+
+`users`, `groups`, `apps`, `bindings`, `oidc`, `saml`, `radius`, `audit`,
+`ldap test`, `branding` and `apikeys` cover the same surface as the admin
+console; `--server` (or `$IDENTITYHUB_SERVER`) points the CLI at another
+origin. Keys minted through the CLI itself are never MFA-verified, so a
+fresh admin key always comes from the browser.
+
 ## Layout
 
 - `cmd/identityhub` — single binary: `serve|worker|migrate|create-admin`
+- `cmd/identityhub-cli` — management CLI over the JSON API (Bearer API key)
 - `internal/domain` — entities + ports (imports no other internal package)
 - `internal/config` — env-only config + boot validation (LDAP/SMTP included)
 - `internal/usecase/{auth,user,audit,oidcflow,samlflow,mfa,app,asset,branding}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit (+CSV), OIDC authorize/consent + SAML assertion decisions, TOTP/recovery/policy, app catalog + bindings + launch + provider registration, webp uploads, brand singleton
@@ -236,7 +266,7 @@ scope decisions: `docs/DECISIONS.md`.
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads + branding + provider registration, embedded SPA
 - `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy, per-NAS flood protection)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
-- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag)
+- `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag, `00006` app new-tab, `00007` branding tagline, `00008` API keys)
 - `web` — React+Vite+TS SPA (vitest + eslint + playwright); `web/dist` is the embedded production build
 - `docs/INTEGRATION.md` — per-protocol operator guide; `docs/DECISIONS.md` — v1 scope decisions
 
