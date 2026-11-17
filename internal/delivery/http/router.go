@@ -93,6 +93,17 @@ func (h *Handlers) mount(r *chi.Mux) {
 		if h.branding != nil {
 			r.Patch("/branding", h.handleAdminUpdateBranding)
 		}
+		if h.providers != nil {
+			r.Get("/oidc/clients", h.handleAdminListOIDCClients)
+			r.Post("/oidc/clients", h.handleAdminCreateOIDCClient)
+			r.Delete("/oidc/clients/{clientID}", h.handleAdminDeleteOIDCClient)
+			r.Get("/saml/sps", h.handleAdminListSAMLSPs)
+			r.Post("/saml/sps", h.handleAdminImportSAMLSP)
+			r.Delete("/saml/sps", h.handleAdminDeleteSAMLSP)
+			r.Get("/radius/clients", h.handleAdminListRADIUSClients)
+			r.Post("/radius/clients", h.handleAdminCreateRADIUSClient)
+			r.Delete("/radius/clients/{nas}", h.handleAdminDeleteRADIUSClient)
+		}
 		if h.apps != nil {
 			r.Get("/apps", h.handleAdminListApps)
 			r.Post("/apps", h.handleAdminCreateApp)

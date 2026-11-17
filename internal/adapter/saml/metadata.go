@@ -19,6 +19,15 @@ import (
 // pasted file exhaust memory.
 const maxSPMetadataBytes = 1 << 20
 
+// MetadataParser implements domain.SAMLMetadataParser: the registration
+// flow parses through it so usecases never touch the SAML library.
+type MetadataParser struct{}
+
+// ParseSPMetadata implements domain.SAMLMetadataParser.
+func (MetadataParser) ParseSPMetadata(raw string) (domain.SAMLServiceProvider, error) {
+	return ParseSPMetadata(raw)
+}
+
 // ParseSPMetadata imports an SP metadata document (PRD §6.4: SP metadata
 // import) into registry fields. It picks the default POST assertion
 // consumer service, the preferred single-logout endpoint, and the first

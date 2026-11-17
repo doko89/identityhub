@@ -123,6 +123,15 @@ func HashClientSecret(plain string) ([]byte, error) {
 	return bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
 }
 
+// SecretHasher implements domain.ClientSecretHasher with bcrypt (fosite
+// compares with bcrypt on token requests).
+type SecretHasher struct{}
+
+// HashSecret hashes a plaintext client secret for storage.
+func (SecretHasher) HashSecret(plain string) ([]byte, error) {
+	return HashClientSecret(plain)
+}
+
 // ParseAuthorizeRequest implements domain.OIDCProvider.
 func (p *Provider) ParseAuthorizeRequest(ctx context.Context, r *http.Request) (domain.OIDCAuthRequest, error) {
 	ar, err := p.oauth2.NewAuthorizeRequest(ctx, r)

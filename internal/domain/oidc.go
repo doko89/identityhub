@@ -53,6 +53,13 @@ type OIDCClientStore interface {
 	List(ctx context.Context, limit, offset int) ([]OIDCClient, int, error)
 }
 
+// ClientSecretHasher hashes OIDC client secrets (bcrypt, for fosite).
+// Implemented in internal/adapter/oidc; registration flows hash through
+// this port so usecases never touch the OIDC library.
+type ClientSecretHasher interface {
+	HashSecret(plain string) ([]byte, error)
+}
+
 // OIDCConsent is a remembered scope grant from a user to a client.
 type OIDCConsent struct {
 	UserID    uuid.UUID

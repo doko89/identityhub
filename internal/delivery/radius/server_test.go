@@ -34,6 +34,14 @@ func (stubClients) ByNASIdentifier(_ context.Context, _ string) (domain.RADIUSCl
 	return domain.RADIUSClient{}, domain.ErrNotFound
 }
 
+func (stubClients) Delete(_ context.Context, _ string) error {
+	return domain.ErrNotFound
+}
+
+func (stubClients) List(_ context.Context, _, _ int) ([]domain.RADIUSClient, int, error) {
+	return nil, 0, nil
+}
+
 func TestNewValidation(t *testing.T) {
 	deps := Deps{Auth: &usecaseauth.Service{}, Clients: nil, Log: testLogger()}
 	if _, err := New(Config{Addr: "127.0.0.1:0", EncKey: testKey()}, deps); err == nil {

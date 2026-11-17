@@ -61,6 +61,10 @@ type Handlers struct {
 	// §7). Nil in unit tests that predate M7; the routes are skipped
 	// then.
 	branding *usecasebranding.Service
+	// Providers registers protocol credentials (OIDC/SAML/RADIUS) for
+	// catalog applications. Nil in tests that predate M7 provider
+	// registration; the routes are skipped then.
+	providers *usecaseapp.ProviderService
 }
 
 // HandlerDeps wires Handlers. Directory may be nil; everything else is
@@ -97,6 +101,8 @@ type HandlerDeps struct {
 	Sealer domain.SeedSealer
 	// Branding is nil in tests that do not cover the theme endpoints.
 	Branding *usecasebranding.Service
+	// Providers is nil in tests that do not cover provider registration.
+	Providers *usecaseapp.ProviderService
 }
 
 // NewHandlers builds the API handlers.
@@ -114,7 +120,7 @@ func NewHandlers(d HandlerDeps) *Handlers {
 		oidc: d.OIDC, oidcFlow: d.OIDCFlow, challenges: d.Challenges, oidcClients: d.OIDCClients,
 		saml: d.SAML, samlFlow: d.SAMLFlow, samlRequests: d.SAMLRequests, samlSPs: d.SAMLSPs,
 		mfa: d.MFA, apps: d.Apps, assets: d.Assets, storage: d.Storage,
-		sealer: d.Sealer, branding: d.Branding,
+		sealer: d.Sealer, branding: d.Branding, providers: d.Providers,
 	}
 }
 

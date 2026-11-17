@@ -32,7 +32,9 @@ import (
 	"github.com/google/uuid"
 
 	adaptercrypto "github.com/identityhub/identityhub/internal/adapter/crypto"
+	"github.com/identityhub/identityhub/internal/adapter/oidc"
 	"github.com/identityhub/identityhub/internal/adapter/postgres"
+	adaptersaml "github.com/identityhub/identityhub/internal/adapter/saml"
 	"github.com/identityhub/identityhub/internal/adapter/storage"
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
@@ -114,6 +116,15 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 	if err != nil {
 		t.Fatalf("wire branding: %v", err)
 	}
+	providerSvc, err := usecaseapp.NewProviders(usecaseapp.ProviderDeps{
+		Apps: appRepo, OIDCClients: postgres.NewOIDCClientRepository(db),
+		SAMLSPs: postgres.NewSAMLSPRepository(db),
+		RADIUS:  postgres.NewRADIUSClientRepository(db),
+		Hasher:  oidc.SecretHasher{}, Sealer: sealer, Parser: adaptersaml.MetadataParser{},
+	})
+	if err != nil {
+		t.Fatalf("wire providers: %v", err)
+	}
 	authSvc, err := usecaseauth.New(usecaseauth.Deps{
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
 		Sessions: registry, Audit: audits, Hasher: adaptercrypto.Hasher{},
@@ -136,7 +147,7 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 		Audits: audits, Groups: groups,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		MFA: mfaSvc, Apps: appSvc, Assets: assetSvc, Storage: files, Sealer: sealer,
-		Branding: brandingSvc,
+		Branding: brandingSvc, Providers: providerSvc,
 	})
 	srv := httptest.NewServer(NewRouter(Deps{Sessions: sessions, DB: db, Handlers: handlers}))
 	t.Cleanup(srv.Close)

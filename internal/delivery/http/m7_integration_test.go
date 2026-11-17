@@ -14,8 +14,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
 )
@@ -245,5 +248,150 @@ func TestAuditExportCSV(t *testing.T) {
 	_ = uresp.Body.Close()
 	if uresp.StatusCode != 403 {
 		t.Fatalf("non-admin export = %d, want 403", uresp.StatusCode)
+	}
+}
+
+// spMetadata builds a minimal SP metadata document with a test-unique
+// entityID (the registry enforces UNIQUE entity_id across runs).
+func spMetadata(tag string) string {
+	return `<?xml version="1.0"?>
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://sp-` + tag + `.example.com/metadata">
+  <SPSSODescriptor AuthnRequestsSigned="false" WantAssertionsSigned="true" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://sp-` + tag + `.example.com/acs" index="0" isDefault="true"/>
+  </SPSSODescriptor>
+</EntityDescriptor>`
+}
+
+// TestProviderRegistrationE2E walks the admin registration APIs a
+// non-developer follows in docs/INTEGRATION.md: catalog app first, then
+// exactly one protocol credential per app (OIDC client secret, SAML
+// metadata import, RADIUS NAS secret), each shown once.
+func TestProviderRegistrationE2E(t *testing.T) {
+	fx := setupMFAFixture(t)
+	r, _ := verifiedAdmin(t, fx, "prov-root")
+	tag := uuid.NewString()[:8]
+
+	mkapp := func(slug, provider string) string {
+		t.Helper()
+		code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/apps", map[string]any{
+			"slug": slug + "-" + tag, "name": slug, "provider_type": provider,
+		})
+		if code != 201 {
+			t.Fatalf("create app %s = %d (%v)", slug, code, body)
+		}
+		app, _ := body["app"].(map[string]any)
+		id, _ := app["id"].(string)
+		if id == "" {
+			t.Fatalf("create app %s returned no id: %v", slug, body)
+		}
+		t.Cleanup(func() {
+			_, _ = doJSON(t, r, http.MethodDelete, fx.srv.URL+"/api/admin/apps/"+id, nil)
+		})
+		return id
+	}
+
+	// OIDC: confidential client, secret shown once, one client per app.
+	appOIDC := mkapp("prov-wiki", "oidc")
+	code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/oidc/clients", map[string]any{
+		"application_id": appOIDC, "redirect_uris": []string{"https://wiki.example.com/callback"},
+	})
+	if code != 201 {
+		t.Fatalf("register OIDC client = %d (%v)", code, body)
+	}
+	client, _ := body["client"].(map[string]any)
+	clientID, _ := client["client_id"].(string)
+	secret, _ := body["client_secret"].(string)
+	if !strings.HasPrefix(clientID, "oidc-") || len(secret) != 43 {
+		t.Fatalf("client id=%q secret len=%d", clientID, len(secret))
+	}
+	if _, hasHash := client["client_secret_hash"]; hasHash {
+		t.Fatalf("create must never echo the hash: %v", client)
+	}
+	if code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/oidc/clients", map[string]any{
+		"application_id": appOIDC, "redirect_uris": []string{"http://evil.example.com/cb"},
+	}); code != 400 {
+		t.Fatalf("http redirect = %d (%v), want 400", code, body)
+	}
+	if code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/oidc/clients", map[string]any{
+		"application_id": appOIDC, "redirect_uris": []string{"https://wiki.example.com/other"},
+	}); code != 409 {
+		t.Fatalf("second client for one app = %d (%v), want 409", code, body)
+	}
+	if code, body := doJSON(t, r, http.MethodGet, fx.srv.URL+"/api/admin/oidc/clients", nil); code != 200 {
+		t.Fatalf("list OIDC clients = %d", code)
+	} else if raw, _ := body["clients"].([]any); len(raw) == 0 {
+		t.Fatalf("list misses the registered client: %v", body)
+	} else if _, hasSecret := raw[0].(map[string]any)["client_secret"]; hasSecret {
+		t.Fatalf("list must not re-show secrets: %v", raw[0])
+	}
+	if code, _ := doJSON(t, r, http.MethodDelete, fx.srv.URL+"/api/admin/oidc/clients/"+clientID, nil); code != 204 {
+		t.Fatalf("delete OIDC client = %d, want 204", code)
+	}
+	if code, _ := doJSON(t, r, http.MethodDelete, fx.srv.URL+"/api/admin/oidc/clients/"+clientID, nil); code != 404 {
+		t.Fatalf("re-delete OIDC client = %d, want 404", code)
+	}
+
+	// SAML: metadata import, duplicate + garbage rejected.
+	appSAML := mkapp("prov-crm", "saml")
+	entity := "https://sp-" + tag + ".example.com/metadata"
+	code, body = doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/saml/sps", map[string]any{
+		"application_id": appSAML, "metadata_xml": spMetadata(tag),
+	})
+	if code != 201 {
+		t.Fatalf("import SP = %d (%v)", code, body)
+	}
+	if sp, _ := body["sp"].(map[string]any); sp["entity_id"] != entity {
+		t.Fatalf("imported entity = %v, want %s", sp, entity)
+	}
+	if code, _ := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/saml/sps", map[string]any{
+		"application_id": appSAML, "metadata_xml": "not xml",
+	}); code != 400 {
+		t.Fatalf("garbage metadata = %d, want 400", code)
+	}
+	appSAML2 := mkapp("prov-crm2", "saml")
+	if code, _ := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/saml/sps", map[string]any{
+		"application_id": appSAML2, "metadata_xml": spMetadata(tag),
+	}); code != 409 {
+		t.Fatalf("duplicate entity = %d, want 409", code)
+	}
+	delSP := fx.srv.URL + "/api/admin/saml/sps?entity_id=" + url.QueryEscape(entity)
+	if code, _ := doJSON(t, r, http.MethodDelete, delSP, nil); code != 204 {
+		t.Fatalf("delete SP = %d, want 204", code)
+	}
+	if code, _ := doJSON(t, r, http.MethodDelete, delSP, nil); code != 404 {
+		t.Fatalf("re-delete SP = %d, want 404", code)
+	}
+
+	// RADIUS: NAS secret shown once, sealed at rest.
+	appRADIUS := mkapp("prov-vpn", "radius")
+	code, body = doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/radius/clients", map[string]any{
+		"application_id": appRADIUS, "nas_identifier": "10.99.99.1",
+	})
+	if code != 201 {
+		t.Fatalf("register NAS = %d (%v)", code, body)
+	}
+	nasSecret, _ := body["shared_secret"].(string)
+	if len(nasSecret) != 32 {
+		t.Fatalf("NAS secret len = %d, want 32", len(nasSecret))
+	}
+	if code, _ := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/radius/clients", map[string]any{
+		"application_id": appRADIUS, "nas_identifier": "not-an-ip",
+	}); code != 400 {
+		t.Fatalf("hostname NAS = %d, want 400", code)
+	}
+	if code, _ := doJSON(t, r, http.MethodDelete, fx.srv.URL+"/api/admin/radius/clients/10.99.99.1", nil); code != 204 {
+		t.Fatalf("delete NAS = %d, want 204", code)
+	}
+
+	// Guards: a plain user registers nothing.
+	bob := fx.mkuser("prov-bob")
+	b := fx.browser()
+	if code, _ := fx.login(b, bob.Username); code != 200 {
+		t.Fatalf("bob login = %d", code)
+	}
+	if code, _ := doJSON(t, b, http.MethodPost, fx.srv.URL+"/api/admin/oidc/clients", map[string]any{
+		"application_id": appOIDC, "redirect_uris": []string{"https://x.example.com/cb"},
+	}); code != 403 {
+		t.Fatalf("non-admin OIDC register = %d, want 403", code)
 	}
 }

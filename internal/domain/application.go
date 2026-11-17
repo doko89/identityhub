@@ -99,6 +99,17 @@ type RADIUSClient struct {
 type RADIUSClientStore interface {
 	Create(ctx context.Context, c RADIUSClient) (RADIUSClient, error)
 	ByNASIdentifier(ctx context.Context, nasIdentifier string) (RADIUSClient, error)
+	Delete(ctx context.Context, nasIdentifier string) error
+	List(ctx context.Context, limit, offset int) ([]RADIUSClient, int, error)
+}
+
+// SecretSealer encrypts provider secrets at rest with ENC_KEY
+// (TECH_SPEC §5): RADIUS shared secrets (and, behind the same method
+// set, TOTP seeds via SeedSealer). Implemented in
+// internal/adapter/crypto.
+type SecretSealer interface {
+	Seal(plaintext []byte) ([]byte, error)
+	Open(sealed []byte) ([]byte, error)
 }
 
 // ApplicationStore is the port for the app catalog and provider configs.

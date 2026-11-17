@@ -49,6 +49,14 @@ type SAMLSPStore interface {
 	List(ctx context.Context, limit, offset int) ([]SAMLServiceProvider, int, error)
 }
 
+// SAMLMetadataParser imports an SP metadata document into registry
+// fields (entityID, default POST ACS, preferred SLO, signing cert).
+// Implemented in internal/adapter/saml (crewjam); registration flows
+// parse through this port so usecases never touch the SAML library.
+type SAMLMetadataParser interface {
+	ParseSPMetadata(raw string) (SAMLServiceProvider, error)
+}
+
 // SAMLRequest carries an SSO request across the login round trip. The raw
 // bytes are stored verbatim (query string for Redirect binding, body for
 // POST) so signature validation replays exactly what the SP sent.

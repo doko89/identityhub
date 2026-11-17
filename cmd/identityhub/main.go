@@ -111,6 +111,7 @@ type services struct {
 	files         domain.FileStorage
 	sealer        domain.SeedSealer
 	branding      *usecasebranding.Service
+	providers     *usecaseapp.ProviderService
 }
 
 // wireServices builds repositories, adapters and usecases. LDAP and SMTP
@@ -254,6 +255,14 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if err != nil {
 		return nil, fmt.Errorf("wire saml: %w", err)
 	}
+	providerSvc, err := usecaseapp.NewProviders(usecaseapp.ProviderDeps{
+		Apps: appRepo, OIDCClients: oidcClients, SAMLSPs: samlSPs,
+		RADIUS: postgres.NewRADIUSClientRepository(db),
+		Hasher: oidc.SecretHasher{}, Sealer: sealer, Parser: adaptersaml.MetadataParser{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wire providers: %w", err)
+	}
 	return &services{
 		auth: authSvc, users: userSvc, audits: audits, usersRepo: users,
 		groups: groups, radiusClients: postgres.NewRADIUSClientRepository(db),
@@ -262,7 +271,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 		saml: samlProvider, samlFlow: samlFlow,
 		samlRequests: samlRequests, samlSPs: samlSPs,
 		mfa: mfaSvc, apps: appSvc, assets: assetSvc, files: files, sealer: sealer,
-		branding: brandingSvc,
+		branding: brandingSvc, providers: providerSvc,
 	}, nil
 }
 
@@ -316,7 +325,7 @@ func runServe(args []string) error {
 		OIDC: svc.oidc, OIDCFlow: svc.oidcFlow, Challenges: svc.challenges, OIDCClients: svc.oidcClients,
 		SAML: svc.saml, SAMLFlow: svc.samlFlow, SAMLRequests: svc.samlRequests, SAMLSPs: svc.samlSPs,
 		MFA: svc.mfa, Apps: svc.apps, Assets: svc.assets, Storage: svc.files, Sealer: svc.sealer,
-		Branding: svc.branding,
+		Branding: svc.branding, Providers: svc.providers,
 	})
 	handler := deliveryhttp.NewRouter(deliveryhttp.Deps{Sessions: sessions, DB: db, Handlers: handlers})
 
