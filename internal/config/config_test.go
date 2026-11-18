@@ -251,6 +251,7 @@ func TestLoadLegacyProviders(t *testing.T) {
 	setEnv(t, "LDAP_MODE", "ldap")
 	setEnv(t, "LDAP_PORT", "1389")
 	setEnv(t, "LDAP_ALLOWED_CIDRS", "10.0.0.0/8, 192.168.1.50")
+	setEnv(t, "LDAP_SERVE_BASE_DN", "dc=example,dc=com")
 	setEnv(t, "RADIUS_ENABLED", "false")
 	setEnv(t, "RADIUS_PORT", "11812")
 
@@ -260,6 +261,9 @@ func TestLoadLegacyProviders(t *testing.T) {
 	}
 	if !cfg.LDAPProvider.Enabled() || cfg.LDAPProvider.Mode != "ldap" {
 		t.Errorf("LDAPProvider = %+v, want enabled ldap mode", cfg.LDAPProvider)
+	}
+	if cfg.LDAPProvider.ServeBaseDN != "dc=example,dc=com" {
+		t.Errorf("ServeBaseDN = %q", cfg.LDAPProvider.ServeBaseDN)
 	}
 	if len(cfg.LDAPProvider.AllowedCIDRs) != 2 {
 		t.Fatalf("AllowedCIDRs = %d nets, want 2", len(cfg.LDAPProvider.AllowedCIDRs))

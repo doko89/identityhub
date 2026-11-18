@@ -411,6 +411,7 @@ func startLDAPProvider(cfg config.Config, log *slog.Logger, svc *services) (*del
 		TLSKeyFile:   cfg.LDAPProvider.TLSKeyFile,
 		CacheTTL:     cfg.LDAPProvider.CacheTTL,
 		BindCacheTTL: cfg.LDAPProvider.BindCacheTTL,
+		BaseDN:       cfg.LDAPProvider.ServeBaseDN,
 	}, deliveryldap.Deps{Auth: svc.auth, Users: svc.usersRepo, Groups: svc.groups, Attrs: svc.attrs, Version: svc.dirVersion, Log: log})
 	if err != nil {
 		return nil, fmt.Errorf("ldap provider: %w", err)

@@ -77,6 +77,7 @@ const (
 	envLDAPTLSKeyFile   = "LDAP_TLS_KEY_FILE"
 	envLDAPCacheTTL     = "LDAP_CACHE_TTL"
 	envLDAPBindCacheTTL = "LDAP_BIND_CACHE_TTL"
+	envLDAPServeBaseDN  = "LDAP_SERVE_BASE_DN"
 	envAuditRetention   = "AUDIT_RETENTION"
 	// RADIUS provider (server) settings (TECH_SPEC §6.5).
 	envRADIUSEnabled = "RADIUS_ENABLED"
@@ -192,6 +193,11 @@ type LDAPProviderConfig struct {
 	// BindCacheTTL bounds remembered local binds (default 1m); 0
 	// disables the bind cache (every bind verifies the hash).
 	BindCacheTTL time.Duration
+	// ServeBaseDN overrides the served naming context. Empty serves
+	// the default dc=identityhub tree; a set value must parse as a DN
+	// (validated when the LDAP server is constructed, so a bad value
+	// fails startup with a clear error instead of serving half a tree).
+	ServeBaseDN string
 }
 
 // Enabled reports whether the LDAP listener is configured.
@@ -283,6 +289,7 @@ func Load() (Config, error) {
 		TLSKeyFile:   strings.TrimSpace(os.Getenv(envLDAPTLSKeyFile)),
 		CacheTTL:     DefaultLDAPCacheTTL,
 		BindCacheTTL: DefaultLDAPBindCacheTTL,
+		ServeBaseDN:  strings.TrimSpace(os.Getenv(envLDAPServeBaseDN)),
 	}
 	cfg.RADIUS = RADIUSConfig{Enabled: true, Port: DefaultRADIUSPort}
 	cfg.Storage = StorageConfig{

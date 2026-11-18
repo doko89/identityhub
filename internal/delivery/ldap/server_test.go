@@ -186,7 +186,7 @@ func TestInvertMembers(t *testing.T) {
 		eng.ID.String(): {UserDN("alice"), UserDN("ghost")},
 		ops.ID.String(): {UserDN("alice"), UserDN("bob")},
 	}
-	got := invertMembers([]domain.User{alice, bob}, []domain.Group{eng, ops}, members)
+	got := defaultTree.invertMembers([]domain.User{alice, bob}, []domain.Group{eng, ops}, members)
 	if len(got[alice.ID.String()]) != 2 {
 		t.Errorf("alice groups = %v, want 2", got[alice.ID.String()])
 	}

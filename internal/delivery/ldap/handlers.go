@@ -47,7 +47,7 @@ func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) 
 		fail(ldapserver.LDAPResultInvalidCredentials, "invalid credentials")
 		return
 	}
-	username, err := ParseBindDN(dn)
+	username, err := s.dn.ParseBindDN(dn)
 	if err != nil {
 		fail(ldapserver.LDAPResultInvalidCredentials, err.Error())
 		return
@@ -229,14 +229,14 @@ func handleNotFound(w ldapserver.ResponseWriter, r *ldapserver.Message) {
 func (s *Server) collectEntries(ctx context.Context, base string, scope int, f *filter) (out []*entry, noSuch bool, err error) {
 	if base == "" {
 		if scope == scopeBaseObject {
-			return []*entry{rootDSE()}, false, nil
+			return []*entry{s.dn.rootDSE()}, false, nil
 		}
 		return nil, true, nil
 	}
 	// Point lookups — a bare (uid=x) or an AND containing one — resolve
 	// to one indexed row instead of a full tree scan. Container entries
 	// carry no uid, so they could never match such a filter anyway.
-	if uid, ok := shortCircuitUID(f); ok && userEntriesInScope(base, scope) {
+	if uid, ok := shortCircuitUID(f); ok && s.dn.userEntriesInScope(base, scope) {
 		e, found, err := s.userEntryByName(ctx, uid)
 		if err != nil {
 			return nil, false, err
@@ -247,39 +247,39 @@ func (s *Server) collectEntries(ctx context.Context, base string, scope int, f *
 		return []*entry{e}, false, nil
 	}
 	switch {
-	case sameDN(base, BaseDN):
+	case sameDN(base, s.dn.Base):
 		switch scope {
 		case scopeBaseObject:
-			return []*entry{domainEntry()}, false, nil
+			return []*entry{s.dn.domainEntry()}, false, nil
 		case scopeSingleLevel:
-			return []*entry{ouEntry("users"), ouEntry("groups")}, false, nil
+			return []*entry{s.dn.ouEntry("users"), s.dn.ouEntry("groups")}, false, nil
 		default:
 			return s.wholeTree(ctx)
 		}
-	case sameDN(base, UsersDN):
+	case sameDN(base, s.dn.Users):
 		users, memberOf, custom, err := s.activeUsers(ctx)
 		if err != nil {
 			return nil, false, err
 		}
 		if scope == scopeBaseObject {
-			return []*entry{ouEntry("users")}, false, nil
+			return []*entry{s.dn.ouEntry("users")}, false, nil
 		}
-		entries := userEntries(users, memberOf, custom)
+		entries := s.dn.userEntries(users, memberOf, custom)
 		if scope == scopeWholeSubtree {
-			entries = append([]*entry{ouEntry("users")}, entries...)
+			entries = append([]*entry{s.dn.ouEntry("users")}, entries...)
 		}
 		return entries, false, nil
-	case sameDN(base, GroupsDN):
+	case sameDN(base, s.dn.Groups):
 		groups, members, err := s.groupMembers(ctx)
 		if err != nil {
 			return nil, false, err
 		}
 		if scope == scopeBaseObject {
-			return []*entry{ouEntry("groups")}, false, nil
+			return []*entry{s.dn.ouEntry("groups")}, false, nil
 		}
-		entries := groupEntries(groups, members)
+		entries := s.dn.groupEntries(groups, members)
 		if scope == scopeWholeSubtree {
-			entries = append([]*entry{ouEntry("groups")}, entries...)
+			entries = append([]*entry{s.dn.ouEntry("groups")}, entries...)
 		}
 		return entries, false, nil
 	default:
@@ -296,11 +296,11 @@ func (s *Server) collectEntries(ctx context.Context, base string, scope int, f *
 // userEntriesInScope reports whether user entries can appear among the
 // candidates for base+scope (the (uid=...) short-circuit applies only
 // then; container-only scopes keep the generic path).
-func userEntriesInScope(base string, scope int) bool {
-	if sameDN(base, UsersDN) {
+func (t DNTree) userEntriesInScope(base string, scope int) bool {
+	if sameDN(base, t.Users) {
 		return scope != scopeBaseObject
 	}
-	return sameDN(base, BaseDN) && scope == scopeWholeSubtree
+	return sameDN(base, t.Base) && scope == scopeWholeSubtree
 }
 
 // userEntryByName resolves one username to its entry for the (uid=...)
@@ -319,7 +319,7 @@ func (s *Server) userEntryByName(ctx context.Context, username string) (*entry, 
 	}
 	var memberOf []string
 	for _, g := range groups {
-		memberOf = append(memberOf, GroupDN(g.Name))
+		memberOf = append(memberOf, s.dn.GroupDN(g.Name))
 	}
 	var custom map[string][]string
 	if s.attrs != nil {
@@ -328,13 +328,13 @@ func (s *Server) userEntryByName(ctx context.Context, username string) (*entry, 
 			return nil, false, err
 		}
 	}
-	return userEntry(u, memberOf, custom), true, nil
+	return s.dn.userEntry(u, memberOf, custom), true, nil
 }
 
 // leafEntry resolves a user or group DN to its entry for base-scope
 // reads. Inactive users do not exist in the tree.
 func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, error) {
-	if username, err := ParseBindDN(base); err == nil {
+	if username, err := s.dn.ParseBindDN(base); err == nil {
 		u, err := s.users.ByUsername(ctx, username)
 		if errors.Is(err, domain.ErrNotFound) || (err == nil && !u.IsActive) {
 			return nil, false, nil
@@ -348,7 +348,7 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 		}
 		var memberOf []string
 		for _, g := range groups {
-			memberOf = append(memberOf, GroupDN(g.Name))
+			memberOf = append(memberOf, s.dn.GroupDN(g.Name))
 		}
 		var custom map[string][]string
 		if s.attrs != nil {
@@ -357,9 +357,9 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 				return nil, false, err
 			}
 		}
-		return userEntry(u, memberOf, custom), true, nil
+		return s.dn.userEntry(u, memberOf, custom), true, nil
 	}
-	dn, err := parseGroupDN(base)
+	dn, err := s.dn.ParseGroupDN(base)
 	if err != nil {
 		return nil, false, nil
 	}
@@ -374,7 +374,7 @@ func (s *Server) leafEntry(ctx context.Context, base string) (*entry, bool, erro
 	if err != nil {
 		return nil, false, err
 	}
-	return groupEntry(g, members), true, nil
+	return s.dn.groupEntry(g, members), true, nil
 }
 
 // wholeTree returns every entry under the base DN.
@@ -383,9 +383,9 @@ func (s *Server) wholeTree(ctx context.Context) ([]*entry, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	out := []*entry{domainEntry(), ouEntry("users"), ouEntry("groups")}
-	out = append(out, userEntries(snap.users, invertMembers(snap.users, snap.groups, snap.members), snap.custom)...)
-	out = append(out, groupEntries(snap.groups, snap.members)...)
+	out := []*entry{s.dn.domainEntry(), s.dn.ouEntry("users"), s.dn.ouEntry("groups")}
+	out = append(out, s.dn.userEntries(snap.users, s.dn.invertMembers(snap.users, snap.groups, snap.members), snap.custom)...)
+	out = append(out, s.dn.groupEntries(snap.groups, snap.members)...)
 	return out, false, nil
 }
 
@@ -420,7 +420,7 @@ func (s *Server) activeUsers(ctx context.Context) ([]domain.User, map[string][]s
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return snap.users, invertMembers(snap.users, snap.groups, snap.members), snap.custom, nil
+	return snap.users, s.dn.invertMembers(snap.users, snap.groups, snap.members), snap.custom, nil
 }
 
 // customForUsers batch-loads custom attributes keyed by user-ID string.
@@ -445,14 +445,14 @@ func (s *Server) customForUsers(ctx context.Context, users []domain.User) (map[s
 }
 
 // invertMembers maps group-id → member user-DNs into user-id → group-DNs.
-func invertMembers(users []domain.User, groups []domain.Group, members map[string][]string) map[string][]string {
+func (t DNTree) invertMembers(users []domain.User, groups []domain.Group, members map[string][]string) map[string][]string {
 	idByDN := map[string]string{}
 	for _, u := range users {
-		idByDN[UserDN(u.Username)] = u.ID.String()
+		idByDN[t.UserDN(u.Username)] = u.ID.String()
 	}
 	dnByID := map[string]string{}
 	for _, g := range groups {
-		dnByID[g.ID.String()] = GroupDN(g.Name)
+		dnByID[g.ID.String()] = t.GroupDN(g.Name)
 	}
 	out := map[string][]string{}
 	for gid, dns := range members {
@@ -495,7 +495,7 @@ func (s *Server) loadGroups(ctx context.Context) ([]domain.Group, map[string][]s
 		names := byGroup[g.ID]
 		dns := make([]string, 0, len(names))
 		for _, n := range names {
-			dns = append(dns, UserDN(n))
+			dns = append(dns, s.dn.UserDN(n))
 		}
 		members[g.ID.String()] = dns
 	}
@@ -520,7 +520,7 @@ func (s *Server) memberDNs(ctx context.Context, groupID uuid.UUID) ([]string, er
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, UserDN(u.Username))
+		out = append(out, s.dn.UserDN(u.Username))
 	}
 	return out, nil
 }
@@ -565,38 +565,38 @@ func writeEntry(w ldapserver.ResponseWriter, e *entry, want map[string]bool, all
 
 // ---------- entry builders ----------
 
-func rootDSE() *entry {
+func (t DNTree) rootDSE() *entry {
 	return &entry{dn: "", attrs: map[string][]string{
 		"objectclass":          {"top"},
-		"namingcontexts":       {BaseDN},
+		"namingcontexts":       {t.Base},
 		"supportedldapversion": {"3"},
 		"vendorname":           {"IdentityHub"},
 	}}
 }
 
-func domainEntry() *entry {
-	return &entry{dn: BaseDN, attrs: map[string][]string{
+func (t DNTree) domainEntry() *entry {
+	return &entry{dn: t.Base, attrs: map[string][]string{
 		"objectclass": {"top", "domain"},
-		"dc":          {"identityhub"},
+		"dc":          {t.baseDomain()},
 	}}
 }
 
-func ouEntry(name string) *entry {
-	return &entry{dn: "ou=" + name + "," + BaseDN, attrs: map[string][]string{
+func (t DNTree) ouEntry(name string) *entry {
+	return &entry{dn: "ou=" + name + "," + t.Base, attrs: map[string][]string{
 		"objectclass": {"top", "organizationalUnit"},
 		"ou":          {name},
 	}}
 }
 
-func userEntries(users []domain.User, memberOf map[string][]string, custom map[string]map[string][]string) []*entry {
+func (t DNTree) userEntries(users []domain.User, memberOf map[string][]string, custom map[string]map[string][]string) []*entry {
 	out := make([]*entry, 0, len(users))
 	for _, u := range users {
-		out = append(out, userEntry(u, memberOf[u.ID.String()], custom[u.ID.String()]))
+		out = append(out, t.userEntry(u, memberOf[u.ID.String()], custom[u.ID.String()]))
 	}
 	return out
 }
 
-func userEntry(u domain.User, memberOf []string, custom map[string][]string) *entry {
+func (t DNTree) userEntry(u domain.User, memberOf []string, custom map[string][]string) *entry {
 	cn := u.DisplayName
 	if cn == "" {
 		cn = u.Username
@@ -630,18 +630,18 @@ func userEntry(u domain.User, memberOf []string, custom map[string][]string) *en
 			attrs[key] = vals
 		}
 	}
-	return &entry{dn: UserDN(u.Username), attrs: attrs}
+	return &entry{dn: t.UserDN(u.Username), attrs: attrs}
 }
 
-func groupEntries(groups []domain.Group, members map[string][]string) []*entry {
+func (t DNTree) groupEntries(groups []domain.Group, members map[string][]string) []*entry {
 	out := make([]*entry, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, groupEntry(g, members[g.ID.String()]))
+		out = append(out, t.groupEntry(g, members[g.ID.String()]))
 	}
 	return out
 }
 
-func groupEntry(g domain.Group, members []string) *entry {
+func (t DNTree) groupEntry(g domain.Group, members []string) *entry {
 	attrs := map[string][]string{
 		"objectclass": {"top", "groupOfNames", "posixGroup"},
 		"cn":          {g.Name},
@@ -653,7 +653,7 @@ func groupEntry(g domain.Group, members []string) *entry {
 	if g.Description != "" {
 		attrs["description"] = []string{g.Description}
 	}
-	return &entry{dn: GroupDN(g.Name), attrs: attrs}
+	return &entry{dn: t.GroupDN(g.Name), attrs: attrs}
 }
 
 // ---------- bound-state tracking ----------
@@ -704,24 +704,6 @@ func peerIP(m *ldapserver.Message) string {
 		return m.Client.Addr().String()
 	}
 	return host
-}
-
-// parseGroupDN extracts the group name from cn=<name>,ou=groups,<base>.
-func parseGroupDN(dn string) (string, error) {
-	rest, ok := cutPrefixFold(strings.TrimSpace(dn), "cn=")
-	if !ok {
-		return "", errors.New("not a group dn")
-	}
-	comma := strings.Index(rest, ",")
-	if comma < 0 {
-		return "", errors.New("not a group dn")
-	}
-	name := unescapeDNValue(strings.TrimSpace(rest[:comma]))
-	tail := strings.TrimSpace(rest[comma+1:])
-	if name == "" || !sameDN(tail, GroupsDN) {
-		return "", errors.New("not a group dn")
-	}
-	return name, nil
 }
 
 // cutPrefixFold cuts prefix case-insensitively.

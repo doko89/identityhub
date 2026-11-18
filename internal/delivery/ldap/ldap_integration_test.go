@@ -410,6 +410,41 @@ func TestLDAPBindAndSearch(t *testing.T) {
 	}
 }
 
+func TestLDAPCustomBaseDN(t *testing.T) {
+	fx := setupFixture(t)
+	alice := fx.createLocalUser("alice", "alice-password-1", true)
+	fx.createGroup("eng", alice)
+	srv := fx.startServer(ModePlain, []string{"127.0.0.0/8"}, func(c *Config) {
+		c.BaseDN = "dc=custom,dc=example"
+	})
+	tree, err := NewDNTree("dc=custom,dc=example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := fx.dial(srv.Addr().String())
+	if err := c.Bind(tree.UserDN(alice.Username), "alice-password-1"); err != nil {
+		t.Fatalf("bind custom base: %v", err)
+	}
+	res, err := c.Search(goldap.NewSearchRequest(
+		tree.Users, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"(&(objectClass=posixAccount)(uid="+alice.Username+"))", []string{"uidNumber"}, nil,
+	))
+	if err != nil {
+		t.Fatalf("search custom tree: %v", err)
+	}
+	if len(res.Entries) != 1 || res.Entries[0].DN != tree.UserDN(alice.Username) {
+		t.Fatalf("custom entries = %v", res.Entries)
+	}
+	if res.Entries[0].GetAttributeValue("uidNumber") != strconv.Itoa(alice.UIDNumber) {
+		t.Errorf("uidNumber = %q, want %d", res.Entries[0].GetAttributeValue("uidNumber"), alice.UIDNumber)
+	}
+	// The default tree is gone on this server: its bind DN must fail.
+	if err := c.Bind(UserDN(alice.Username), "alice-password-1"); err == nil {
+		t.Error("default-base bind on custom tree succeeded, want failure")
+	}
+}
+
 func TestLDAPMemberFilterNormalizesDN(t *testing.T) {
 	fx := setupFixture(t)
 	alice := fx.createLocalUser("alice", "alice-password-1", true)

@@ -71,6 +71,45 @@ func TestParseBindDNRejects(t *testing.T) {
 	}
 }
 
+func TestDNTreeCustomBase(t *testing.T) {
+	tree, err := NewDNTree("dc=example,dc=com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.Users != "ou=users,dc=example,dc=com" || tree.Groups != "ou=groups,dc=example,dc=com" {
+		t.Fatalf("containers = %q %q", tree.Users, tree.Groups)
+	}
+	if got := tree.UserDN("ara"); got != "uid=ara,ou=users,dc=example,dc=com" {
+		t.Errorf("UserDN = %q", got)
+	}
+	if got := tree.GroupDN("eng"); got != "cn=eng,ou=groups,dc=example,dc=com" {
+		t.Errorf("GroupDN = %q", got)
+	}
+	got, err := tree.ParseBindDN("uid=ara,ou=users,dc=example,dc=com")
+	if err != nil || got != "ara" {
+		t.Errorf("ParseBindDN = %q, %v", got, err)
+	}
+	// Spaced multi-DC spellings match; other bases do not.
+	got, err = tree.ParseBindDN("uid=ara, ou=users, dc=example, dc=com")
+	if err != nil || got != "ara" {
+		t.Errorf("spaced ParseBindDN = %q, %v", got, err)
+	}
+	if _, err := tree.ParseBindDN("uid=ara,ou=users,dc=identityhub"); err == nil {
+		t.Error("foreign base accepted, want error")
+	}
+	if _, err := tree.ParseBindDN("uid=ara,ou=users,dc=example"); err == nil {
+		t.Error("short base accepted, want error")
+	}
+	if got, err := tree.ParseGroupDN("cn=eng, ou=groups, dc=example, dc=com"); err != nil || got != "eng" {
+		t.Errorf("ParseGroupDN = %q, %v", got, err)
+	}
+	for _, bad := range []string{"", "not-a-dn", "cn=eng+ou=x,dc=example,dc=com"} {
+		if _, err := NewDNTree(bad); err == nil {
+			t.Errorf("NewDNTree(%q) succeeded, want error", bad)
+		}
+	}
+}
+
 func TestUserAndGroupDN(t *testing.T) {
 	if got := UserDN("ara"); got != "uid=ara,ou=users,dc=identityhub" {
 		t.Errorf("UserDN = %q", got)

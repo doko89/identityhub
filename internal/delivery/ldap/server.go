@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,10 @@ type Config struct {
 	// BindCacheTTL bounds remembered local binds (LDAP_BIND_CACHE_TTL).
 	// <=0, or a nil Version store, disables the bind cache.
 	BindCacheTTL time.Duration
+	// BaseDN overrides the served naming context
+	// (LDAP_SERVE_BASE_DN). Empty serves the default dc=identityhub
+	// tree; ou=users/ou=groups stay fixed either way.
+	BaseDN string
 }
 
 // Deps wires the server to the shared usecases.
@@ -62,6 +67,7 @@ type Deps struct {
 type Server struct {
 	mode       string
 	addr       string
+	dn         DNTree
 	srv        *ldapserver.Server
 	auth       *usecaseauth.Service
 	users      domain.UserStore
@@ -115,12 +121,20 @@ func New(cfg Config, d Deps) (*Server, error) {
 	if d.Auth == nil || d.Users == nil || d.Groups == nil {
 		return nil, errors.New("ldap: Auth, Users and Groups are required")
 	}
+	base := strings.TrimSpace(cfg.BaseDN)
+	if base == "" {
+		base = BaseDN
+	}
+	tree, err := NewDNTree(base)
+	if err != nil {
+		return nil, err
+	}
 	log := d.Log
 	if log == nil {
 		log = slog.Default()
 	}
 	s := &Server{
-		mode: cfg.Mode, addr: cfg.Addr,
+		mode: cfg.Mode, addr: cfg.Addr, dn: tree,
 		auth: d.Auth, users: d.Users, groups: d.Groups, attrs: d.Attrs, log: log,
 		ready:   make(chan struct{}),
 		binds:   map[any]boundConn{},
