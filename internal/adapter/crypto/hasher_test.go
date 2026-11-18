@@ -113,3 +113,48 @@ func TestVerifyMalformed(t *testing.T) {
 		}
 	}
 }
+
+// Django vectors generated with hashlib.pbkdf2_hmac (independent oracle).
+func TestVerifyDjangoPbkdf2(t *testing.T) {
+	h := Hasher{}
+	const good = "pbkdf2_sha256$600000$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag="
+	if !h.Verify("legacy-password-1", []byte(good)) {
+		t.Error("Verify(django correct) = false, want true")
+	}
+	if h.Verify("nope-wrong-password", []byte(good)) {
+		t.Error("Verify(django wrong) = true, want false")
+	}
+	badIters := []string{
+		"pbkdf2_sha256$0$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+		"pbkdf2_sha256$-1$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+		"pbkdf2_sha256$600000x$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+		"pbkdf2_sha256$99999999$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+		"pbkdf2_sha256$600000$abC123xYz$!!!not-base64!!!",
+		"pbkdf2_sha256$600000$abC123xYz",
+		"pbkdf2_sha512$600000$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+	}
+	for _, bad := range badIters {
+		if h.Verify("legacy-password-1", []byte(bad)) {
+			t.Errorf("Verify(%q) = true, want false", bad)
+		}
+	}
+}
+
+func TestNeedsRehash(t *testing.T) {
+	h := Hasher{}
+	sum, err := h.Hash("fresh-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.NeedsRehash(sum) {
+		t.Error("NeedsRehash(argon2id) = true, want false")
+	}
+	for _, legacy := range []string{
+		"$2a$04$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"pbkdf2_sha256$600000$abC123xYz$U8UcgwNMurBc0Om+4TdWpZM0mkaz4SdI6duV9Xhj0Ag=",
+	} {
+		if !h.NeedsRehash([]byte(legacy)) {
+			t.Errorf("NeedsRehash(%q) = false, want true", legacy)
+		}
+	}
+}

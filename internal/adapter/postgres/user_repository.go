@@ -20,13 +20,13 @@ type UserRepository struct {
 // NewUserRepository wires a UserStore on the shared pool.
 func NewUserRepository(db *DB) *UserRepository { return &UserRepository{db: db} }
 
-const userColumns = `id, username, email, display_name, password_hash, source, external_dn, is_active, avatar_url, created_at, updated_at`
+const userColumns = `id, username, email, display_name, password_hash, source, external_dn, is_active, avatar_url, created_at, updated_at, uid_number`
 
 func scanUser(row pgx.Row) (domain.User, error) {
 	var u domain.User
 	var source string
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.PasswordHash,
-		&source, &u.ExternalDN, &u.IsActive, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
+		&source, &u.ExternalDN, &u.IsActive, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt, &u.UIDNumber)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -91,7 +91,7 @@ func (r *UserRepository) ByUsernameFold(ctx context.Context, username string) (d
 // treeColumns is the slim projection for directory serving: only what
 // the LDAP tree renders. Password hashes must never ride along into a
 // cached whole-directory snapshot.
-const treeColumns = `id, username, email, display_name, is_active`
+const treeColumns = `id, username, email, display_name, is_active, uid_number`
 
 func (r *UserRepository) AllActive(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.db.Pool.Query(ctx, `SELECT `+treeColumns+` FROM users WHERE is_active ORDER BY created_at DESC`)
@@ -100,7 +100,7 @@ func (r *UserRepository) AllActive(ctx context.Context) ([]domain.User, error) {
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.User, error) {
 		var u domain.User
-		err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsActive)
+		err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsActive, &u.UIDNumber)
 		return u, err
 	})
 }

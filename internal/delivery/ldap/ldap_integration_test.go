@@ -24,6 +24,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -353,6 +354,49 @@ func TestLDAPBindAndSearch(t *testing.T) {
 	}
 	if got := gres.Entries[0].GetAttributeValues("member"); len(got) != 1 || got[0] != UserDN(alice.Username) {
 		t.Errorf("member = %v, want [%s]", got, UserDN(alice.Username))
+	}
+	// POSIX view for SSSD (rfc2307bis): posixAccount filter matches and
+	// the numeric IDs round-trip from the assigned columns.
+	pres, err := c.Search(goldap.NewSearchRequest(
+		UsersDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"(&(objectClass=posixAccount)(uid="+alice.Username+"))",
+		[]string{"uidNumber", "gidNumber", "homeDirectory", "loginShell", "gecos"}, nil,
+	))
+	if err != nil {
+		t.Fatalf("search posix users: %v", err)
+	}
+	if len(pres.Entries) != 1 {
+		t.Fatalf("posix user entries = %d, want 1", len(pres.Entries))
+	}
+	pe := pres.Entries[0]
+	if pe.GetAttributeValue("uidNumber") != strconv.Itoa(alice.UIDNumber) {
+		t.Errorf("uidNumber = %q, want %d", pe.GetAttributeValue("uidNumber"), alice.UIDNumber)
+	}
+	if pe.GetAttributeValue("gidNumber") != strconv.Itoa(alice.UIDNumber) {
+		t.Errorf("gidNumber = %q, want user-private-group %d", pe.GetAttributeValue("gidNumber"), alice.UIDNumber)
+	}
+	if pe.GetAttributeValue("homeDirectory") != "/home/"+alice.Username {
+		t.Errorf("homeDirectory = %q", pe.GetAttributeValue("homeDirectory"))
+	}
+	gpres, err := c.Search(goldap.NewSearchRequest(
+		GroupsDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=posixGroup)",
+		[]string{"cn", "gidNumber"}, nil,
+	))
+	if err != nil {
+		t.Fatalf("search posix groups: %v", err)
+	}
+	found := false
+	for _, ge := range gpres.Entries {
+		if ge.GetAttributeValue("cn") == eng.Name {
+			found = true
+			if ge.GetAttributeValue("gidNumber") != strconv.Itoa(eng.GIDNumber) {
+				t.Errorf("gidNumber = %q, want %d", ge.GetAttributeValue("gidNumber"), eng.GIDNumber)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("posixGroup search missed %q", eng.Name)
 	}
 	// The bind was audited as a successful ldap login.
 	entries, _, err := fx.audits.List(context.Background(), domain.AuditFilter{

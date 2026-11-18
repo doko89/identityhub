@@ -25,9 +25,9 @@ func (r *GroupRepository) Create(ctx context.Context, g domain.Group) (domain.Gr
 	if g.ID == uuid.Nil {
 		g.ID = uuid.New()
 	}
-	const q = `INSERT INTO groups (id, name, description) VALUES ($1,$2,$3) RETURNING id, name, description`
+	const q = `INSERT INTO groups (id, name, description) VALUES ($1,$2,$3) RETURNING id, name, description, gid_number`
 	var created domain.Group
-	if err := r.db.Pool.QueryRow(ctx, q, g.ID, g.Name, g.Description).Scan(&created.ID, &created.Name, &created.Description); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, q, g.ID, g.Name, g.Description).Scan(&created.ID, &created.Name, &created.Description, &created.GIDNumber); err != nil {
 		return domain.Group{}, mapWriteError(err)
 	}
 	_ = BumpDirectoryVersion(ctx, r.db)
@@ -37,8 +37,8 @@ func (r *GroupRepository) Create(ctx context.Context, g domain.Group) (domain.Gr
 // ByID loads a group by id.
 func (r *GroupRepository) ByID(ctx context.Context, id uuid.UUID) (domain.Group, error) {
 	var g domain.Group
-	err := r.db.Pool.QueryRow(ctx, `SELECT id, name, description FROM groups WHERE id=$1`, id).
-		Scan(&g.ID, &g.Name, &g.Description)
+	err := r.db.Pool.QueryRow(ctx, `SELECT id, name, description, gid_number FROM groups WHERE id=$1`, id).
+		Scan(&g.ID, &g.Name, &g.Description, &g.GIDNumber)
 	if err != nil {
 		return domain.Group{}, mapReadError(err)
 	}
@@ -48,8 +48,8 @@ func (r *GroupRepository) ByID(ctx context.Context, id uuid.UUID) (domain.Group,
 // ByName loads a group by exact name.
 func (r *GroupRepository) ByName(ctx context.Context, name string) (domain.Group, error) {
 	var g domain.Group
-	err := r.db.Pool.QueryRow(ctx, `SELECT id, name, description FROM groups WHERE name=$1`, name).
-		Scan(&g.ID, &g.Name, &g.Description)
+	err := r.db.Pool.QueryRow(ctx, `SELECT id, name, description, gid_number FROM groups WHERE name=$1`, name).
+		Scan(&g.ID, &g.Name, &g.Description, &g.GIDNumber)
 	if err != nil {
 		return domain.Group{}, mapReadError(err)
 	}
@@ -59,13 +59,13 @@ func (r *GroupRepository) ByName(ctx context.Context, name string) (domain.Group
 // List returns a page of groups plus the total count.
 func (r *GroupRepository) List(ctx context.Context, limit, offset int) ([]domain.Group, int, error) {
 	limit, offset = page(limit, offset)
-	rows, err := r.db.Pool.Query(ctx, `SELECT id, name, description FROM groups ORDER BY name LIMIT $1 OFFSET $2`, limit, offset)
+	rows, err := r.db.Pool.Query(ctx, `SELECT id, name, description, gid_number FROM groups ORDER BY name LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 	groups, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Group, error) {
 		var g domain.Group
-		err := row.Scan(&g.ID, &g.Name, &g.Description)
+		err := row.Scan(&g.ID, &g.Name, &g.Description, &g.GIDNumber)
 		return g, err
 	})
 	if err != nil {
@@ -80,13 +80,13 @@ func (r *GroupRepository) List(ctx context.Context, limit, offset int) ([]domain
 
 // All lists every group in one query (LDAP tree serving).
 func (r *GroupRepository) All(ctx context.Context) ([]domain.Group, error) {
-	rows, err := r.db.Pool.Query(ctx, `SELECT id, name, description FROM groups ORDER BY name`)
+	rows, err := r.db.Pool.Query(ctx, `SELECT id, name, description, gid_number FROM groups ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Group, error) {
 		var g domain.Group
-		err := row.Scan(&g.ID, &g.Name, &g.Description)
+		err := row.Scan(&g.ID, &g.Name, &g.Description, &g.GIDNumber)
 		return g, err
 	})
 }

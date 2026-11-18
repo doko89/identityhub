@@ -95,6 +95,16 @@ func TestNewSessionCustomClaims(t *testing.T) {
 	if extra["preferred_username"] != "alice" || extra["email"] != "alice@example.com" {
 		t.Errorf("built-in claims = %v", extra)
 	}
+	if extra["email_verified"] != true {
+		t.Errorf("email_verified = %v, want true", extra["email_verified"])
+	}
+	found := false
+	for _, c := range baseClaimsSupported {
+		found = found || c == "email_verified"
+	}
+	if !found {
+		t.Errorf("claims_supported = %v, want email_verified listed", baseClaimsSupported)
+	}
 	// Built-ins win on collision.
 	s = p.newSession(domain.OIDCDecision{
 		Subject: "sub-1", Username: "alice", Email: "alice@example.com",

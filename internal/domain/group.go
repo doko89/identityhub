@@ -18,6 +18,10 @@ type Group struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
+	// GIDNumber is the stable POSIX gidNumber, assigned by the database
+	// sequence starting at 10000. Served to SSSD/Linux clients; never
+	// reused or changed.
+	GIDNumber int
 }
 
 // Validate rejects empty names and any attempt to rename the reserved group.

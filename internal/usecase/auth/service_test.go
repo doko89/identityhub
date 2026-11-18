@@ -373,6 +373,20 @@ func (fakeHasher) Verify(password string, hash []byte) bool {
 	return string(hash) == "hash:"+password
 }
 
+func (fakeHasher) NeedsRehash(_ []byte) bool { return false }
+
+// legacyHasher models a migrated Django/bcrypt row: Verify accepts the
+// legacy marker and NeedsRehash flags it for upgrade.
+type legacyHasher struct{ fakeHasher }
+
+func (legacyHasher) Verify(password string, hash []byte) bool {
+	return fakeHasher{}.Verify(password, hash) || string(hash) == "django:"+password
+}
+
+func (legacyHasher) NeedsRehash(hash []byte) bool {
+	return strings.HasPrefix(string(hash), "django:")
+}
+
 type fixedClock struct{ now time.Time }
 
 func (c fixedClock) Now() time.Time { return c.now }
@@ -635,6 +649,42 @@ func TestLoginLocalSuccess(t *testing.T) {
 	}
 	if a.ActorUserID == nil || *a.ActorUserID != u.ID {
 		t.Errorf("audit actor = %v, want %v", a.ActorUserID, u.ID)
+	}
+}
+
+func TestLoginRehashesLegacyHash(t *testing.T) {
+	u := localUser("ara", "correct-horse-12")
+	u.PasswordHash = []byte("django:correct-horse-12")
+	h := newHarness(t, u)
+	svc, err := New(Deps{
+		Users: h.users, Groups: h.groups, Resets: h.resets, History: h.history,
+		Sessions: h.sessions, Audit: audit.New(h.audits, fixedClock{now: h.now}),
+		Hasher: legacyHasher{}, Clock: fixedClock{now: h.now}, Mailer: h.mailer,
+		Directory: h.dir, BaseURL: "https://idp.example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Login(context.Background(), LoginInput{Username: "ara", Password: "correct-horse-12"}); err != nil {
+		t.Fatalf("Login = %v", err)
+	}
+	stored, err := h.users.ByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored.PasswordHash) != "hash:correct-horse-12" {
+		t.Errorf("stored hash = %q, want upgraded hash", stored.PasswordHash)
+	}
+	if got := h.history.hashes[u.ID]; len(got) != 1 || string(got[0]) != "django:correct-horse-12" {
+		t.Errorf("archived hashes = %q, want the replaced legacy hash", got)
+	}
+	// A current hash is left untouched.
+	h2 := newHarness(t, localUser("bee", "correct-horse-12"))
+	if _, err := h2.svc.Login(context.Background(), LoginInput{Username: "bee", Password: "correct-horse-12"}); err != nil {
+		t.Fatalf("Login = %v", err)
+	}
+	if len(h2.history.hashes) != 0 {
+		t.Errorf("current hash triggered a rehash: %v", h2.history.hashes)
 	}
 }
 

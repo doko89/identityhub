@@ -23,6 +23,10 @@ type User struct {
 	Username    string
 	Email       string
 	DisplayName string
+	// UIDNumber is the stable POSIX uidNumber, assigned by the database
+	// sequence starting at 10000. Served to SSSD/Linux clients; never
+	// reused or changed.
+	UIDNumber int
 	// PasswordHash is nil for LDAP users; argon2id (bcrypt accepted only as
 	// a verification fallback) for local users. A local user with no hash
 	// is invite-pending: it cannot authenticate until a password is set

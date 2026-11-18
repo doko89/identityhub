@@ -544,6 +544,8 @@ func (h fakeHasher) Hash(password string) ([]byte, error) {
 }
 func (fakeHasher) Verify(password string, hash []byte) bool { return string(hash) == "hash:"+password }
 
+func (fakeHasher) NeedsRehash(_ []byte) bool { return false }
+
 type fixedClock struct{ now time.Time }
 
 func (c fixedClock) Now() time.Time { return c.now }

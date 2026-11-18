@@ -1,20 +1,24 @@
 // Package crypto implements domain.PasswordHasher with argon2id.
 //
 // Hash format (PHC string): $argon2id$v=19$m=<mem>,t=<iter>,p=<lanes>$<salt>$<hash>
-// bcrypt hashes ($2a$/2b$/2y$ prefixes) are accepted by Verify only as a
-// migration fallback and are never produced here (TECH_SPEC §1).
+// bcrypt hashes ($2a$/2b$/2y$ prefixes) and Django PBKDF2 hashes
+// (pbkdf2_sha256$iter$salt$hash) are accepted by Verify only as
+// migration fallbacks and are never produced here (TECH_SPEC §1).
 package crypto
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // Parameters balance OWASP's argon2id guidance against bind-storm
@@ -71,8 +75,9 @@ func (Hasher) Hash(password string) ([]byte, error) {
 }
 
 // Verify checks password against hash. argon2id hashes produced by Hash are
-// compared in constant time; bcrypt hashes fall back to bcrypt comparison
-// (kilobytes of memory, so the fallback bypasses the argon2 budget).
+// compared in constant time; bcrypt and Django PBKDF2 hashes fall back to
+// their own comparison (kilobytes of memory, so the fallbacks bypass the
+// argon2 budget).
 func (Hasher) Verify(password string, hash []byte) bool {
 	s := string(hash)
 	switch {
@@ -81,9 +86,42 @@ func (Hasher) Verify(password string, hash []byte) bool {
 		return verifyArgon2(password, s)
 	case strings.HasPrefix(s, "$2a$") || strings.HasPrefix(s, "$2b$") || strings.HasPrefix(s, "$2y$"):
 		return bcrypt.CompareHashAndPassword(hash, []byte(password)) == nil
+	case strings.HasPrefix(s, "pbkdf2_sha256$"):
+		return verifyPbkdf2SHA256(password, s)
 	default:
 		return false
 	}
+}
+
+// NeedsRehash reports whether hash predates argon2id and should be
+// upgraded after a successful verification.
+func (Hasher) NeedsRehash(hash []byte) bool {
+	return !strings.HasPrefix(string(hash), "$argon2id$")
+}
+
+// maxPBKDF2Iterations bounds Django-format verification work. Django's
+// own defaults stay far below this; larger counts are rejected as
+// abusive rather than computed.
+const maxPBKDF2Iterations = 2000000
+
+// verifyPbkdf2SHA256 checks Django's pbkdf2_sha256$iter$salt$hash
+// encoding: raw salt string, base64 derived key, compared in
+// constant time.
+func verifyPbkdf2SHA256(password, encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 4 || parts[0] != "pbkdf2_sha256" {
+		return false
+	}
+	iter, err := strconv.Atoi(parts[1])
+	if err != nil || iter <= 0 || iter > maxPBKDF2Iterations {
+		return false
+	}
+	want, err := base64.StdEncoding.DecodeString(parts[3])
+	if err != nil || len(want) == 0 {
+		return false
+	}
+	got := pbkdf2.Key([]byte(password), []byte(parts[2]), iter, len(want), sha256.New)
+	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
 func verifyArgon2(password, encoded string) bool {

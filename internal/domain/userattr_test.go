@@ -22,6 +22,7 @@ func TestUserAttrDefValidate(t *testing.T) {
 		{"underscore", UserAttrDef{Key: "my_attr", Type: UserAttrString}, false},
 		{"reserved ldap", UserAttrDef{Key: "memberof", Type: UserAttrString}, false},
 		{"reserved oidc", UserAttrDef{Key: "sub", Type: UserAttrString}, false},
+		{"reserved posix", UserAttrDef{Key: "uidnumber", Type: UserAttrNumber}, false},
 		{"reserved saml", UserAttrDef{Key: "groups", Type: UserAttrString}, false},
 		{"bad type", UserAttrDef{Key: "dept", Type: "date"}, false},
 		{"empty type", UserAttrDef{Key: "dept"}, false},

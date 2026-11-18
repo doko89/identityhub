@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -529,6 +530,11 @@ var displayNames = map[string]string{
 	"namingcontexts":       "namingContexts",
 	"supportedldapversion": "supportedLDAPVersion",
 	"vendorname":           "vendorName",
+	"uidnumber":            "uidNumber",
+	"gidnumber":            "gidNumber",
+	"homedirectory":        "homeDirectory",
+	"loginshell":           "loginShell",
+	"gecos":                "gecos",
 }
 
 // writeEntry writes one search result entry honoring the attribute
@@ -591,12 +597,21 @@ func userEntry(u domain.User, memberOf []string, custom map[string][]string) *en
 	if cn == "" {
 		cn = u.Username
 	}
+	// posixAccount rides alongside inetOrgPerson for SSSD/Linux clients
+	// (rfc2307bis). gidNumber follows the user-private-group convention
+	// (primary GID == UID): memberships still come from the group
+	// entries' member lists.
 	attrs := map[string][]string{
-		"objectclass": {"top", "person", "organizationalPerson", "inetOrgPerson"},
-		"uid":         {u.Username},
-		"cn":          {cn},
-		"sn":          {cn},
-		"displayname": {cn},
+		"objectclass":   {"top", "person", "organizationalPerson", "inetOrgPerson", "posixAccount"},
+		"uid":           {u.Username},
+		"cn":            {cn},
+		"sn":            {cn},
+		"displayname":   {cn},
+		"uidnumber":     {strconv.Itoa(u.UIDNumber)},
+		"gidnumber":     {strconv.Itoa(u.UIDNumber)},
+		"homedirectory": {"/home/" + u.Username},
+		"loginshell":    {"/bin/bash"},
+		"gecos":         {cn},
 	}
 	if u.Email != "" {
 		attrs["mail"] = []string{u.Email}
@@ -624,8 +639,9 @@ func groupEntries(groups []domain.Group, members map[string][]string) []*entry {
 
 func groupEntry(g domain.Group, members []string) *entry {
 	attrs := map[string][]string{
-		"objectclass": {"top", "groupOfNames"},
+		"objectclass": {"top", "groupOfNames", "posixGroup"},
 		"cn":          {g.Name},
+		"gidnumber":   {strconv.Itoa(g.GIDNumber)},
 	}
 	if len(members) > 0 {
 		attrs["member"] = members

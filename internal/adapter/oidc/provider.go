@@ -246,7 +246,7 @@ func (p *Provider) HandleUserinfo(ctx context.Context, w http.ResponseWriter, r 
 // append after it when the store is wired.
 var baseClaimsSupported = []string{
 	"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce",
-	"preferred_username", "email", "name", "groups",
+	"preferred_username", "email", "email_verified", "name", "groups",
 }
 
 // HandleDiscovery implements domain.OIDCProvider.
@@ -304,10 +304,13 @@ func (p *Provider) HandleJWKS(w http.ResponseWriter, _ *http.Request) {
 
 // newSession builds the fosite session from the login+consent decision.
 // Claims follow TECH_SPEC §6.2: sub = stable user UUID, plus
-// preferred_username/email/name/groups in both ID token and userinfo.
-// The kid header binds the token to the JWKS entry. Custom attributes
-// merge in first so the built-ins always win on collision (def keys
-// cannot be reserved names, this is defense in depth).
+// preferred_username/email/email_verified/name/groups in both ID token
+// and userinfo. email_verified is always true: IdentityHub is the
+// authoritative account store, and downstream verifiers (notably the
+// Kubernetes apiserver with --oidc-username-claim=email) reject tokens
+// without it. The kid header binds the token to the JWKS entry. Custom
+// attributes merge in first so the built-ins always win on collision
+// (def keys cannot be reserved names, this is defense in depth).
 func (p *Provider) newSession(d domain.OIDCDecision) *openid.DefaultSession {
 	s := openid.NewDefaultSession()
 	now := time.Now().UTC()
@@ -317,12 +320,13 @@ func (p *Provider) newSession(d domain.OIDCDecision) *openid.DefaultSession {
 	claims := s.IDTokenClaims()
 	claims.Subject = d.Subject
 	claims.AuthTime = now
-	extra := make(map[string]any, len(d.CustomAttrs)+4)
+	extra := make(map[string]any, len(d.CustomAttrs)+5)
 	for k, v := range d.CustomAttrs {
 		extra[k] = v
 	}
 	extra["preferred_username"] = d.Username
 	extra["email"] = d.Email
+	extra["email_verified"] = true
 	extra["name"] = d.Name
 	extra["groups"] = d.Groups
 	claims.Extra = extra

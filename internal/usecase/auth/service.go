@@ -193,7 +193,25 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (domain.User, error)
 	if err := s.auditLogin(ctx, actor, nil, chk.backend, domain.ResultSuccess, in.IP, ""); err != nil {
 		return domain.User{}, err
 	}
+	s.maybeRehash(ctx, chk.user, in.Password)
 	return chk.user, nil
+}
+
+// maybeRehash upgrades a legacy password hash (bcrypt, Django PBKDF2)
+// to argon2id after a successful login. Best effort: authentication
+// already succeeded, so failures must not fail the login.
+func (s *Service) maybeRehash(ctx context.Context, u domain.User, password string) {
+	if !s.hasher.NeedsRehash(u.PasswordHash) {
+		return
+	}
+	hash, err := s.hasher.Hash(password)
+	if err != nil {
+		return
+	}
+	if err := s.users.SetPasswordHash(ctx, u.ID, hash); err != nil {
+		return
+	}
+	_ = s.recordHistory(ctx, u.ID, u.PasswordHash)
 }
 
 // LoginLegacy checks the same credentials as Login but audits under the
@@ -239,6 +257,7 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 	if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultSuccess, in.IP, ""); err != nil {
 		return domain.User{}, err
 	}
+	s.maybeRehash(ctx, chk.user, in.Password)
 	return chk.user, nil
 }
 

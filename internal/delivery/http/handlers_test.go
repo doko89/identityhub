@@ -494,6 +494,8 @@ func (fakeHasher) Verify(password string, hash []byte) bool {
 	return string(hash) == "hash:"+password
 }
 
+func (fakeHasher) NeedsRehash(_ []byte) bool { return false }
+
 type fakeMailer struct {
 	to     []string
 	bodies []string

@@ -74,6 +74,37 @@ func TestFilterMatch(t *testing.T) {
 	}
 }
 
+func TestFilterMatchPosix(t *testing.T) {
+	e := testEntry()
+	e.attrs["objectclass"] = append(e.attrs["objectclass"], "posixAccount")
+	e.attrs["uidnumber"] = []string{"10001"}
+	e.attrs["gidnumber"] = []string{"10001"}
+	cases := []struct {
+		filter string
+		want   bool
+	}{
+		{"(objectClass=posixAccount)", true},
+		{"(objectClass=posixGroup)", false},
+		{"(&(objectClass=posixAccount)(uid=ara))", true},
+		{"(uidNumber=10001)", true},
+		{"(uidNumber=10002)", false},
+		{"(gidNumber=10001)", true},
+		{"(uidNumber=*)", true},
+		{"(loginShell=*)", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.filter, func(t *testing.T) {
+			f, err := parseFilter(tc.filter)
+			if err != nil {
+				t.Fatalf("parseFilter(%q) = %v", tc.filter, err)
+			}
+			if got := f.match(e); got != tc.want {
+				t.Errorf("match(%q) = %v, want %v", tc.filter, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFilterUnsupported(t *testing.T) {
 	for filter, want := range map[string]bool{
 		"(uid=ara)":                 false,

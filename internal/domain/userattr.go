@@ -48,6 +48,8 @@ var attrKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 var reservedAttrKeys = map[string]bool{
 	"uid": true, "cn": true, "sn": true, "mail": true, "memberof": true,
 	"objectclass": true, "displayname": true, "ou": true, "dc": true, "dn": true,
+	"uidnumber": true, "gidnumber": true, "homedirectory": true,
+	"loginshell": true, "gecos": true,
 	"sub": true, "iss": true, "aud": true, "exp": true, "iat": true,
 	"auth_time": true, "nonce": true, "preferred_username": true,
 	"email": true, "email_verified": true, "name": true, "groups": true,
