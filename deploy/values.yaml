@@ -1,0 +1,149 @@
+# identityhub — base values (prod-like defaults; env overrides in values-<env>.yaml)
+# Chart: waterfrontsekuritas/kubernetes-manifest charts/app
+# Deploy flow (like winvest-api): helm template + kubectl apply; the migrate
+# Job below runs to completion BEFORE the rollout.
+replicaCount: 2
+
+image:
+  repository: harbor.waterfrontsekuritas.com/waterfront/identityhub # TODO: confirm repo path
+  tag: "latest" # CI deploy overrides to sha-<short>
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: harbor-pull-secret
+
+service:
+  port: 8080
+  targetPort: 8080
+  extraPorts:
+    - name: ldap
+      port: 1389
+      targetPort: 1389
+    - name: radius
+      port: 1812
+      targetPort: 1812
+      protocol: UDP
+
+gateway:
+  enabled: true
+  host: idp.waterfrontsekuritas.com # TODO: confirm prod host
+  pathType: PathPrefix
+  timeout: ""
+
+config:
+  enabled: true
+  data:
+    APP_ENV: production
+    TZ: Asia/Jakarta
+    HTTP_PORT: "8080"
+    APP_BASE_URL: https://idp.waterfrontsekuritas.com # TODO: must match the gateway host (OIDC issuer)
+    LOG_FORMAT: json
+    LDAP_MODE: ldap # TODO: ldaps/starttls + cert mounts before SSSD cutover
+    LDAP_PORT: "1389"
+    LDAP_ALLOWED_CIDRS: "10.0.0.0/8" # TODO: tighten to SSSD host ranges
+    RADIUS_ENABLED: "true"
+    RADIUS_PORT: "1812"
+
+# Secrets via ExternalSecrets Operator (ClusterSecretStore vault).
+# TODO: confirm these Vault paths with platform.
+secrets:
+  enabled: true
+  storeRef:
+    name: vault
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: apps/identityhub/prod/db
+        property: url
+    - secretKey: ENC_KEY
+      remoteRef:
+        key: apps/identityhub/prod/encryption
+        property: key
+  targetSecretName: ""
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# NOTE: keep disabled — the chart's stock policy allows ingress from the
+# gateway only, which would break LDAP (SSSD hosts) and RADIUS (NAS).
+networkPolicy:
+  enabled: false
+
+monitoring:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  port: http
+
+probes:
+  liveness:
+    enabled: true
+    path: /healthz
+    port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    path: /healthz
+    port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    enabled: false
+
+# Migration Job runs `identityhub migrate up` (embedded goose, env-driven)
+# instead of the chart's golang-migrate default command.
+migrate:
+  enabled: true
+  command: ["/app/identityhub"]
+  args: ["migrate", "up"]
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+# Background worker (LDAP sync, email outbox, cleanup) from the same image.
+workers:
+  identityhub:
+    enabled: true
+    args: ["worker"]
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+
+# UPLOADS WARNING: IdentityHub stores uploads on local disk
+# (/app/var/uploads). With 2+ replicas each pod diverges and restarts
+# lose files. Before cutover, mount shared storage, e.g.:
+# extraVolumes:
+#   - name: uploads
+#     persistentVolumeClaim:
+#       claimName: identityhub-uploads # RWX, provision separately
+# extraVolumeMounts:
+#   - name: uploads
+#     mountPath: /app/var/uploads
+extraVolumes: []
+extraVolumeMounts: []

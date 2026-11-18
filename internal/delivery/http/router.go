@@ -7,6 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/identityhub/identityhub/internal/metrics"
 )
 
 // Pinger abstracts the readiness check so tests inject a stub.
@@ -27,6 +30,7 @@ type Deps struct {
 // the SPA fallback serving the embedded web/dist build.
 func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
+	r.Use(metrics.Middleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
@@ -34,6 +38,7 @@ func NewRouter(d Deps) http.Handler {
 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", handleReadyz(d.DB))
+	r.Handle("/metrics", promhttp.Handler())
 
 	if d.Handlers != nil {
 		d.Handlers.mount(r)

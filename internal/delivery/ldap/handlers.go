@@ -14,6 +14,7 @@ import (
 	ldapserver "github.com/vjeantet/ldapserver"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
 )
 
@@ -73,6 +74,8 @@ func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) 
 // writeBindResult maps a legacy login outcome to the bind response.
 func (s *Server) writeBindResult(w ldapserver.ResponseWriter, m *ldapserver.Message, u domain.User, err error, username, ip string) {
 	fail := func(code int, diag string) {
+		metrics.ObserveAuthFailure(domain.MethodLDAP, metrics.AppGlobal)
+		metrics.ObserveLegacyBind(domain.MethodLDAP, false)
 		res := ldapserver.NewBindResponse(code)
 		res.SetDiagnosticMessage(diag)
 		w.Write(res)
@@ -81,6 +84,7 @@ func (s *Server) writeBindResult(w ldapserver.ResponseWriter, m *ldapserver.Mess
 	case err == nil:
 		s.markBound(m.Client, u.Username)
 		s.log.Info("ldap bind", "username", u.Username, "ip", ip)
+		metrics.ObserveLegacyBind(domain.MethodLDAP, true)
 		w.Write(ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess))
 	case errors.Is(err, usecaseauth.ErrMFARequired):
 		fail(ldapserver.LDAPResultInvalidCredentials, err.Error())

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 	usecaseapikey "github.com/identityhub/identityhub/internal/usecase/apikey"
 	usecaseapp "github.com/identityhub/identityhub/internal/usecase/app"
 	usecaseasset "github.com/identityhub/identityhub/internal/usecase/asset"
@@ -198,6 +199,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		h.log.Warn("login locked out", "ip", ip, "retry_in", wait.String())
+		metrics.ObserveAuthFailure(domain.MethodPassword, metrics.AppGlobal)
 		writeRateLimited(w)
 		return
 	}
@@ -207,6 +209,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 			h.writeError(w, req, err)
 			return
 		}
+		metrics.ObserveAuthFailure(domain.MethodPassword, metrics.AppGlobal)
 		writeRateLimited(w)
 		return
 	}
@@ -216,6 +219,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, req *http.Request) {
 		if errors.Is(err, domain.ErrUnauthorized) {
 			h.limiter.NoteFailure("login:lock:" + strings.ToLower(username))
 		}
+		metrics.ObserveAuthFailure(domain.MethodPassword, metrics.AppGlobal)
 		h.writeError(w, req, err)
 		return
 	}

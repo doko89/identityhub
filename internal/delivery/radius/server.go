@@ -25,6 +25,7 @@ import (
 
 	adaptercrypto "github.com/identityhub/identityhub/internal/adapter/crypto"
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
 )
 
@@ -148,7 +149,10 @@ func (s *Server) ServeRADIUS(w radius.ResponseWriter, r *radius.Request) {
 	if r.Code != radius.CodeAccessRequest {
 		return
 	}
+	nas := "unknown"
 	reject := func(message string) {
+		metrics.ObserveAuthFailure(domain.MethodRADIUS, nas)
+		metrics.ObserveLegacyBind(domain.MethodRADIUS, false)
 		resp := r.Response(radius.CodeAccessReject)
 		_ = rfc2865.ReplyMessage_SetString(resp, message)
 		_ = w.Write(resp)
@@ -168,6 +172,7 @@ func (s *Server) ServeRADIUS(w radius.ResponseWriter, r *radius.Request) {
 		return
 	}
 	host := nasHost(r.RemoteAddr)
+	nas = host
 	c, err := s.clients.ByNASIdentifier(r.Context(), host)
 	if err != nil {
 		// The secret lookup already passed, so this is a transient
@@ -184,6 +189,7 @@ func (s *Server) ServeRADIUS(w radius.ResponseWriter, r *radius.Request) {
 	switch {
 	case err == nil:
 		s.log.Info("radius accept", "username", u.Username, "nas", host)
+		metrics.ObserveLegacyBind(domain.MethodRADIUS, true)
 		_ = w.Write(r.Response(radius.CodeAccessAccept))
 	case errors.Is(err, usecaseauth.ErrMFARequired):
 		reject(err.Error())

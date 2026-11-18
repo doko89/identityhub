@@ -1,0 +1,107 @@
+{
+  "uid": "identityhub-overview",
+  "title": "IdentityHub Overview",
+  "description": "Cutover monitoring: auth failures, legacy binds, HTTP latency. Metrics from /metrics (see internal/metrics).",
+  "tags": ["identityhub"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "label": "Prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Auth failures (1h)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(identityhub_auth_failures_total[1h]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Auth failure rate by method",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (method) (rate(identityhub_auth_failures_total[5m]))",
+          "legendFormat": "{{method}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Auth failure rate by app (top 10)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (app) (rate(identityhub_auth_failures_total[5m])))",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Legacy binds by protocol and result",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (protocol, result) (rate(identityhub_legacy_binds_total[5m]))",
+          "legendFormat": "{{protocol}} {{result}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HTTP p95 latency by route",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(identityhub_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "HTTP 5xx rate",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(identityhub_http_requests_total{status=~\"5..\"}[5m]))"
+        }
+      ]
+    }
+  ]
+}

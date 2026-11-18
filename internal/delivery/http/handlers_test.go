@@ -16,8 +16,10 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 	usecaseapikey "github.com/identityhub/identityhub/internal/usecase/apikey"
 	usecaseaudit "github.com/identityhub/identityhub/internal/usecase/audit"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
@@ -753,6 +755,19 @@ func TestLoginFailures(t *testing.T) {
 	}
 	if len(h.audits.entries) != 3 {
 		t.Errorf("audit entries = %d, want 3 (bad json never reaches login)", len(h.audits.entries))
+	}
+}
+
+func TestLoginFailureObserved(t *testing.T) {
+	u := localUser("ara", "correct-horse-12")
+	h := newAPI(t, u)
+	before := testutil.ToFloat64(metrics.AuthFailures.WithLabelValues("password", metrics.AppGlobal))
+	code, _ := h.do(http.MethodPost, "/api/auth/login", map[string]string{"username": "ara", "password": "wrong-password"})
+	if code != http.StatusUnauthorized {
+		t.Fatalf("bad password = %d, want 401", code)
+	}
+	if got := testutil.ToFloat64(metrics.AuthFailures.WithLabelValues("password", metrics.AppGlobal)); got != before+1 {
+		t.Errorf("auth failures = %v, want %v", got, before+1)
 	}
 }
 

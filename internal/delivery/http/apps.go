@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 )
 
 // ---------- dashboard (PRD §6.7) ----------
@@ -42,19 +43,23 @@ func (h *Handlers) handleMyApps(w http.ResponseWriter, req *http.Request) {
 // steps up through POST /api/auth/mfa/totp, then retries).
 func (h *Handlers) handleLaunch(w http.ResponseWriter, req *http.Request) {
 	u := mustUser(req.Context())
-	a, err := h.apps.Launch(req.Context(), u.ID, req.PathValue("slug"))
+	slug := req.PathValue("slug")
+	a, err := h.apps.Launch(req.Context(), u.ID, slug)
 	if err != nil {
+		metrics.ObserveAuthFailure("launch", slug)
 		h.writeError(w, req, err)
 		return
 	}
 	if h.mfa != nil {
 		required, err := h.mfa.RequiredForApp(req.Context(), u.ID, a.ID)
 		if err != nil {
+			metrics.ObserveAuthFailure("launch", slug)
 			h.writeError(w, req, err)
 			return
 		}
 		if required {
 			if _, ok := h.mfaVerifiedAt(req); !ok {
+				metrics.ObserveAuthFailure("launch", slug)
 				writeJSON(w, http.StatusForbidden, map[string]any{
 					"error":        "multi-factor authentication is required to open this application",
 					"mfa_required": true,

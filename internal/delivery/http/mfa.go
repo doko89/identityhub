@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
+	"github.com/identityhub/identityhub/internal/metrics"
 )
 
 // ---------- second login step (TECH_SPEC §6.1) ----------
@@ -41,14 +42,20 @@ func (h *Handlers) handleVerifyTOTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	lockKey := "totp:lock:" + u.ID.String()
+	method := domain.MethodTOTP
+	if recovery != "" {
+		method = "recovery"
+	}
 	if locked, _ := h.limiter.Locked(lockKey); locked {
 		h.auditMFARateLimited(req, u)
 		h.log.Warn("mfa locked out", "ip", clientIP(req))
+		metrics.ObserveAuthFailure(method, metrics.AppGlobal)
 		writeRateLimited(w)
 		return
 	}
 	if !h.limiter.Allow("totp:user:"+u.ID.String(), TOTPPerUserLimit, TOTPPerUserWindow) {
 		h.auditMFARateLimited(req, u)
+		metrics.ObserveAuthFailure(method, metrics.AppGlobal)
 		writeRateLimited(w)
 		return
 	}
@@ -61,6 +68,7 @@ func (h *Handlers) handleVerifyTOTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if errors.Is(err, domain.ErrUnauthorized) {
 			h.limiter.NoteFailure(lockKey)
+			metrics.ObserveAuthFailure(method, metrics.AppGlobal)
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid code"})
 			return
 		}

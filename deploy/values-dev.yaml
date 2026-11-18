@@ -1,0 +1,36 @@
+# identityhub — dev overrides
+replicaCount: 1
+
+gateway:
+  host: identityhub.dev.waterfrontsekuritas.com
+
+config:
+  data:
+    APP_ENV: development
+    APP_BASE_URL: https://identityhub.dev.waterfrontsekuritas.com
+    LOG_FORMAT: text
+
+secrets:
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: apps/identityhub/dev/db
+        property: url
+    - secretKey: ENC_KEY
+      remoteRef:
+        key: apps/identityhub/dev/encryption
+        property: key
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false

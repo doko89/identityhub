@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/identityhub/identityhub/internal/metrics"
 )
 
 type stubSessions struct{}
@@ -35,6 +38,28 @@ func TestHealthz(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestMetricsExposed(t *testing.T) {
+	// Series appear only after their first observation.
+	metrics.ObserveAuthFailure("password", metrics.AppGlobal)
+	metrics.ObserveLegacyBind("ldap", true)
+	testRouter(nil).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/nope", nil))
+	rec := httptest.NewRecorder()
+	testRouter(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /metrics = %d, want 200", rec.Code)
+	}
+	for _, name := range []string{
+		"identityhub_auth_failures_total",
+		"identityhub_legacy_binds_total",
+		"identityhub_http_requests_total",
+		"identityhub_http_request_duration_seconds",
+	} {
+		if !strings.Contains(rec.Body.String(), name) {
+			t.Errorf("/metrics body misses %s", name)
+		}
 	}
 }
 
