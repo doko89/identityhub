@@ -134,6 +134,88 @@ describe("AdminAppsPage", () => {
     expect(posted).toMatchObject({ slug: "crm", icon_url: "/uploads/app_logo/9.webp" });
   });
 
+  it("clears a stale bindings error once loading succeeds", async () => {
+    const binding = {
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      application_id: wiki.id,
+      binding_type: "group",
+      group_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      eval_mode: "any",
+    };
+    let bindingsCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        if (u.startsWith("/api/admin/apps?")) {
+          return Response.json({ apps: [wiki], total: 1 });
+        }
+        if (u === `/api/admin/apps/${wiki.id}/bindings` && init?.method === "POST") {
+          return Response.json({ binding }, { status: 201 });
+        }
+        if (u === `/api/admin/apps/${wiki.id}/bindings`) {
+          bindingsCalls += 1;
+          if (bindingsCalls === 1) {
+            throw new TypeError("Failed to fetch");
+          }
+          return Response.json({ bindings: [binding] });
+        }
+        if (u.startsWith("/api/admin/users?")) {
+          return Response.json({
+            users: [{ id: "dddddddd-dddd-dddd-dddd-dddddddddddd", username: "ara", email: "ara@example.com" }],
+            total: 1,
+          });
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    const { getByLabelText, getByRole, getByText, queryByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Bindings" }));
+    await waitFor(() => expect(getByText("Cannot reach the server. Try again.")).toBeDefined());
+    fireEvent.change(getByLabelText("Binding target"), { target: { value: "ara" } });
+    fireEvent.click(getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(getByText(/cccccccc-cccc/)).toBeDefined());
+    expect(queryByText("Cannot reach the server. Try again.")).toBeNull();
+  });
+
+  it("clears a failed submit error once creating succeeds", async () => {
+    const created = { ...wiki, id: "dddddddd-dddd-dddd-dddd-dddddddddddd", slug: "crm", name: "CRM" };
+    let posts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          posts += 1;
+          if (posts === 1) {
+            return Response.json({ error: "Slug taken" }, { status: 400 });
+          }
+          return Response.json({ app: created }, { status: 201 });
+        }
+        return Response.json({ apps: [wiki], total: 1 });
+      }),
+    );
+    const { getByRole, getByText, queryByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Add application" }));
+    const sheet = getByRole("dialog", { name: "Add application" });
+    fireEvent.change(within(sheet).getByLabelText("Slug"), { target: { value: "crm" } });
+    fireEvent.change(within(sheet).getByLabelText("Name"), { target: { value: "CRM" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(getByText("Slug taken")).toBeDefined());
+    fireEvent.click(within(sheet).getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    expect(queryByText("Slug taken")).toBeNull();
+  });
+
   it("filters the list by dashboard group", async () => {
     const urls: string[] = [];
     vi.stubGlobal(

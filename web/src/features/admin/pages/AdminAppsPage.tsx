@@ -311,7 +311,7 @@ function AppForm({
   initial?: AdminApp;
   onSubmit: (patch: AppPatch) => Promise<AdminApp>;
   onDone: (app: AdminApp) => void;
-  onError: (n: AdminNotice) => void;
+  onError: (n: AdminNotice | null) => void;
   onClose?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -342,6 +342,7 @@ function AppForm({
       if (sortRaw !== "") {
         patch.sort_order = Number(sortRaw);
       }
+      onError(null);
       onDone(await onSubmit(patch));
     } catch (err) {
       onError(toNotice(err));
@@ -468,7 +469,7 @@ function AppForm({
   );
 }
 
-function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNotice) => void }) {
+function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNotice | null) => void }) {
   const [bindings, setBindings] = useState<AppBinding[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState("user");
@@ -478,6 +479,7 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
     try {
       const res = await listBindings(app.id);
       setBindings(res.bindings);
+      onError(null);
     } catch (err) {
       onError(toNotice(err));
     }
@@ -489,9 +491,12 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
+    // Capture the form before the first await: React nulls currentTarget
+    // once the synchronous dispatch completes.
+    const formEl = e.currentTarget as HTMLFormElement;
     setBusy(true);
     try {
-      const form = new FormData(e.currentTarget as HTMLFormElement);
+      const form = new FormData(formEl);
       const target = String(form.get("target") ?? "").trim();
       const b: NewBinding = { binding_type: kind, eval_mode: evalMode };
       if (kind === "user") {
@@ -502,7 +507,7 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
         b.policy_expr = target;
       }
       await createBinding(app.id, b);
-      (e.currentTarget as HTMLFormElement).reset();
+      formEl.reset();
       setKind("user");
       setEvalMode("any");
       await load();
