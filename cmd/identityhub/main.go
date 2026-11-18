@@ -137,7 +137,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	if cfg.SMTP.Enabled() {
 		smtpMailer, err := mailer.NewSMTP(mailer.Config{
 			Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
-			Password: cfg.SMTP.Password, From: cfg.SMTP.From,
+			Password: cfg.SMTP.Password, From: cfg.SMTP.From, HeloName: cfg.SMTP.HeloName,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("wire mailer: %w", err)

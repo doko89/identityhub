@@ -77,6 +77,17 @@ curl -b jar -X PUT localhost:8080/api/admin/users/<id>/attrs \
 Every login — success, failure, or rate-limited — lands in `audit_log`
 (fail-closed: a failed audit write fails the login).
 
+`password_hash` accepts argon2id (native), bcrypt, and Django
+`pbkdf2_sha256$` (verified as-is; the first successful login re-hashes
+to argon2id). When importing hashes with psql, pipe via stdin — `$` in
+PHC/Django strings breaks through layered shell quoting:
+
+```sh
+psql "$DATABASE_URL" <<'EOF'
+UPDATE users SET password_hash = 'pbkdf2_sha256$600000$salt$...' WHERE username = 'ara';
+EOF
+```
+
 ## OIDC (M2)
 
 Provider endpoints (authorization code + PKCE for public clients,

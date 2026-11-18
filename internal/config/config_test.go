@@ -116,6 +116,7 @@ func TestLoadLDAPAndSMTP(t *testing.T) {
 	setEnv(t, "LDAP_ADMIN_GROUP_DN", "cn=admins,ou=groups,dc=example,dc=com")
 	setEnv(t, "SMTP_HOST", "mail.example.com")
 	setEnv(t, "SMTP_FROM", "idp@example.com")
+	setEnv(t, "SMTP_HELO_NAME", "mail.example.com")
 
 	cfg, err := Load()
 	if err != nil {
@@ -126,6 +127,9 @@ func TestLoadLDAPAndSMTP(t *testing.T) {
 	}
 	if !cfg.SMTP.Enabled() || cfg.SMTP.Port != 587 {
 		t.Errorf("SMTP = %+v, want enabled with port 587", cfg.SMTP)
+	}
+	if cfg.SMTP.HeloName != "mail.example.com" {
+		t.Errorf("SMTP.HeloName = %q", cfg.SMTP.HeloName)
 	}
 	if cfg.BaseURL != DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want default", cfg.BaseURL)

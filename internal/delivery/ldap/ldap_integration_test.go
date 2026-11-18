@@ -590,6 +590,40 @@ func TestLDAPCustomAttrs(t *testing.T) {
 	}
 }
 
+func TestLDAPAnonymousBindReadsRootDSEOnly(t *testing.T) {
+	fx := setupFixture(t)
+	fx.createLocalUser("alice", "alice-password-1", true)
+	srv := fx.startServer(ModePlain, []string{"127.0.0.0/8"}, nil)
+	c := fx.dial(srv.Addr().String())
+	// Fully anonymous bind succeeds without conferring identity.
+	if err := c.UnauthenticatedBind(""); err != nil {
+		t.Fatalf("anonymous bind: %v", err)
+	}
+	res, err := c.Search(goldap.NewSearchRequest(
+		"", goldap.ScopeBaseObject, goldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=*)", []string{"namingContexts"}, nil,
+	))
+	if err != nil {
+		t.Fatalf("anonymous root DSE: %v", err)
+	}
+	if len(res.Entries) != 1 {
+		t.Fatalf("root DSE entries = %d, want 1", len(res.Entries))
+	}
+	// Tree searches still need a bound user.
+	_, err = c.Search(goldap.NewSearchRequest(
+		UsersDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases, 0, 0, false,
+		"(uid=*)", []string{"uid"}, nil,
+	))
+	if code := ldapCode(t, err); code != 50 {
+		t.Errorf("anonymous subtree search code = %d, want 50 (insufficient access)", code)
+	}
+	// Unauthenticated bind (DN without password) still fails closed.
+	c2 := fx.dial(srv.Addr().String())
+	if err := c2.UnauthenticatedBind(UserDN("alice")); ldapCode(t, err) != 49 {
+		t.Errorf("unauthenticated bind code = %v, want 49", err)
+	}
+}
+
 func TestLDAPBindFailures(t *testing.T) {
 	fx := setupFixture(t)
 	alice := fx.createLocalUser("alice", "alice-password-1", true)

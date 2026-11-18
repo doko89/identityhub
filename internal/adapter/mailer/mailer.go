@@ -5,10 +5,12 @@
 package mailer
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,9 +22,20 @@ type Config struct {
 	Username string
 	Password string
 	From     string
+	// HeloName is the EHLO domain. Servers such as Stalwart reject
+	// the Go default ("localhost") with 550; empty derives it from
+	// the From domain.
+	HeloName string
+	// TLSClient overrides the TLS configuration (tests only); nil
+	// builds one from Host with a TLS 1.2 floor.
+	TLSClient *tls.Config
 	// Timeout bounds the whole send. Zero takes DefaultTimeout.
 	Timeout time.Duration
 }
+
+// implicitTLSPort is the RFC 8314 submissions port: connections there
+// start encrypted instead of upgrading via STARTTLS.
+const implicitTLSPort = 465
 
 // DefaultTimeout bounds one SMTP send (PRD §5.1: upstreams never hang).
 const DefaultTimeout = 15 * time.Second
@@ -57,14 +70,8 @@ func (m *SMTPMailer) Send(to, subject, textBody, htmlBody string) error {
 		return fmt.Errorf("mailer: invalid recipient %q", to)
 	}
 	msg := buildMessage(m.cfg.From, to, subject, textBody, htmlBody)
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.Port)
-
-	var auth smtp.Auth
-	if m.cfg.Username != "" {
-		auth = smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)
-	}
 	done := make(chan error, 1)
-	go func() { done <- smtp.SendMail(addr, auth, m.cfg.From, []string{to}, msg) }()
+	go func() { done <- m.send(to, msg) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -74,6 +81,83 @@ func (m *SMTPMailer) Send(to, subject, textBody, htmlBody string) error {
 	case <-time.After(m.cfg.Timeout):
 		return fmt.Errorf("mailer: send to %s timed out after %v", redact(to), m.cfg.Timeout)
 	}
+}
+
+// send runs one delivery: explicit EHLO (never Go's "localhost"
+// default, which strict servers reject), implicit TLS on 465,
+// STARTTLS where advertised, PLAIN auth when configured.
+func (m *SMTPMailer) send(to string, msg []byte) error {
+	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
+	tlsConfig := m.cfg.TLSClient
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{ServerName: m.cfg.Host, MinVersion: tls.VersionTLS12}
+	}
+	var conn net.Conn
+	var err error
+	if m.implicitTLS() {
+		dialer := &net.Dialer{Timeout: m.cfg.Timeout}
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", addr, m.cfg.Timeout)
+	}
+	if err != nil {
+		return err
+	}
+	c, err := smtp.NewClient(conn, m.cfg.Host)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	defer c.Close()
+	if err := c.Hello(m.heloName()); err != nil {
+		return err
+	}
+	if !m.implicitTLS() {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(tlsConfig); err != nil {
+				return err
+			}
+		}
+	}
+	if m.cfg.Username != "" {
+		if err := c.Auth(smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(m.cfg.From); err != nil {
+		return err
+	}
+	if err := c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		w.Close()
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
+}
+
+// implicitTLS reports whether connections start encrypted (RFC 8314
+// submissions port) instead of upgrading via STARTTLS.
+func (m *SMTPMailer) implicitTLS() bool { return m.cfg.Port == implicitTLSPort }
+
+// heloName is the explicit EHLO domain: the override when set, else the
+// From domain, else the SMTP host itself.
+func (m *SMTPMailer) heloName() string {
+	if m.cfg.HeloName != "" {
+		return m.cfg.HeloName
+	}
+	if _, domain, found := strings.Cut(m.cfg.From, "@"); found && domain != "" {
+		return domain
+	}
+	return m.cfg.Host
 }
 
 func buildMessage(from, to, subject, textBody, htmlBody string) []byte {

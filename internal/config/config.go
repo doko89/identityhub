@@ -65,6 +65,7 @@ const (
 	envLDAPAttrMap        = "LDAP_ATTR_MAP"
 	envSMTPHost           = "SMTP_HOST"
 	envSMTPPort           = "SMTP_PORT"
+	envSMTPHeloName       = "SMTP_HELO_NAME"
 	envSMTPUsername       = "SMTP_USERNAME"
 	envSMTPPassword       = "SMTP_PASSWORD"
 	envSMTPFrom           = "SMTP_FROM"
@@ -241,6 +242,9 @@ type SMTPConfig struct {
 	Username string
 	Password string
 	From     string
+	// HeloName overrides the EHLO domain. Empty derives it from the
+	// From domain; strict servers (Stalwart) reject Go's "localhost".
+	HeloName string
 }
 
 // Enabled reports whether real mail delivery is configured.
@@ -281,6 +285,7 @@ func Load() (Config, error) {
 		Username: strings.TrimSpace(os.Getenv(envSMTPUsername)),
 		Password: os.Getenv(envSMTPPassword),
 		From:     strings.TrimSpace(os.Getenv(envSMTPFrom)),
+		HeloName: strings.TrimSpace(os.Getenv(envSMTPHeloName)),
 	}
 	cfg.LDAPProvider = LDAPProviderConfig{
 		Mode:         strings.ToLower(strings.TrimSpace(os.Getenv(envLDAPMode))),

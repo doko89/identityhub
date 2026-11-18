@@ -25,10 +25,12 @@ const (
 	scopeWholeSubtree = 2
 )
 
-// handleBind verifies uid=<username>,ou=users,dc=identityhub + password
-// through usecase/auth. Anonymous binds and malformed DNs are protocol
-// rejections (not audited, like undecodable HTTP bodies); every real
-// credential check is audited inside LoginLegacy.
+// handleBind verifies uid=<username>,ou=users,<base> + password through
+// usecase/auth. A fully anonymous bind (empty DN and password) succeeds
+// without an identity so clients can read the root DSE; an
+// unauthenticated bind (DN without password) fails closed. Malformed
+// DNs are protocol rejections (not audited, like undecodable HTTP
+// bodies); every real credential check is audited inside LoginLegacy.
 func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetBindRequest()
 	ip := peerIP(m)
@@ -43,6 +45,10 @@ func (s *Server) handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) 
 	}
 	dn := string(r.Name())
 	password := string(r.AuthenticationSimple())
+	if dn == "" && password == "" {
+		w.Write(ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess))
+		return
+	}
 	if dn == "" || password == "" {
 		fail(ldapserver.LDAPResultInvalidCredentials, "invalid credentials")
 		return
@@ -124,8 +130,9 @@ func (s *Server) rememberBind(ctx context.Context, username, password string, us
 	}
 }
 
-// handleSearch serves the users/groups tree to bound connections only:
-// anonymous clients learn nothing about directory contents.
+// handleSearch serves the users/groups tree to bound connections.
+// Anonymous clients may only read the root DSE; anything else needs a
+// bound user.
 func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetSearchRequest()
 	// SearchResultDone carries no diagnostic message in this library
@@ -133,12 +140,12 @@ func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message
 	done := func(code int) {
 		w.Write(ldapserver.NewSearchResultDoneResponse(code))
 	}
-	if !s.isBound(m.Client) {
+	base := strings.TrimSpace(string(r.BaseObject()))
+	scope := int(r.Scope())
+	if !s.isBound(m.Client) && !isRootDSEProbe(base, scope) {
 		done(ldapserver.LDAPResultInsufficientAccessRights)
 		return
 	}
-	base := strings.TrimSpace(string(r.BaseObject()))
-	scope := int(r.Scope())
 	f, err := parseFilter(r.FilterString())
 	if err != nil {
 		s.log.Warn("ldap search: bad filter", "filter", r.FilterString(), "ip", peerIP(m))
@@ -185,6 +192,12 @@ func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message
 		writeEntry(w, e, want, allAttrs, typesOnly)
 	}
 	done(code)
+}
+
+// isRootDSEProbe reports a base-object read of the empty DN: the only
+// search an unbound (anonymous) connection may run.
+func isRootDSEProbe(base string, scope int) bool {
+	return strings.TrimSpace(base) == "" && scope == scopeBaseObject
 }
 
 // handleStartTLS upgrades the connection to TLS in starttls mode (the
