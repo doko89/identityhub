@@ -296,13 +296,24 @@ func (s *Server) collectEntries(ctx context.Context, base string, scope int, f *
 		}
 		return entries, false, nil
 	default:
-		// Base scope on a leaf DN (a bind DN read-back or a group DN).
-		if scope == scopeBaseObject {
-			if e, found, err := s.leafEntry(ctx, base); err != nil || found {
-				return []*entry{e}, false, err
-			}
+		// Leaf DN base (a bind DN read-back or a group DN): base scope
+		// reads the entry itself, subtree scope includes it (leaves
+		// have no children), single-level matches nothing. Unknown
+		// DNs are NoSuchObject under every scope (RFC 4511 §4.5.1).
+		// Consumers such as Harbor resolve group DNs with a subtree
+		// search rooted at the DN itself; answering 32 there breaks
+		// their group sync.
+		e, found, err := s.leafEntry(ctx, base)
+		if err != nil {
+			return nil, false, err
 		}
-		return nil, true, nil
+		if !found {
+			return nil, true, nil
+		}
+		if scope == scopeSingleLevel {
+			return nil, false, nil
+		}
+		return []*entry{e}, false, nil
 	}
 }
 
