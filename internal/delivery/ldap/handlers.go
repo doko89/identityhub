@@ -92,8 +92,6 @@ func (s *Server) writeBindResult(w ldapserver.ResponseWriter, m *ldapserver.Mess
 		s.log.Info("ldap bind", "username", u.Username, "ip", ip)
 		metrics.ObserveLegacyBind(domain.MethodLDAP, true)
 		w.Write(ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess))
-	case errors.Is(err, usecaseauth.ErrMFARequired):
-		fail(ldapserver.LDAPResultInvalidCredentials, err.Error())
 	case errors.Is(err, domain.ErrForbidden):
 		fail(ldapserver.LDAPResultInvalidCredentials, "account disabled")
 	case errors.Is(err, usecaseauth.ErrDirectoryUnavailable):

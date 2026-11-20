@@ -658,13 +658,11 @@ func TestLDAPBindFailures(t *testing.T) {
 	if err := c.UnauthenticatedBind(UserDN(alice.Username)); ldapCode(t, err) != 49 {
 		t.Errorf("empty password code = %v, want 49", err)
 	}
-	// Admin with a correct password is denied: MFA is mandatory and a
-	// legacy bind cannot prompt for a second factor.
-	err = bind(UserDN(root.Username), "root-password-0001")
-	if code := ldapCode(t, err); code != 49 {
-		t.Errorf("admin code = %d, want 49", code)
-	} else if lerr := err.(*goldap.Error); !strings.Contains(lerr.Error(), "multi-factor") {
-		t.Errorf("admin diagnostic = %q, want mfa explanation", lerr.Error())
+	// Admin with a correct password binds: legacy protocols carry no
+	// second factor, so no MFA gate applies here (web login still
+	// requires MFA for admins).
+	if err := bind(UserDN(root.Username), "root-password-0001"); err != nil {
+		t.Errorf("admin bind = %v, want success", err)
 	}
 	// Disabled account.
 	if err := bind(UserDN(off.Username), "off-password-00001"); ldapCode(t, err) != 49 {
@@ -672,13 +670,13 @@ func TestLDAPBindFailures(t *testing.T) {
 	}
 	// Every credential check above was audited exactly once.
 	entries, _, err := fx.audits.List(context.Background(), domain.AuditFilter{
-		ActorUserID: &root.ID, Method: domain.MethodLDAP, Result: domain.ResultFailure, Limit: 5,
+		ActorUserID: &root.ID, Method: domain.MethodLDAP, Result: domain.ResultSuccess, Limit: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Detail["reason"] != "mfa required" {
-		t.Errorf("admin audit = %+v, want one mfa-required failure", entries)
+	if len(entries) != 1 {
+		t.Errorf("admin audit = %+v, want one success", entries)
 	}
 }
 

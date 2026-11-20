@@ -197,13 +197,13 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - Connection modes (deployment-wide env `LDAP_MODE`): `ldap` (plaintext, default port 1389/389), `ldaps` (TLS-wrapped listener, default 636), `starttls` (plaintext port that upgrades via the StartTLS extended operation).
 - TLS config (`LDAP_TLS_CERT_FILE`, `LDAP_TLS_KEY_FILE`): TLS 1.2 minimum, certificates from the secret store. Plaintext mode refuses to boot unless the whitelist below is non-empty.
 - IP whitelist: global `LDAP_ALLOWED_CIDRS` (comma-separated CIDRs) enforced in the library's `OnNewConnection` hook — rejected connections are closed before any LDAP bytes are parsed, so even plaintext 389 only talks to known clients.
-- Bind: DN `uid=<username>,ou=users,dc=identityhub` + password; the delivery handler calls `usecase/auth` (note: direct LDAP bind is rejected when the user must use MFA, unless the app is explicitly exempted in config — see risk).
+- Bind: DN `uid=<username>,ou=users,dc=identityhub` + password; the delivery handler calls `usecase/auth`. Binds stay password-only for every user including admins (no MFA gate: the protocols have no second channel) — one account serves both web and legacy logins.
 - Search: users (`inetOrgPerson`: uid/cn/sn/displayName/mail/memberOf plus custom attributes) and groups per the app's `ldap_provider_config`. Point lookups (`(uid=x)`, bare or inside AND) resolve one indexed row; custom keys are filterable like built-ins. Listings cost a fixed handful of queries (users, groups, one membership join, one attribute batch) — no per-user/per-member queries.
 
 ### 6.5 RADIUS provider (via layeh/radius, port 1812)
 
 - PAP Access-Request: username/password against local users; minimal reply attributes (Framed-IP when configured).
-- Same MFA rule as the LDAP provider: reject when the user must use MFA, unless explicitly exempted.
+- Same credential rule as the LDAP provider: password-only for every user including admins, no MFA gate.
 
 ### 6.6 Worker
 
@@ -235,7 +235,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - LDAP provider: modes `ldap`/`ldaps`/`starttls`; TLS 1.2+ with managed certificates; plaintext boots only with a non-empty `LDAP_ALLOWED_CIDRS`; whitelist enforced at connection accept, before any bind or search is parsed.
 - TOTP: reject reuse of an accepted code (atomic `last_step`), encrypted seeds, enroll shows the QR exactly once.
 - Sessions: `HttpOnly + Secure + SameSite=Lax` cookies, 30-minute idle timeout, 12-hour absolute.
-- Admins (`ih_admin` members): MFA required, no exceptions.
+- Admins (`ih_admin` members): MFA required on web login and app launch, no exceptions. Legacy LDAP/RADIUS binds stay password-only (those protocols have no second channel).
 
 ## 9. Testing
 

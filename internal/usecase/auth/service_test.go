@@ -1507,19 +1507,26 @@ func TestConfirmCachedBind(t *testing.T) {
 	if _, err := h.svc.ConfirmCachedBind(ctx, off.ID, domain.MethodLDAP, "10.9.0.2"); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("disabled user = %v, want forbidden", err)
 	}
-	if _, err := h.svc.ConfirmCachedBind(ctx, admin.ID, domain.MethodLDAP, "10.9.0.2"); !errors.Is(err, ErrMFARequired) {
-		t.Fatalf("admin = %v, want ErrMFARequired", err)
+	// Admins bind like anyone else: legacy protocols carry no second
+	// factor, so no MFA gate applies here (web login still requires
+	// MFA for admins).
+	if _, err := h.svc.ConfirmCachedBind(ctx, admin.ID, domain.MethodLDAP, "10.9.0.2"); err != nil {
+		t.Fatalf("admin = %v, want success", err)
 	}
 	if _, err := h.svc.ConfirmCachedBind(ctx, u.ID, "password", "10.9.0.2"); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("bad method = %v, want validation", err)
 	}
-	for _, e := range h.audits.entries[1:] {
-		if e.Result != domain.ResultFailure {
-			t.Errorf("audit entry = %+v, want failure", e)
-		}
-	}
 	if len(h.audits.entries) != 4 {
-		t.Errorf("audit entries = %d, want 4 (bad method never audits)", len(h.audits.entries))
+		t.Fatalf("audit entries = %d, want 4 (bad method never audits)", len(h.audits.entries))
+	}
+	for i, e := range h.audits.entries[1:] {
+		want := domain.ResultFailure
+		if i == 2 { // the admin cached bind succeeds
+			want = domain.ResultSuccess
+		}
+		if e.Result != want {
+			t.Errorf("audit entry %d = %+v, want %s", i+1, e, want)
+		}
 	}
 }
 
@@ -1649,25 +1656,28 @@ func TestLoginLegacyLDAPUserViaDirectory(t *testing.T) {
 	}
 }
 
-func TestLoginLegacyDeniesAdminsWhenMFARequired(t *testing.T) {
+func TestLoginLegacyAllowsAdmins(t *testing.T) {
 	admin := localUser("root", "root-password-1")
 	plain := localUser("ara", "ara-password-12")
 	h := newHarness(t, admin, plain)
 	h.groups.members[admin.ID] = map[string]bool{domain.AdminGroup: true}
 
-	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+	// Admins authenticate over legacy protocols with their password
+	// alone: LDAP/RADIUS carry no second factor, so no MFA gate
+	// applies here. Web login still requires MFA for admins.
+	got, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
 		Username: "root", Password: "root-password-1", IP: "10.9.0.4",
 		Method: domain.MethodLDAP,
 	})
-	if !errors.Is(err, ErrMFARequired) {
-		t.Fatalf("admin LoginLegacy = %v, want ErrMFARequired", err)
+	if err != nil {
+		t.Fatalf("admin LoginLegacy = %v, want success", err)
+	}
+	if got.ID != admin.ID {
+		t.Fatalf("user = %v, want %v", got.ID, admin.ID)
 	}
 	a := lastAudit(h)
-	if a.Method != domain.MethodLDAP || a.Result != domain.ResultFailure {
-		t.Errorf("audit = %s/%s, want ldap/failure", a.Method, a.Result)
-	}
-	if a.Detail["reason"] != "mfa required" {
-		t.Errorf("audit reason = %v, want 'mfa required'", a.Detail["reason"])
+	if a.Method != domain.MethodLDAP || a.Result != domain.ResultSuccess {
+		t.Errorf("audit = %s/%s, want ldap/success", a.Method, a.Result)
 	}
 	// A correct password still verifies for non-admins on the same box.
 	if _, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
@@ -1677,17 +1687,16 @@ func TestLoginLegacyDeniesAdminsWhenMFARequired(t *testing.T) {
 	}
 }
 
-func TestLoginLegacyDeniesAdminEvenWhenDirectoryVerifies(t *testing.T) {
+func TestLoginLegacyAllowsDirectoryAdmin(t *testing.T) {
 	admin := ldapUser("dir-root", true)
 	h := newHarness(t, admin)
 	h.dir.passwords["dir-root"] = "dir-pass-0002"
 	h.groups.members[admin.ID] = map[string]bool{domain.AdminGroup: true}
 
-	_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
+	if _, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
 		Username: "dir-root", Password: "dir-pass-0002", Method: domain.MethodRADIUS,
-	})
-	if !errors.Is(err, ErrMFARequired) {
-		t.Fatalf("LDAP admin LoginLegacy = %v, want ErrMFARequired", err)
+	}); err != nil {
+		t.Fatalf("LDAP admin LoginLegacy = %v, want success", err)
 	}
 }
 
@@ -1785,17 +1794,6 @@ func TestLoginLegacyInfraFailures(t *testing.T) {
 		}
 	})
 
-	t.Run("mfa policy check error", func(t *testing.T) {
-		h := newHarness(t, u)
-		h.groups.err = errors.New("db down")
-		_, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
-			Username: "ara", Password: "ara-password-12", Method: domain.MethodLDAP,
-		})
-		if err == nil || !strings.Contains(err.Error(), "mfa policy check") {
-			t.Fatalf("err = %v, want mfa policy check failure", err)
-		}
-	})
-
 	t.Run("audit failure fails closed", func(t *testing.T) {
 		h := newHarness(t, u)
 		h.audits.err = errors.New("audit down")
@@ -1808,54 +1806,26 @@ func TestLoginLegacyInfraFailures(t *testing.T) {
 	})
 }
 
-type stubMFAPolicy struct {
-	required map[uuid.UUID]bool
-	err      error
-}
-
-func (s stubMFAPolicy) RequiredForApp(_ context.Context, _ uuid.UUID, appID uuid.UUID) (bool, error) {
-	if s.err != nil {
-		return false, s.err
-	}
-	return s.required[appID], nil
-}
-
-func TestLoginLegacyPerAppMFAPolicy(t *testing.T) {
+func TestLoginLegacyIgnoresPerAppMFAFlag(t *testing.T) {
 	u := localUser("ara", "ara-password-12")
 	h := newHarness(t, u)
 	mfaApp := uuid.New()
-	plainApp := uuid.New()
-	svc, err := New(Deps{
-		Users: h.users, Groups: h.groups, Resets: h.resets, History: h.history,
-		Sessions: h.sessions, Audit: audit.New(h.audits, fixedClock{now: h.now}),
-		Hasher: fakeHasher{}, Clock: fixedClock{now: h.now}, Mailer: h.mailer,
-		Directory: h.dir, BaseURL: "https://idp.example.com",
-		MFAPolicy: stubMFAPolicy{required: map[uuid.UUID]bool{mfaApp: true}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Regular user on an MFA-required app is denied with the sentinel.
-	_, err = svc.LoginLegacy(context.Background(), LegacyLoginInput{
+
+	// Legacy binds stay password-only however the target app is
+	// flagged: the per-app MFA requirement is enforced at web/app
+	// launch, never on LDAP/RADIUS.
+	got, err := h.svc.LoginLegacy(context.Background(), LegacyLoginInput{
 		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
 		ApplicationID: &mfaApp,
 	})
-	if !errors.Is(err, ErrMFARequired) {
-		t.Fatalf("MFA-app LoginLegacy = %v, want ErrMFARequired", err)
+	if err != nil {
+		t.Fatalf("MFA-app LoginLegacy = %v, want success", err)
 	}
-	// Same user on a plain app passes.
-	if _, err := svc.LoginLegacy(context.Background(), LegacyLoginInput{
-		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
-		ApplicationID: &plainApp,
-	}); err != nil {
-		t.Fatalf("plain-app LoginLegacy = %v, want success", err)
+	if got.ID != u.ID {
+		t.Fatalf("user = %v, want %v", got.ID, u.ID)
 	}
-	// Policy errors surface instead of silently allowing.
-	svc.mfa = stubMFAPolicy{err: errors.New("policy down")}
-	if _, err := svc.LoginLegacy(context.Background(), LegacyLoginInput{
-		Username: "ara", Password: "ara-password-12", Method: domain.MethodRADIUS,
-		ApplicationID: &plainApp,
-	}); err == nil {
-		t.Fatal("policy error must fail the bind")
+	a := lastAudit(h)
+	if a.ApplicationID == nil || *a.ApplicationID != mfaApp {
+		t.Errorf("audit app = %v, want %v (still linked for the trail)", a.ApplicationID, mfaApp)
 	}
 }

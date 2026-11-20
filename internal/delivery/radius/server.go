@@ -2,8 +2,9 @@
 // via layeh.com/radius. NAS devices authenticate with per-device
 // shared secrets from radius_clients; user credentials always verify
 // through usecase/auth (LoginLegacy), so RADIUS shares password
-// policy, directory JIT, audit and the deny-when-MFA-required gate
-// with every other login path.
+// policy, directory JIT and audit with every other login path.
+// Access-Requests stay password-only: no MFA gate applies here
+// (MFA is enforced at web login and app launch).
 //
 // Only Access-Request with PAP (User-Name + User-Password) is answered.
 // Packets from unknown NAS addresses are dropped before parsing (no
@@ -191,8 +192,6 @@ func (s *Server) ServeRADIUS(w radius.ResponseWriter, r *radius.Request) {
 		s.log.Info("radius accept", "username", u.Username, "nas", host)
 		metrics.ObserveLegacyBind(domain.MethodRADIUS, true)
 		_ = w.Write(r.Response(radius.CodeAccessAccept))
-	case errors.Is(err, usecaseauth.ErrMFARequired):
-		reject(err.Error())
 	case errors.Is(err, domain.ErrForbidden):
 		reject("account disabled")
 	case errors.Is(err, usecaseauth.ErrDirectoryUnavailable):

@@ -21,8 +21,9 @@ decision stated — no v1 blocker is left open.
    `ih_admin` members always (login parks at setup until enrolled, and
    `/api/admin/*` needs a session factor verification with no
    exceptions); regular users opt in via self-service, and admins can
-   force it per app (`mfa_required`). Legacy LDAP/RADIUS binds reject
-   MFA-required users since those protocols have no second channel.
+   force it per app (`mfa_required`). Legacy LDAP/RADIUS binds stay
+   password-only since those protocols have no second channel, so one
+   account serves both web and legacy logins.
 5. **First deployment target?** → Single binary on one host behind a
    reverse proxy (TLS terminates at the proxy; env-only config; `migrate
    up` before first `serve`). No Kubernetes manifests ship in v1.

@@ -283,7 +283,7 @@ fresh admin key always comes from the browser.
 - `internal/usecase/{auth,user,audit,oidcflow,samlflow,mfa,app,asset,branding}` — login, password mgmt, user/group CRUD, LDAP sync apply, audit (+CSV), OIDC authorize/consent + SAML assertion decisions, TOTP/recovery/policy, app catalog + bindings + launch + provider registration, webp uploads, brand singleton
 - `internal/adapter/{postgres,crypto,ldapclient,mailer,oidc,saml,storage}` — pgx stores + goose runner, argon2id + TOTP + seed seal, go-ldap connector, SMTP/log mail, fosite OIDC behind `domain.OIDCProvider`, crewjam SAML behind `domain.SAMLProvider`, local/S3 file storage
 - `internal/delivery/http` — chi router, JSON API, rate limits, scs sessions, MFA second step + dashboard + uploads + branding + provider registration, embedded SPA
-- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (deny-when-MFA-required incl. per-app policy, per-NAS flood protection)
+- `internal/delivery/{ldap,radius}` — in-process LDAP (bind/search/StartTLS/LDAPS + CIDR gate) and RADIUS PAP via `usecase/auth.LoginLegacy` (password-only, no MFA gate; per-NAS flood protection)
 - `internal/worker` — periodic jobs (LDAP sync when configured + session/token/OIDC/SAML cleanup)
 - `migrations` — goose SQL (`00001` core schema + `ih_admin` seed, `00002` session registry, `00003` OIDC storage, `00004` SAML keys + request stash, `00005` per-app MFA flag, `00006` app new-tab, `00007` branding tagline, `00008` API keys, `00009` LDAP indexes, `00010` user attrs, `00011` directory version)
 - `web` — React+Vite+TS SPA (vitest + eslint + playwright); `web/dist` is the embedded production build

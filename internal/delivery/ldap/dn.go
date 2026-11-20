@@ -1,8 +1,9 @@
 // Package ldap serves IdentityHub users and groups over the LDAP
 // protocol (TECH_SPEC §6.4) via github.com/vjeantet/ldapserver.
 // Credentials always verify through usecase/auth (LoginLegacy), so
-// legacy binds share password policy, directory JIT, audit and the
-// deny-when-MFA-required gate with every other login path.
+// legacy binds share password policy, directory JIT and audit with
+// every other login path. Binds stay password-only: no MFA gate
+// applies here (MFA is enforced at web login and app launch).
 //
 // Served tree (v1 is a single global tree; per-app search bases from
 // ldap_provider_config arrive with the app catalog):

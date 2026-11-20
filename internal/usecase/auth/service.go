@@ -30,12 +30,6 @@ import (
 // with an explicit message (PRD §5.1).
 var ErrDirectoryUnavailable = errors.New("directory unavailable")
 
-// ErrMFARequired signals that a legacy bind was denied because the
-// account must use MFA (TECH_SPEC §6.4–6.5). Legacy delivery maps it to
-// a protocol-level invalid-credentials response with an explanatory
-// diagnostic (there is no "MFA required" code in LDAP/RADIUS).
-var ErrMFARequired = errors.New("multi-factor authentication is required for this account; legacy bind is not allowed")
-
 const (
 	// HistoryDepth is how many previous passwords a new one must differ
 	// from (PRD §6.10).
@@ -45,13 +39,6 @@ const (
 	// ResetTokenTTL bounds a reset link's life (PRD §6.10).
 	ResetTokenTTL = 15 * time.Minute
 )
-
-// LegacyMFAPolicy answers whether a user must pass a second factor for
-// an app. *mfa.Service implements it; auth holds it as an interface so
-// the M4 admin-only gate stays intact when MFA is unwired (nil).
-type LegacyMFAPolicy interface {
-	RequiredForApp(ctx context.Context, userID, appID uuid.UUID) (bool, error)
-}
 
 // Service holds the auth business rules. All outer details arrive as
 // domain interfaces; Directory may be nil (LDAP upstream disabled).
@@ -66,7 +53,6 @@ type Service struct {
 	clock    domain.Clock
 	mailer   domain.Mailer
 	dir      domain.Directory
-	mfa      LegacyMFAPolicy
 	baseURL  string
 	tokenGen func(n int) ([]byte, error)
 	attrs    domain.UserAttrStore
@@ -86,9 +72,6 @@ type Deps struct {
 	Mailer   domain.Mailer
 	// Directory is nil when LDAP_URL is unset.
 	Directory domain.Directory
-	// MFAPolicy is nil in tests that predate MFA; production wires
-	// *mfa.Service so per-app policy reaches legacy binds.
-	MFAPolicy LegacyMFAPolicy
 	// BaseURL is the public origin for emailed reset links.
 	BaseURL string
 	// TokenGen overrides crypto/rand in tests.
@@ -118,7 +101,7 @@ func New(d Deps) (*Service, error) {
 	return &Service{
 		users: d.Users, groups: d.Groups, resets: d.Resets, history: d.History,
 		sessions: d.Sessions, audit: d.Audit, hasher: d.Hasher, clock: d.Clock,
-		mailer: d.Mailer, dir: d.Directory, mfa: d.MFAPolicy,
+		mailer: d.Mailer, dir: d.Directory,
 		baseURL:  strings.TrimRight(d.BaseURL, "/"),
 		tokenGen: gen, attrs: d.Attrs,
 	}, nil
@@ -146,7 +129,7 @@ type LegacyLoginInput struct {
 
 // credentialCheck is the unaudited outcome of checking username/password.
 // Both Login and LoginLegacy verify through checkCredentials and differ
-// only in how they audit (method/app) and in the legacy MFA gate.
+// only in how they audit (method/app).
 type credentialCheck struct {
 	user    domain.User
 	hasUser bool
@@ -215,13 +198,11 @@ func (s *Service) maybeRehash(ctx context.Context, u domain.User, password strin
 }
 
 // LoginLegacy checks the same credentials as Login but audits under the
-// legacy protocol method and denies users who must use MFA (TECH_SPEC
-// §6.4–6.5: direct bind is rejected when the user must use MFA, since a
-// legacy bind cannot prompt for a second factor). Admins are always
-// MFA-bound (TECH_SPEC §8, no exceptions); with an MFAPolicy wired,
-// regular users are denied too when the target app requires MFA. The
-// global LDAP tree carries no app identity, so its binds keep the
-// admin-only gate.
+// legacy protocol method (TECH_SPEC §6.4–6.5). Legacy protocols carry
+// no second factor, so no MFA gate applies here: admins and
+// MFA-enrolled users authenticate with their password alone, and one
+// account serves both web and legacy logins. The MFA requirement is
+// enforced at web login and app launch instead (TECH_SPEC §8).
 func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.User, error) {
 	if in.Method != domain.MethodLDAP && in.Method != domain.MethodRADIUS {
 		return domain.User{}, fmt.Errorf("%w: legacy login method must be ldap or radius", domain.ErrValidation)
@@ -244,16 +225,6 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 		}
 		return domain.User{}, chk.err
 	}
-	denied, err := s.legacyMFADenied(ctx, chk.user.ID, in.ApplicationID)
-	if err != nil {
-		return domain.User{}, err
-	}
-	if denied {
-		if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultFailure, in.IP, "mfa required"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, ErrMFARequired
-	}
 	if err := s.auditLogin(ctx, actor, in.ApplicationID, in.Method, domain.ResultSuccess, in.IP, ""); err != nil {
 		return domain.User{}, err
 	}
@@ -263,7 +234,7 @@ func (s *Service) LoginLegacy(ctx context.Context, in LegacyLoginInput) (domain.
 
 // ConfirmCachedBind records a legacy bind whose password already verified
 // against a delivery-layer bind cache. It re-checks live account state —
-// existence, active flag, MFA deny — and audits exactly like LoginLegacy;
+// existence and active flag — and audits exactly like LoginLegacy;
 // only the expensive credential check is skipped. Callers must only pass
 // userIDs whose password verified within the cache TTL for a local user
 // (directory users are never cached: no local write marks an upstream
@@ -288,38 +259,10 @@ func (s *Service) ConfirmCachedBind(ctx context.Context, userID uuid.UUID, metho
 		}
 		return domain.User{}, domain.ErrForbidden
 	}
-	denied, err := s.legacyMFADenied(ctx, u.ID, nil)
-	if err != nil {
-		return domain.User{}, err
-	}
-	if denied {
-		if err := s.auditLogin(ctx, &u, nil, method, domain.ResultFailure, ip, "mfa required"); err != nil {
-			return domain.User{}, err
-		}
-		return domain.User{}, ErrMFARequired
-	}
 	if err := s.auditLogin(ctx, &u, nil, method, domain.ResultSuccess, ip, ""); err != nil {
 		return domain.User{}, err
 	}
 	return u, nil
-}
-
-// legacyMFADenied reports whether the legacy bind must be rejected for
-// MFA: admins always; when a policy and an app identity are both
-// present, per-app requirements for regular users too.
-func (s *Service) legacyMFADenied(ctx context.Context, userID uuid.UUID, appID *uuid.UUID) (bool, error) {
-	if s.mfa != nil && appID != nil {
-		required, err := s.mfa.RequiredForApp(ctx, userID, *appID)
-		if err != nil {
-			return false, fmt.Errorf("auth: mfa policy check: %w", err)
-		}
-		return required, nil
-	}
-	admin, err := s.groups.IsMember(ctx, userID, domain.AdminGroup)
-	if err != nil {
-		return false, fmt.Errorf("auth: mfa policy check: %w", err)
-	}
-	return admin, nil
 }
 
 // checkCredentials verifies username/password without auditing: local

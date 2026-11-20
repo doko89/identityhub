@@ -128,7 +128,7 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 	authSvc, err := usecaseauth.New(usecaseauth.Deps{
 		Users: users, Groups: groups, Resets: passwords, History: passwords,
 		Sessions: registry, Audit: audits, Hasher: adaptercrypto.Hasher{},
-		Mailer: nullMailer{}, MFAPolicy: mfaSvc, BaseURL: testIssuer(),
+		Mailer: nullMailer{}, BaseURL: testIssuer(),
 	})
 	if err != nil {
 		t.Fatalf("wire auth: %v", err)

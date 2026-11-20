@@ -297,7 +297,6 @@ func TestRADIUSRejects(t *testing.T) {
 		{"bad password", alice.Username, "wrong-password", "invalid credentials"},
 		{"unknown user", "ghost-" + fx.suffix, "whatever-00000", "invalid credentials"},
 		{"disabled", off.Username, "off-password-00001", "account disabled"},
-		{"admin needs mfa", root.Username, "root-password-0001", "multi-factor"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -310,14 +309,20 @@ func TestRADIUSRejects(t *testing.T) {
 			}
 		})
 	}
+	// Admin with a correct password is accepted: legacy protocols
+	// carry no second factor, so no MFA gate applies here (web login
+	// still requires MFA for admins).
+	if code, _ := accessRequest(t, addr, nasSecret, root.Username, "root-password-0001"); code != radius.CodeAccessAccept {
+		t.Fatalf("admin code = %v, want Access-Accept", code)
+	}
 	entries, _, err := fx.audits.List(context.Background(), domain.AuditFilter{
-		ActorUserID: &root.ID, Method: domain.MethodRADIUS, Result: domain.ResultFailure, Limit: 5,
+		ActorUserID: &root.ID, Method: domain.MethodRADIUS, Result: domain.ResultSuccess, Limit: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Detail["reason"] != "mfa required" {
-		t.Errorf("admin audit = %+v, want one mfa-required failure", entries)
+	if len(entries) != 1 {
+		t.Errorf("admin audit = %+v, want one success", entries)
 	}
 }
 

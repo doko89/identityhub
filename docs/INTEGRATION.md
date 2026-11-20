@@ -260,18 +260,20 @@ App settings:
   `uid`s. Anonymous binds can only read the root DSE; search needs a
   bound user.
 
-Rules that bite: every bind is a real login (password policy, audit,
-deny-when-MFA-required — §4.1). Plaintext mode refuses to boot without
-a whitelist, enforced before any LDAP bytes are parsed.
+Rules that bite: every bind is a real login (password policy,
+audit — §4.1). Plaintext mode refuses to boot without a whitelist,
+enforced before any LDAP bytes are parsed.
 
 ### 4.1 MFA and service accounts
 
-LDAP has no second-factor channel, so binds for users who must use MFA
-are REJECTED — always for `ih_admin` members, plus anyone covered by
-the target app's `mfa_required` flag. Integrate accordingly:
+LDAP has no second-factor channel, so binds are password-only for
+every user including `ih_admin` members — one account serves both web
+and LDAP logins. The per-app `mfa_required` flag is enforced at
+web/app launch, never on binds. Integrate accordingly:
 
-- Human LDAP logins: keep `mfa_required: false` on the LDAP app row and
-  let the app's own session carry the risk (documented tradeoff), or
+- Human LDAP logins: the app's own session carries the risk
+  (documented tradeoff); prefer `ldaps`/`starttls` so passwords never
+  cross the network in clear, or
 - Service accounts: create a dedicated non-admin user per app, give it
   a 20+ char random password, bind only with that DN.
 
@@ -383,9 +385,9 @@ deleting + re-registering:
 - Server: IdP host, port 1812, PAP, shared secret from §5.1.
 - Usernames are IdentityHub usernames; passwords are user passwords.
 - Accept = Access-Accept; wrong password/disabled user = Access-Reject
-  with a `Reply-Message`; MFA-required users (§4.1 rule, admins always)
-  are rejected — give VPN users non-admin accounts or exempt the app
-  from `mfa_required` deliberately.
+  with a `Reply-Message`. RADIUS is password-only (§4.1 rule): admins
+  authenticate with the same account they use on the web, no second
+  account needed.
 - Expect retries, not errors, during IdP maintenance: system failures
   are dropped so the NAS retries; only credential failures reject.
 
