@@ -221,6 +221,46 @@ describe("DashboardPage", () => {
     expect(main?.className).toContain("z-10");
   });
 
+  it("sends page keystrokes to the filter", async () => {
+    stubFetch();
+    const { getByPlaceholderText, getByText, queryByText } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    const input = getByPlaceholderText("Filter applications…") as HTMLInputElement;
+    expect(input.value).toBe("");
+    fireEvent.keyDown(document.body, { key: "c" });
+    fireEvent.keyDown(document.body, { key: "r" });
+    expect(input.value).toBe("cr");
+    expect(document.activeElement).toBe(input);
+    expect(queryByText("Wiki")).toBeNull();
+    expect(getByText("CRM")).toBeDefined();
+  });
+
+  it("does not steal keystrokes from fields, menus, or card keys", async () => {
+    const fetchMock = stubFetch();
+    const { getByPlaceholderText, getByRole, getByText } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("CRM")).toBeDefined());
+    const input = getByPlaceholderText("Filter applications…") as HTMLInputElement;
+    // Typing inside the box itself: no double append.
+    fireEvent.keyDown(input, { key: "x" });
+    expect(input.value).toBe("");
+    // Modifier combos are left alone.
+    fireEvent.keyDown(document.body, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(input.value).toBe("");
+    // Space on a focused card still launches instead of filtering.
+    fireEvent.keyDown(getByRole("button", { name: "Open CRM" }), { key: " " });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/apps/crm/launch"));
+    expect(input.value).toBe("");
+  });
+
   it("hides the default heading unless grouping is meaningful", async () => {
     stubFetch();
     const ungrouped = render(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, ShieldCheck, Star } from "lucide-react";
 import { BrandMark } from "@/features/branding/BrandMark";
@@ -90,6 +90,41 @@ export function DashboardPage() {
   const [apps, setApps] = useState<AppEntry[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
+
+  // Type-to-filter: printable keystrokes anywhere on the page land in
+  // the filter box. Skipped while typing in a field, composing (IME),
+  // using modifiers, navigating an open menu, or when another handler
+  // already claimed the key (card launch on Space).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) {
+        return;
+      }
+      if (e.key.length !== 1) {
+        return;
+      }
+      const el = filterRef.current;
+      if (el === null) {
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      if (t !== null) {
+        const tag = t.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) {
+          return;
+        }
+        if (t.closest('[role="menu"],[role="dialog"]') !== null) {
+          return;
+        }
+      }
+      e.preventDefault();
+      el.focus();
+      setQ((prev) => prev + e.key);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +317,7 @@ export function DashboardPage() {
                 <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <span className="sr-only">Filter applications</span>
                 <input
+                  ref={filterRef}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Filter applications…"
