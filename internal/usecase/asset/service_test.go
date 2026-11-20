@@ -155,6 +155,30 @@ func TestUploadJPEGAndDownscale(t *testing.T) {
 	}
 }
 
+func TestUploadLoginBackgroundKeepsResolution(t *testing.T) {
+	assets := &fakeAssets{byID: map[uuid.UUID]domain.Asset{}}
+	storage := &fakeStorage{objects: map[string][]byte{}}
+	svc, _ := New(Deps{Assets: assets, Storage: storage})
+	ctx := context.Background()
+	a, err := svc.Upload(ctx, nil, domain.AssetLoginBackground, bytes.NewReader(testPNG(t, 1920, 1080)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Width != 1920 || a.Height != 1080 {
+		t.Fatalf("1080p background must pass through, got %dx%d", a.Width, a.Height)
+	}
+	if a.ObjectKey != domain.AssetLoginBackground+"/"+a.ID.String()+".webp" {
+		t.Fatalf("bad object key %q", a.ObjectKey)
+	}
+	big, err := svc.Upload(ctx, nil, domain.AssetLoginBackground, bytes.NewReader(testPNG(t, 2560, 1440)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if big.Width != 1920 || big.Height != 1080 {
+		t.Fatalf("long edge must shrink to 1920, got %dx%d", big.Width, big.Height)
+	}
+}
+
 func TestUploadRejects(t *testing.T) {
 	assets := &fakeAssets{byID: map[uuid.UUID]domain.Asset{}}
 	storage := &fakeStorage{objects: map[string][]byte{}}

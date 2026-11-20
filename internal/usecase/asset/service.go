@@ -24,9 +24,21 @@ const (
 	// MaxUploadBytes is the 10 MB input cap (TECH_SPEC §8). Magic bytes,
 	// not the extension, decide the format.
 	MaxUploadBytes = 10 << 20
-	// MaxDimension caps the long edge; larger images scale down.
+	// MaxDimension caps the long edge for icons (avatar/logo); larger
+	// images scale down.
 	MaxDimension = 512
+	// MaxBackgroundDimension caps the long edge for login_background,
+	// which renders fullscreen (1080p).
+	MaxBackgroundDimension = 1920
 )
+
+// maxDimensionFor returns the long-edge cap for one asset type.
+func maxDimensionFor(assetType string) int {
+	if assetType == domain.AssetLoginBackground {
+		return MaxBackgroundDimension
+	}
+	return MaxDimension
+}
 
 // Service holds the upload rules. All outer details arrive as domain
 // interfaces.
@@ -53,7 +65,7 @@ func New(d Deps) (*Service, error) {
 // <type>/<uuid>.webp. actorID is nil for system uploads.
 func (s *Service) Upload(ctx context.Context, actorID *uuid.UUID, assetType string, r io.Reader) (domain.Asset, error) {
 	switch assetType {
-	case domain.AssetAvatar, domain.AssetAppLogo, domain.AssetSaaSLogo:
+	case domain.AssetAvatar, domain.AssetAppLogo, domain.AssetSaaSLogo, domain.AssetLoginBackground:
 	default:
 		return domain.Asset{}, fmt.Errorf("%w: unknown asset type %q", domain.ErrValidation, assetType)
 	}
@@ -71,7 +83,7 @@ func (s *Service) Upload(ctx context.Context, actorID *uuid.UUID, assetType stri
 	if err != nil {
 		return domain.Asset{}, err
 	}
-	img = fit(img, MaxDimension)
+	img = fit(img, maxDimensionFor(assetType))
 	var buf bytes.Buffer
 	if err := nativewebp.Encode(&buf, img, nil); err != nil {
 		return domain.Asset{}, fmt.Errorf("asset: webp encode: %w", err)

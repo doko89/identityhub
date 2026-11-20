@@ -16,7 +16,8 @@ import (
 const maxUploadFormBytes = (10 << 20) + (64 << 10)
 
 // handleUpload stores one image as webp (TECH_SPEC §6.7). Any signed-in
-// user may upload an avatar; app/SaaS logos are admin-only.
+// user may upload an avatar; app/SaaS logos and login backgrounds are
+// admin-only.
 func (h *Handlers) handleUpload(w http.ResponseWriter, req *http.Request) {
 	u := mustUser(req.Context())
 	if !h.limiter.Allow("upload:user:"+u.ID.String(), UploadPerUserLimit, UploadPerUserWindow) {
@@ -30,7 +31,7 @@ func (h *Handlers) handleUpload(w http.ResponseWriter, req *http.Request) {
 	assetType := strings.TrimSpace(req.FormValue("asset_type"))
 	switch assetType {
 	case domain.AssetAvatar:
-	case domain.AssetAppLogo, domain.AssetSaaSLogo:
+	case domain.AssetAppLogo, domain.AssetSaaSLogo, domain.AssetLoginBackground:
 		member, err := h.groups.IsMember(req.Context(), u.ID, domain.AdminGroup)
 		if err != nil {
 			h.writeError(w, req, err)
@@ -41,7 +42,7 @@ func (h *Handlers) handleUpload(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "asset_type must be avatar, app_logo or saas_logo"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "asset_type must be avatar, app_logo, saas_logo or login_background"})
 		return
 	}
 	file, _, err := req.FormFile("file")
@@ -79,7 +80,7 @@ func (h *Handlers) handleUploadServe(w http.ResponseWriter, req *http.Request) {
 	}
 	typ, file := parts[0], parts[1]
 	switch typ {
-	case domain.AssetAvatar, domain.AssetAppLogo, domain.AssetSaaSLogo:
+	case domain.AssetAvatar, domain.AssetAppLogo, domain.AssetSaaSLogo, domain.AssetLoginBackground:
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return

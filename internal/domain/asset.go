@@ -10,9 +10,10 @@ import (
 
 // Asset types accepted by the upload endpoint (TECH_SPEC §6.7).
 const (
-	AssetAvatar   = "avatar"
-	AssetAppLogo  = "app_logo"
-	AssetSaaSLogo = "saas_logo"
+	AssetAvatar          = "avatar"
+	AssetAppLogo         = "app_logo"
+	AssetSaaSLogo        = "saas_logo"
+	AssetLoginBackground = "login_background"
 )
 
 // Asset is one row of the assets table.

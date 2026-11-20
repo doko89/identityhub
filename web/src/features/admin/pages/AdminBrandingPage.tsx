@@ -287,7 +287,7 @@ export function AdminBrandingPage() {
                   <FieldLabel htmlFor="login-bg-upload">Background image</FieldLabel>
                   <ImageDropzone
                     id="login-bg-upload"
-                    assetType="app_logo"
+                    assetType="login_background"
                     label="Upload login background"
                     hint="JPEG, PNG or WebP, max 10 MB. Drop an image here or click to browse."
                     onUploaded={(url) => set("login_background_url", url)}

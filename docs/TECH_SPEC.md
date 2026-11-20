@@ -136,7 +136,7 @@ mfa_recovery_codes(id, user_id, code_hash UNIQUE, used_at NULLABLE)
 password_reset_tokens(id, user_id, token_hash UNIQUE, expires_at, used_at NULLABLE, created_ip INET)
 password_history(id, user_id, password_hash, created_at)
 webauthn_credentials(id, user_id, credential_id UNIQUE, public_key, sign_count, aaguid, name)
-assets(id UUID, asset_type TEXT, -- 'avatar'|'app_logo'|'saas_logo'
+assets(id UUID, asset_type TEXT, -- 'avatar'|'app_logo'|'saas_logo'|'login_background'
        object_key UNIQUE, byte_size INT, width INT, height INT,
        uploaded_by NULLABLE, created_at)
 branding(id CHECK (id = 1), org_name, logo_url, favicon_url, primary_color,
@@ -213,9 +213,9 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 
 ### 6.7 Asset uploads
 
-- `POST /api/uploads` (multipart: `file` + `asset_type` = `avatar`|`app_logo`|`saas_logo`): users may upload an avatar for their own account; `app_logo`/`saas_logo` are admin-only. Response: public path.
+- `POST /api/uploads` (multipart: `file` + `asset_type` = `avatar`|`app_logo`|`saas_logo`|`login_background`): users may upload an avatar for their own account; `app_logo`/`saas_logo`/`login_background` are admin-only. Response: public path.
 - `GET /uploads/<assetType>/<uuid>.webp` — public read with `Cache-Control: public, max-age=31536000, immutable`.
-- Flow: the frontend converts to webp via the Canvas API first (saves bandwidth + instant preview), then the backend still validates and re-encodes to webp via the library (max 512px long edge, quality 80) — the `.webp` contract is guaranteed by the server, not the client.
+- Flow: the frontend converts to webp via the Canvas API first (saves bandwidth + instant preview), then the backend still validates and re-encodes to webp via the library (max 512px long edge for icons, 1920px for `login_background`, quality 80) — the `.webp` contract is guaranteed by the server, not the client.
 - Validation: jpeg/png/webp input, max 10 MB (check magic bytes, not the extension); random UUID filenames.
 - Storage goes through the `domain.FileStorage` interface (`Put/Get/Delete`) with 2 backends in `adapter/storage`: `local` (filesystem, served by Go/reverse proxy) and `s3` (minio-go, S3-compatible). Selected via env `STORAGE_BACKEND=local|s3` (+ endpoint/bucket/credentials for s3). The S3 backend is nice-to-have, built after local is stable.
 

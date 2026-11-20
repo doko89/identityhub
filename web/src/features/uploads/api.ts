@@ -4,7 +4,7 @@ import { ApiError } from "@/shared/api/client";
 // may upload an avatar; app/SaaS logos are admin-only. The server
 // re-encodes every image to webp and answers its public /uploads/... URL.
 
-export type AssetType = "avatar" | "app_logo" | "saas_logo";
+export type AssetType = "avatar" | "app_logo" | "saas_logo" | "login_background";
 
 // MAX_UPLOAD_BYTES mirrors the backend's 10 MB input cap; the client
 // rejects larger files before any byte leaves the browser.
