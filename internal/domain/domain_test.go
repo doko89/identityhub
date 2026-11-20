@@ -85,6 +85,26 @@ func TestBrandingValidate(t *testing.T) {
 	if err := bad.Validate(); !errors.Is(err, ErrValidation) {
 		t.Errorf("bad theme: err = %v, want ErrValidation", err)
 	}
+	good.DashboardColumns = 3
+	good.DashboardIconShape = IconShapeCircle
+	good.DashboardDensity = DensityCompact
+	good.DashboardBackground = DashboardBGPhoto
+	good.DashboardBackgroundURL = "/uploads/login_background/x.webp"
+	if err := good.Validate(); err != nil {
+		t.Fatalf("dashboard theme: %v", err)
+	}
+	for name, mutate := range map[string]func(*Branding){
+		"columns": func(b *Branding) { b.DashboardColumns = 7 },
+		"shape":   func(b *Branding) { b.DashboardIconShape = "oval" },
+		"density": func(b *Branding) { b.DashboardDensity = "airy" },
+		"bg":      func(b *Branding) { b.DashboardBackground = "video" },
+	} {
+		bad = good
+		mutate(&bad)
+		if err := bad.Validate(); !errors.Is(err, ErrValidation) {
+			t.Errorf("bad dashboard %s: err = %v, want ErrValidation", name, err)
+		}
+	}
 	for _, css := range []string{"a{background:url(http://x/y)}}", "@import 'evil';", "a{}</style><script>"} {
 		bad = good
 		bad.CustomCSS = css

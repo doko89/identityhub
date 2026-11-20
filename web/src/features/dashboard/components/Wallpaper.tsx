@@ -1,11 +1,30 @@
 import { useState } from "react";
+import type { DashboardBackground } from "../theme";
 
-// Dashboard wallpaper: random rounded rectangles as a fixed full-page
-// SVG in the brand primary color at low opacity, so it follows
-// dark/light mode and branding with no extra work. The seed rolls once
-// per visit: a fresh arrangement every load, stable while you stay.
-export function Wallpaper() {
+// Dashboard wallpaper, following the admin background choice: random
+// rounded rectangles as a fixed full-page SVG in the brand primary
+// color at low opacity (the seed rolls once per visit), a plain page,
+// or the uploaded photo under a readability scrim. A photo choice
+// without a photo falls back to the pattern.
+export function Wallpaper({
+  background = "pattern",
+  photoUrl = "",
+}: {
+  background?: DashboardBackground;
+  photoUrl?: string;
+}) {
   const [seed] = useState(() => Math.floor(Math.random() * 2 ** 31));
+  if (background === "plain") {
+    return null;
+  }
+  if (background === "photo" && photoUrl !== "") {
+    return (
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
+        <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-background/60" />
+      </div>
+    );
+  }
   return (
     <div
       aria-hidden="true"

@@ -62,6 +62,11 @@ export function AdminBrandingPage() {
         theme: brand.theme,
         login_background_url: brand.login_background_url,
         custom_css: brand.custom_css,
+        dashboard_columns: brand.dashboard_columns,
+        dashboard_icon_shape: brand.dashboard_icon_shape,
+        dashboard_density: brand.dashboard_density,
+        dashboard_background: brand.dashboard_background,
+        dashboard_background_url: brand.dashboard_background_url,
       };
       const { branding } = await updateBranding(patch);
       setBrand(branding);
@@ -275,6 +280,101 @@ export function AdminBrandingPage() {
                     </Select>
                   </Field>
                 </FieldGroup>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Dashboard</CardTitle>
+                <CardDescription>App grid layout for every user.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field>
+                    <FieldLabel htmlFor="brand-columns">Grid columns</FieldLabel>
+                    <Select
+                      value={String(brand.dashboard_columns || 3)}
+                      onValueChange={(v) => set("dashboard_columns", Number(v))}
+                    >
+                      <SelectTrigger id="brand-columns">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="2">2 columns</SelectItem>
+                        <SelectItem value="3">3 columns</SelectItem>
+                        <SelectItem value="4">4 columns</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="brand-shape">App icon shape</FieldLabel>
+                    <Select
+                      value={brand.dashboard_icon_shape || "rounded"}
+                      onValueChange={(v) => set("dashboard_icon_shape", v)}
+                    >
+                      <SelectTrigger id="brand-shape">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="rounded">Rounded</SelectItem>
+                        <SelectItem value="circle">Circle</SelectItem>
+                        <SelectItem value="square">Square</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="brand-density">Card density</FieldLabel>
+                    <Select
+                      value={brand.dashboard_density || "comfortable"}
+                      onValueChange={(v) => set("dashboard_density", v)}
+                    >
+                      <SelectTrigger id="brand-density">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="comfortable">Comfortable</SelectItem>
+                        <SelectItem value="compact">Compact</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="brand-bg">Background</FieldLabel>
+                    <Select
+                      value={brand.dashboard_background || "pattern"}
+                      onValueChange={(v) => set("dashboard_background", v)}
+                    >
+                      <SelectTrigger id="brand-bg">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pattern">Brand pattern</SelectItem>
+                        <SelectItem value="plain">Plain</SelectItem>
+                        <SelectItem value="photo">Photo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                <Field className="mt-4">
+                  <FieldLabel htmlFor="dashboard-bg-upload">Background photo</FieldLabel>
+                  <ImageDropzone
+                    id="dashboard-bg-upload"
+                    assetType="login_background"
+                    label="Upload dashboard background"
+                    hint="Shown when the background is Photo. JPEG, PNG or WebP, max 10 MB."
+                    onUploaded={(url) => set("dashboard_background_url", url)}
+                  >
+                    {brand.dashboard_background_url !== "" ? (
+                      <img
+                        src={brand.dashboard_background_url}
+                        alt=""
+                        className="h-20 w-48 border object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-48 items-center justify-center border border-dashed text-xs text-muted-foreground">
+                        No background yet
+                      </div>
+                    )}
+                  </ImageDropzone>
+                </Field>
               </CardContent>
             </Card>
             <Card>

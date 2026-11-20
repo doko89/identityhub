@@ -116,13 +116,14 @@ Each application has exactly one primary provider:
 
 - Users only see apps they may access (user/group/policy bindings).
 - Clicking an app SSOs straight in without re-login (while the session lasts).
+- Users pin favorites and see recently used apps above the grouped list.
 - Admins control visibility: no bindings = all users allowed; with bindings = all-or-any evaluation mode.
 - Each app has a name, icon (`app_logo` upload, auto-webp), description, URL, and display group.
 - Third-party SaaS app logos are uploaded separately as the `saas_logo` type.
 
 ### 6.8 Branding and theme (required)
 
-- Global settings with no code changes: org name, logo, favicon, primary color, light/dark mode, login page background.
+- Global settings with no code changes: org name, logo, favicon, primary color, light/dark mode, login page background, dashboard grid (columns, icon shape, density, background).
 - Applied consistently across the login page, user dashboard, and admin console.
 - Logo and favicon are uploaded via the upload endpoint (auto-webp).
 - Saved changes take effect immediately with no redeploy.

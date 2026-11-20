@@ -95,6 +95,7 @@ func setupMFAFixture(t *testing.T) *mfaFixture {
 	}
 	appSvc, err := usecaseapp.New(usecaseapp.Deps{
 		Apps: appRepo, Bindings: bindingRepo, Users: users, Groups: groups,
+		Usage: postgres.NewAppUsageRepository(db),
 	})
 	if err != nil {
 		t.Fatalf("wire app: %v", err)
@@ -661,6 +662,91 @@ func TestDashboardBindingsE2E(t *testing.T) {
 		t.Fatalf("list bindings = %d", code)
 	} else if len(body["bindings"].([]any)) != 1 {
 		t.Fatalf("bindings = %v, want 1", body)
+	}
+}
+
+func TestFavoritesRecentsE2E(t *testing.T) {
+	fx := setupMFAFixture(t)
+	root := fx.mkadmin("fav-root")
+	r := fx.browser()
+	if code, _ := fx.login(r, root.Username); code != 200 {
+		t.Fatalf("admin login = %d", code)
+	}
+	fx.enroll(r) // pending setup -> full MFA'd admin session
+
+	alice := fx.mkuser("fav-alice")
+	a := fx.browser()
+	if code, _ := fx.login(a, alice.Username); code != 200 {
+		t.Fatalf("alice login = %d", code)
+	}
+
+	tag := uuid.NewString()[:8]
+	favSlug, otherSlug := "fav-app-"+tag, "fav-other-"+tag
+	for _, slug := range []string{favSlug, otherSlug} {
+		code, body := doJSON(t, r, http.MethodPost, fx.srv.URL+"/api/admin/apps", map[string]any{
+			"slug": slug, "name": slug, "provider_type": "oidc",
+			"launch_url": "https://" + slug + ".example.com", "is_visible": true,
+		})
+		if code != 201 {
+			t.Fatalf("create app %s = %d (%v)", slug, code, body)
+		}
+	}
+	usage := func(slug string) (bool, any) {
+		t.Helper()
+		code, body := doJSON(t, a, http.MethodGet, fx.srv.URL+"/api/my-apps", nil)
+		if code != 200 {
+			t.Fatalf("my-apps = %d (%v)", code, body)
+		}
+		for _, v := range body["apps"].([]any) {
+			m := v.(map[string]any)
+			if m["slug"] == slug {
+				return m["is_favorite"] == true, m["last_launched_at"]
+			}
+		}
+		t.Fatalf("my-apps missing %s: %v", slug, body)
+		return false, nil
+	}
+
+	if fav, at := usage(favSlug); fav || at != nil {
+		t.Fatalf("fresh app usage = (%v, %v), want (false, nil)", fav, at)
+	}
+	favURL := fx.srv.URL + "/api/my-apps/" + favSlug + "/favorite"
+	if code, _ := doJSON(t, a, http.MethodPut, favURL, nil); code != 204 {
+		t.Fatalf("PUT favorite = %d, want 204", code)
+	}
+	if code, _ := doJSON(t, a, http.MethodPut, favURL, nil); code != 204 {
+		t.Fatalf("re-pin = %d, want idempotent 204", code)
+	}
+	if fav, _ := usage(favSlug); !fav {
+		t.Fatal("pinned app must report is_favorite")
+	}
+	if code, _ := doJSON(t, a, http.MethodGet, fx.srv.URL+"/api/apps/"+favSlug+"/launch", nil); code != 200 {
+		t.Fatalf("launch = %d, want 200", code)
+	}
+	if _, at := usage(favSlug); at == nil {
+		t.Fatal("launched app must report last_launched_at")
+	} else if _, err := time.Parse(time.RFC3339, at.(string)); err != nil {
+		t.Fatalf("last_launched_at = %q, want RFC3339", at)
+	}
+	// Favorites are per-user: the admin sees a clean slate.
+	code, body := doJSON(t, r, http.MethodGet, fx.srv.URL+"/api/my-apps", nil)
+	if code != 200 {
+		t.Fatalf("admin my-apps = %d", code)
+	}
+	for _, v := range body["apps"].([]any) {
+		if m := v.(map[string]any); m["slug"] == favSlug && m["is_favorite"] == true {
+			t.Fatal("alice's pin must not leak to the admin")
+		}
+	}
+	if code, _ := doJSON(t, a, http.MethodDelete, favURL, nil); code != 204 {
+		t.Fatalf("DELETE favorite = %d, want 204", code)
+	}
+	if fav, _ := usage(favSlug); fav {
+		t.Fatal("unpinned app must clear is_favorite")
+	}
+	// Unknown slugs answer 404 like launch (no existence oracle).
+	if code, _ := doJSON(t, a, http.MethodPut, fx.srv.URL+"/api/my-apps/fav-nope-"+tag+"/favorite", nil); code != 404 {
+		t.Fatalf("PUT favorite missing = %d, want 404", code)
 	}
 }
 

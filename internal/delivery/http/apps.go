@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -22,8 +23,22 @@ func appJSON(a domain.Application) map[string]any {
 	}
 }
 
+// myAppJSON renders one dashboard app: the catalog fields plus the
+// caller's favorite flag and last-launch timestamp (nil = never opened).
+func myAppJSON(a domain.Application, isFavorite bool, launchedAt *time.Time) map[string]any {
+	m := appJSON(a)
+	m["is_favorite"] = isFavorite
+	if launchedAt == nil {
+		m["last_launched_at"] = nil
+	} else {
+		m["last_launched_at"] = launchedAt.UTC().Format(time.RFC3339)
+	}
+	return m
+}
+
 // handleMyApps returns the session user's dashboard: visible apps whose
-// bindings admit them (PRD §6.7).
+// bindings admit them (PRD §6.7), each with its favorite flag and
+// last-launch timestamp for the favorites/recents rows.
 func (h *Handlers) handleMyApps(w http.ResponseWriter, req *http.Request) {
 	u := mustUser(req.Context())
 	apps, err := h.apps.MyApps(req.Context(), u.ID)
@@ -31,11 +46,41 @@ func (h *Handlers) handleMyApps(w http.ResponseWriter, req *http.Request) {
 		h.writeError(w, req, err)
 		return
 	}
+	favs, launched, err := h.apps.AppUsage(req.Context(), u.ID)
+	if err != nil {
+		h.writeError(w, req, err)
+		return
+	}
 	out := make([]any, 0, len(apps))
 	for _, a := range apps {
-		out = append(out, appJSON(a))
+		var at *time.Time
+		if t, ok := launched[a.ID]; ok {
+			at = &t
+		}
+		out = append(out, myAppJSON(a, favs[a.ID], at))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"apps": out})
+}
+
+// handleFavorite pins an app to the session user's dashboard (idempotent).
+func (h *Handlers) handleFavorite(w http.ResponseWriter, req *http.Request) {
+	u := mustUser(req.Context())
+	if err := h.apps.SetFavorite(req.Context(), u.ID, req.PathValue("slug"), true); err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUnfavorite unpins an app from the session user's dashboard
+// (idempotent).
+func (h *Handlers) handleUnfavorite(w http.ResponseWriter, req *http.Request) {
+	u := mustUser(req.Context())
+	if err := h.apps.SetFavorite(req.Context(), u.ID, req.PathValue("slug"), false); err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleLaunch resolves an app for SSO start. When the app's MFA policy
@@ -67,6 +112,10 @@ func (h *Handlers) handleLaunch(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
+	}
+	// Best effort: the recents row must never break a launch.
+	if err := h.apps.RecordLaunch(req.Context(), u.ID, a.ID); err != nil {
+		h.log.Error("record launch failed", "error", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"app": appJSON(a), "launch_url": a.LaunchURL})
 }

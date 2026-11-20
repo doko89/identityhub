@@ -20,6 +20,11 @@ const brand: Branding = {
   theme: "light",
   login_background_url: "",
   custom_css: "",
+  dashboard_columns: 3,
+  dashboard_icon_shape: "rounded",
+  dashboard_density: "comfortable",
+  dashboard_background: "pattern",
+  dashboard_background_url: "",
 };
 
 function shell(children: ReactNode): ReactNode {
@@ -66,6 +71,35 @@ describe("AdminBrandingPage", () => {
       org_name: "Globex",
       tagline: "Globex apps, one sign-in.",
       theme: "light",
+    });
+  });
+
+  it("shows the dashboard theme controls and saves them", async () => {
+    let patched: unknown = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          patched = JSON.parse(String(init.body)) as unknown;
+          return Response.json({ branding: brand });
+        }
+        return Response.json({ branding: brand });
+      }),
+    );
+    const { getByLabelText, getByRole, getByText } = render(shell(<AdminBrandingPage />));
+    await waitFor(() => expect(getByLabelText("Grid columns")).toBeDefined());
+    expect(getByLabelText("App icon shape")).toBeDefined();
+    expect(getByLabelText("Card density")).toBeDefined();
+    expect(getByLabelText("Background")).toBeDefined();
+    expect(getByLabelText("Background photo")).toBeDefined();
+    fireEvent.click(getByRole("button", { name: "Save branding" }));
+    await waitFor(() => expect(getByText("Saved. The new theme is live.")).toBeDefined());
+    expect(patched).toMatchObject({
+      dashboard_columns: 3,
+      dashboard_icon_shape: "rounded",
+      dashboard_density: "comfortable",
+      dashboard_background: "pattern",
+      dashboard_background_url: "",
     });
   });
 

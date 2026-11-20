@@ -170,8 +170,9 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - `POST /api/auth/password/forgot` — request a reset link; always a generic success response (anti account-enumeration).
 - `POST /api/auth/password/reset` — token + new password; single-use token, 15-minute TTL.
 - `POST /api/admin/users/:id/password` — admin sets a local user's password; LDAP users rejected explicitly; recorded in audit.
-- `GET /api/my-apps` — the user's app dashboard (only passing bindings).
-- `GET /api/apps/:slug/launch` — start SSO into an app (IdP-initiated).
+- `GET /api/my-apps` — the user's app dashboard (only passing bindings); each app carries `is_favorite` + `last_launched_at` for the favorites/recents rows.
+- `PUT|DELETE /api/my-apps/:slug/favorite` — pin/unpin a dashboard app (same visibility rules as launch).
+- `GET /api/apps/:slug/launch` — start SSO into an app (IdP-initiated); successful opens stamp the recents row.
 - `/api/account/mfa/*` — TOTP enroll/disable, regenerate recovery codes (re-auth with the old factor required to change factors).
 - `/api/admin/*` — user/group/app/provider CRUD, branding, audit; requires `ih_admin` membership + MFA.
 - `GET|POST /api/admin/user-attrs`, `DELETE /api/admin/user-attrs/:key` — attribute schema CRUD (def deletion cascades values).
@@ -222,7 +223,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 ## 7. Branding/Theme
 
 - The single `branding(id=1)` row is read once per request (in-memory cache + invalidation on admin update).
-- The frontend fetches the brand via `GET /api/branding`; `features/branding` applies it as shadcn CSS variables (`--primary`, `--background`, ...) + the `light|dark|system` theme class, plus the org logo and name.
+- The frontend fetches the brand via `GET /api/branding`; `features/branding` applies it as shadcn CSS variables (`--primary`, `--background`, ...) + the `light|dark|system` theme class, plus the org logo and name. The row also carries the admin dashboard theme (`dashboard_columns` 2-4, `dashboard_icon_shape`, `dashboard_density`, `dashboard_background` + photo URL); the user may override columns/density per device (localStorage).
 - `custom_css` is sanitized server-side (blocks `@import`, `url(`, `</style>`); max 10 KB.
 
 ## 8. Security (concise, binding)

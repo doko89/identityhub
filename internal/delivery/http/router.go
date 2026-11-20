@@ -151,6 +151,8 @@ func (h *Handlers) mountMFA(r *chi.Mux) {
 func (h *Handlers) mountApps(r *chi.Mux) {
 	if h.apps != nil {
 		r.With(h.requireUser).Get("/api/my-apps", h.handleMyApps)
+		r.With(h.requireUser).Put("/api/my-apps/{slug}/favorite", h.handleFavorite)
+		r.With(h.requireUser).Delete("/api/my-apps/{slug}/favorite", h.handleUnfavorite)
 		r.With(h.requireUser).Get("/api/apps/{slug}/launch", h.handleLaunch)
 	}
 	if h.assets != nil && h.storage != nil {

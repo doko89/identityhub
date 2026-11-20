@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -131,4 +132,15 @@ type ApplicationStore interface {
 	List(ctx context.Context, f AppFilter) ([]Application, int, error)
 	Update(ctx context.Context, a Application) (Application, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// AppUsageStore is the port for per-user dashboard state (PRD §6.7):
+// pinned favorites and last-launch timestamps for the recents row.
+// Add/Remove are idempotent; RecordLaunch upserts one row per user/app.
+type AppUsageStore interface {
+	AddFavorite(ctx context.Context, userID, appID uuid.UUID) error
+	RemoveFavorite(ctx context.Context, userID, appID uuid.UUID) error
+	Favorites(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]bool, error)
+	RecordLaunch(ctx context.Context, userID, appID uuid.UUID) error
+	LastLaunched(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error)
 }

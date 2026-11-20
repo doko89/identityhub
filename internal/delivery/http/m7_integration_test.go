@@ -67,7 +67,8 @@ func TestBrandingPublicGet(t *testing.T) {
 		t.Fatalf("Cache-Control = %q, want no-store", hdr.Get("Cache-Control"))
 	}
 	brand, _ := body["branding"].(map[string]any)
-	for _, k := range []string{"org_name", "logo_url", "favicon_url", "primary_color", "theme", "login_background_url", "custom_css"} {
+	for _, k := range []string{"org_name", "logo_url", "favicon_url", "primary_color", "theme", "login_background_url", "custom_css",
+		"dashboard_columns", "dashboard_icon_shape", "dashboard_density", "dashboard_background", "dashboard_background_url"} {
 		if _, ok := brand[k]; !ok {
 			t.Fatalf("branding missing key %q: %v", k, body)
 		}

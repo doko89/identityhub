@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -22,6 +23,7 @@ type Service struct {
 	bindings domain.BindingStore
 	users    domain.UserStore
 	groups   domain.GroupStore
+	usage    domain.AppUsageStore
 }
 
 // Deps wires a Service. All stores are required.
@@ -30,14 +32,15 @@ type Deps struct {
 	Bindings domain.BindingStore
 	Users    domain.UserStore
 	Groups   domain.GroupStore
+	Usage    domain.AppUsageStore
 }
 
 // New validates Deps and builds a Service.
 func New(d Deps) (*Service, error) {
-	if d.Apps == nil || d.Bindings == nil || d.Users == nil || d.Groups == nil {
-		return nil, errors.New("app: Apps, Bindings, Users and Groups are required")
+	if d.Apps == nil || d.Bindings == nil || d.Users == nil || d.Groups == nil || d.Usage == nil {
+		return nil, errors.New("app: Apps, Bindings, Users, Groups and Usage are required")
 	}
-	return &Service{apps: d.Apps, bindings: d.Bindings, users: d.Users, groups: d.Groups}, nil
+	return &Service{apps: d.Apps, bindings: d.Bindings, users: d.Users, groups: d.Groups, usage: d.Usage}, nil
 }
 
 // MyApps returns the dashboard list: visible apps the user may access,
@@ -77,28 +80,72 @@ func (s *Service) MyApps(ctx context.Context, userID uuid.UUID) ([]domain.Applic
 // /saml/sso?sp=<entityID>); empty means the admin has not configured one
 // yet and the client shows the app without a launch button.
 func (s *Service) Launch(ctx context.Context, userID uuid.UUID, slug string) (domain.Application, error) {
+	_, a, err := s.resolveForUser(ctx, userID, slug)
+	return a, err
+}
+
+// resolveForUser enforces the dashboard visibility rules shared by
+// Launch and SetFavorite: the user must be active, the slug must exist
+// and be visible, and the bindings must admit them. Invisible and
+// unknown slugs answer 404 alike so the endpoint is not an oracle.
+func (s *Service) resolveForUser(ctx context.Context, userID uuid.UUID, slug string) (domain.User, domain.Application, error) {
 	u, err := s.users.ByID(ctx, userID)
 	if err != nil {
-		return domain.Application{}, err
+		return domain.User{}, domain.Application{}, err
 	}
 	if !u.IsActive {
-		return domain.Application{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
+		return domain.User{}, domain.Application{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
 	}
 	a, err := s.apps.BySlug(ctx, strings.TrimSpace(slug))
 	if err != nil {
-		return domain.Application{}, err
+		return domain.User{}, domain.Application{}, err
 	}
 	if !a.IsVisible {
-		return domain.Application{}, domain.ErrNotFound
+		return domain.User{}, domain.Application{}, domain.ErrNotFound
 	}
 	ok, err := s.CanAccess(ctx, u, a.ID)
 	if err != nil {
-		return domain.Application{}, err
+		return domain.User{}, domain.Application{}, err
 	}
 	if !ok {
-		return domain.Application{}, fmt.Errorf("%w: no access to this application", domain.ErrForbidden)
+		return domain.User{}, domain.Application{}, fmt.Errorf("%w: no access to this application", domain.ErrForbidden)
 	}
-	return a, nil
+	return u, a, nil
+}
+
+// SetFavorite pins or unpins an app for a user (idempotent). The same
+// visibility rules as Launch apply.
+func (s *Service) SetFavorite(ctx context.Context, userID uuid.UUID, slug string, on bool) error {
+	u, a, err := s.resolveForUser(ctx, userID, slug)
+	if err != nil {
+		return err
+	}
+	if on {
+		return s.usage.AddFavorite(ctx, u.ID, a.ID)
+	}
+	return s.usage.RemoveFavorite(ctx, u.ID, a.ID)
+}
+
+// AppUsage returns the user's favorites and last-launch timestamps for
+// the dashboard. The caller (GET /api/my-apps) has already verified the
+// account through MyApps.
+func (s *Service) AppUsage(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]bool, map[uuid.UUID]time.Time, error) {
+	favs, err := s.usage.Favorites(ctx, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("app: favorites: %w", err)
+	}
+	launched, err := s.usage.LastLaunched(ctx, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("app: last launched: %w", err)
+	}
+	return favs, launched, nil
+}
+
+// RecordLaunch stamps a successful app open for the recents row. The
+// handler calls it after the MFA step-up passes; a failure is logged by
+// the caller and never fails the launch itself.
+func (s *Service) RecordLaunch(ctx context.Context, userID, appID uuid.UUID) error {
+	return s.usage.RecordLaunch(ctx, userID, appID)
 }
 
 // CanAccess evaluates an app's bindings for a user (PRD §6.7): no

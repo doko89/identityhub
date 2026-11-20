@@ -7,21 +7,23 @@ afterEach(() => {
 });
 
 describe("Wallpaper", () => {
-  it("renders sixteen rounded rectangles", () => {
+  it("renders the brand pattern by default", () => {
     const { container } = render(<Wallpaper />);
-    const rects = container.querySelectorAll("rect");
-    expect(rects.length).toBe(16);
-    for (const r of rects) {
-      expect(r.getAttribute("fill")).toBe("currentColor");
-      expect(Number(r.getAttribute("rx"))).toBeGreaterThan(0);
-    }
+    expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  it("stays behind content and out of the way", () => {
-    const { container } = render(<Wallpaper />);
-    const wrap = container.firstElementChild;
-    expect(wrap?.getAttribute("aria-hidden")).toBe("true");
-    expect(wrap?.className).toContain("pointer-events-none");
-    expect(wrap?.className).toContain("fixed");
+  it("renders nothing for a plain background", () => {
+    const { container } = render(<Wallpaper background="plain" />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders the photo with a scrim, falling back without a URL", () => {
+    const photo = render(<Wallpaper background="photo" photoUrl="/uploads/bg.webp" />);
+    const img = photo.container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("/uploads/bg.webp");
+    expect(photo.container.querySelector(".bg-background\\/60")).not.toBeNull();
+    photo.unmount();
+    const fallback = render(<Wallpaper background="photo" />);
+    expect(fallback.container.querySelector("svg")).not.toBeNull();
   });
 });

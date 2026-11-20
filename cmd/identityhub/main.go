@@ -197,6 +197,7 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 
 	appSvc, err := usecaseapp.New(usecaseapp.Deps{
 		Apps: appRepo, Bindings: bindingRepo, Users: users, Groups: groups,
+		Usage: postgres.NewAppUsageRepository(db),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire app: %w", err)

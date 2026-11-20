@@ -15,14 +15,17 @@ type BrandingRepository struct {
 // NewBrandingRepository wires a BrandingStore on the shared pool.
 func NewBrandingRepository(db *DB) *BrandingRepository { return &BrandingRepository{db: db} }
 
-const brandingColumns = `id, org_name, tagline, logo_url, favicon_url, primary_color, theme, login_background_url, custom_css`
+const brandingColumns = `id, org_name, tagline, logo_url, favicon_url, primary_color, theme, login_background_url, custom_css,
+	dashboard_columns, dashboard_icon_shape, dashboard_density, dashboard_background, dashboard_background_url`
 
 // Get loads the singleton branding row.
 func (r *BrandingRepository) Get(ctx context.Context) (domain.Branding, error) {
 	const q = `SELECT ` + brandingColumns + ` FROM branding WHERE id = 1`
 	var b domain.Branding
 	err := r.db.Pool.QueryRow(ctx, q).Scan(&b.ID, &b.OrgName, &b.Tagline, &b.LogoURL,
-		&b.FaviconURL, &b.PrimaryColor, &b.Theme, &b.LoginBackgroundURL, &b.CustomCSS)
+		&b.FaviconURL, &b.PrimaryColor, &b.Theme, &b.LoginBackgroundURL, &b.CustomCSS,
+		&b.DashboardColumns, &b.DashboardIconShape, &b.DashboardDensity, &b.DashboardBackground,
+		&b.DashboardBackgroundURL)
 	if err != nil {
 		return domain.Branding{}, mapReadError(err)
 	}
@@ -30,20 +33,26 @@ func (r *BrandingRepository) Get(ctx context.Context) (domain.Branding, error) {
 }
 
 // Update rewrites the singleton row. Validation (hex colors, known themes,
-// custom_css safety rules) runs before the write so bad input never lands.
+// dashboard theme enums, custom_css safety rules) runs before the write so
+// bad input never lands.
 func (r *BrandingRepository) Update(ctx context.Context, b domain.Branding) (domain.Branding, error) {
 	b.ID = domain.BrandingID
 	if err := b.Validate(); err != nil {
 		return domain.Branding{}, err
 	}
 	const q = `UPDATE branding SET org_name = $1, tagline = $2, logo_url = $3, favicon_url = $4,
-		primary_color = $5, theme = $6, login_background_url = $7, custom_css = $8
+		primary_color = $5, theme = $6, login_background_url = $7, custom_css = $8,
+		dashboard_columns = $9, dashboard_icon_shape = $10, dashboard_density = $11,
+		dashboard_background = $12, dashboard_background_url = $13
 		WHERE id = 1 RETURNING ` + brandingColumns
 	var out domain.Branding
 	err := r.db.Pool.QueryRow(ctx, q, b.OrgName, b.Tagline, b.LogoURL, b.FaviconURL,
-		b.PrimaryColor, b.Theme, b.LoginBackgroundURL, b.CustomCSS).Scan(&out.ID, &out.OrgName,
+		b.PrimaryColor, b.Theme, b.LoginBackgroundURL, b.CustomCSS,
+		b.DashboardColumns, b.DashboardIconShape, b.DashboardDensity, b.DashboardBackground,
+		b.DashboardBackgroundURL).Scan(&out.ID, &out.OrgName,
 		&out.Tagline, &out.LogoURL, &out.FaviconURL, &out.PrimaryColor, &out.Theme,
-		&out.LoginBackgroundURL, &out.CustomCSS)
+		&out.LoginBackgroundURL, &out.CustomCSS, &out.DashboardColumns, &out.DashboardIconShape,
+		&out.DashboardDensity, &out.DashboardBackground, &out.DashboardBackgroundURL)
 	if err != nil {
 		return domain.Branding{}, mapWriteError(err)
 	}

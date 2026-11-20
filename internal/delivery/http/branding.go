@@ -15,6 +15,9 @@ func brandingJSON(b domain.Branding) map[string]any {
 		"org_name": b.OrgName, "tagline": b.Tagline, "logo_url": b.LogoURL,
 		"favicon_url": b.FaviconURL, "primary_color": b.PrimaryColor, "theme": b.Theme,
 		"login_background_url": b.LoginBackgroundURL, "custom_css": b.CustomCSS,
+		"dashboard_columns": b.DashboardColumns, "dashboard_icon_shape": b.DashboardIconShape,
+		"dashboard_density": b.DashboardDensity, "dashboard_background": b.DashboardBackground,
+		"dashboard_background_url": b.DashboardBackgroundURL,
 	}
 }
 
@@ -33,14 +36,19 @@ func (h *Handlers) handleGetBranding(w http.ResponseWriter, req *http.Request) {
 }
 
 type adminBrandingRequest struct {
-	OrgName            *string `json:"org_name"`
-	Tagline            *string `json:"tagline"`
-	LogoURL            *string `json:"logo_url"`
-	FaviconURL         *string `json:"favicon_url"`
-	PrimaryColor       *string `json:"primary_color"`
-	Theme              *string `json:"theme"`
-	LoginBackgroundURL *string `json:"login_background_url"`
-	CustomCSS          *string `json:"custom_css"`
+	OrgName                *string `json:"org_name"`
+	Tagline                *string `json:"tagline"`
+	LogoURL                *string `json:"logo_url"`
+	FaviconURL             *string `json:"favicon_url"`
+	PrimaryColor           *string `json:"primary_color"`
+	Theme                  *string `json:"theme"`
+	LoginBackgroundURL     *string `json:"login_background_url"`
+	CustomCSS              *string `json:"custom_css"`
+	DashboardColumns       *int    `json:"dashboard_columns"`
+	DashboardIconShape     *string `json:"dashboard_icon_shape"`
+	DashboardDensity       *string `json:"dashboard_density"`
+	DashboardBackground    *string `json:"dashboard_background"`
+	DashboardBackgroundURL *string `json:"dashboard_background_url"`
 }
 
 // handleAdminUpdateBranding rewrites the singleton row. Only keys present
@@ -80,6 +88,21 @@ func (h *Handlers) handleAdminUpdateBranding(w http.ResponseWriter, req *http.Re
 	}
 	if in.CustomCSS != nil {
 		next.CustomCSS = *in.CustomCSS
+	}
+	if in.DashboardColumns != nil {
+		next.DashboardColumns = *in.DashboardColumns
+	}
+	if in.DashboardIconShape != nil {
+		next.DashboardIconShape = *in.DashboardIconShape
+	}
+	if in.DashboardDensity != nil {
+		next.DashboardDensity = *in.DashboardDensity
+	}
+	if in.DashboardBackground != nil {
+		next.DashboardBackground = *in.DashboardBackground
+	}
+	if in.DashboardBackgroundURL != nil {
+		next.DashboardBackgroundURL = *in.DashboardBackgroundURL
 	}
 	updated, err := h.branding.Update(req.Context(), mustUser(req.Context()).ID, next)
 	if err != nil {

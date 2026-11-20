@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -190,6 +191,58 @@ func (f *fakeGroups) IsMember(_ context.Context, id uuid.UUID, name string) (boo
 	return f.members[name][id], nil
 }
 
+type fakeUsage struct {
+	favs     map[uuid.UUID]map[uuid.UUID]bool
+	launched map[uuid.UUID]map[uuid.UUID]time.Time
+	now      time.Time
+}
+
+func newFakeUsage() *fakeUsage {
+	return &fakeUsage{
+		favs:     map[uuid.UUID]map[uuid.UUID]bool{},
+		launched: map[uuid.UUID]map[uuid.UUID]time.Time{},
+		now:      time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+func (f *fakeUsage) AddFavorite(_ context.Context, userID, appID uuid.UUID) error {
+	m, ok := f.favs[userID]
+	if !ok {
+		m = map[uuid.UUID]bool{}
+		f.favs[userID] = m
+	}
+	m[appID] = true
+	return nil
+}
+func (f *fakeUsage) RemoveFavorite(_ context.Context, userID, appID uuid.UUID) error {
+	delete(f.favs[userID], appID)
+	return nil
+}
+func (f *fakeUsage) Favorites(_ context.Context, userID uuid.UUID) (map[uuid.UUID]bool, error) {
+	out := map[uuid.UUID]bool{}
+	for id := range f.favs[userID] {
+		out[id] = true
+	}
+	return out, nil
+}
+func (f *fakeUsage) RecordLaunch(_ context.Context, userID, appID uuid.UUID) error {
+	m, ok := f.launched[userID]
+	if !ok {
+		m = map[uuid.UUID]time.Time{}
+		f.launched[userID] = m
+	}
+	m[appID] = f.now
+	f.now = f.now.Add(time.Minute)
+	return nil
+}
+func (f *fakeUsage) LastLaunched(_ context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	out := map[uuid.UUID]time.Time{}
+	for id, at := range f.launched[userID] {
+		out[id] = at
+	}
+	return out, nil
+}
+
 func newTestService() (*Service, *fakeApps, *fakeBindings, *fakeUsers, *fakeGroups, domain.User, domain.Group) {
 	u := domain.User{ID: uuid.New(), Username: "alice", Email: "alice@example.com", IsActive: true}
 	g := domain.Group{ID: uuid.New(), Name: "engineering"}
@@ -200,6 +253,7 @@ func newTestService() (*Service, *fakeApps, *fakeBindings, *fakeUsers, *fakeGrou
 		Bindings: &fakeBindings{byApp: map[uuid.UUID][]domain.AppBinding{}},
 		Users:    users,
 		Groups:   groups,
+		Usage:    newFakeUsage(),
 	})
 	if err != nil {
 		panic(err)
@@ -366,6 +420,94 @@ func TestMyAppsFiltersInvisibleAndDenied(t *testing.T) {
 	}
 	if _, err := svc.Launch(ctx, u.ID, "missing"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing app must be not-found, got %v", err)
+	}
+}
+
+func TestSetFavorite(t *testing.T) {
+	svc, _, _, _, _, u, _ := newTestService()
+	ctx := context.Background()
+	open, err := svc.CreateApp(ctx, mkapp("open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "open", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "open", true); err != nil {
+		t.Fatalf("re-pin must be idempotent: %v", err)
+	}
+	favs, _, err := svc.AppUsage(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !favs[open.ID] {
+		t.Fatal("pinned app must appear in favorites")
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "open", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "open", false); err != nil {
+		t.Fatalf("re-unpin must be idempotent: %v", err)
+	}
+	favs, _, err = svc.AppUsage(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if favs[open.ID] {
+		t.Fatal("unpinned app must leave favorites")
+	}
+}
+
+func TestSetFavoriteMirrorsLaunchVisibility(t *testing.T) {
+	svc, _, _, users, _, u, _ := newTestService()
+	ctx := context.Background()
+	hidden := mkapp("hidden")
+	hidden.IsVisible = false
+	if _, err := svc.CreateApp(ctx, hidden); err != nil {
+		t.Fatal(err)
+	}
+	locked, _ := svc.CreateApp(ctx, mkapp("locked"))
+	stranger := uuid.New()
+	users.byID[stranger] = domain.User{ID: stranger, Username: "z", IsActive: true}
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: locked.ID, BindingType: domain.BindingUser, UserID: &stranger,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "missing", true); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("missing app must be not-found, got %v", err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "hidden", true); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("invisible app must be not-found, got %v", err)
+	}
+	if err := svc.SetFavorite(ctx, u.ID, "locked", true); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("denied app must be forbidden, got %v", err)
+	}
+}
+
+func TestRecordLaunchTracksRecents(t *testing.T) {
+	svc, _, _, _, _, u, _ := newTestService()
+	ctx := context.Background()
+	a, _ := svc.CreateApp(ctx, mkapp("a"))
+	b, _ := svc.CreateApp(ctx, mkapp("b"))
+	if err := svc.RecordLaunch(ctx, u.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordLaunch(ctx, u.ID, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordLaunch(ctx, u.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, launched, err := svc.AppUsage(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(launched) != 2 {
+		t.Fatalf("one row per app expected, got %d", len(launched))
+	}
+	if !launched[a.ID].After(launched[b.ID]) {
+		t.Fatal("re-launch must move the app to the front")
 	}
 }
 

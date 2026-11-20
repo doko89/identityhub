@@ -21,6 +21,11 @@ const brand: Branding = {
   theme: "light",
   login_background_url: "",
   custom_css: "",
+  dashboard_columns: 3,
+  dashboard_icon_shape: "rounded",
+  dashboard_density: "comfortable",
+  dashboard_background: "pattern",
+  dashboard_background_url: "",
 };
 
 describe("AuthBrandHeader", () => {
