@@ -201,7 +201,10 @@ func TestEvaluateCarriesCustomAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	want := map[string][]string{"dept": {"eng"}, "tags": {"a", "b"}}
+	want := map[string][]string{
+		"dept": {"eng"}, "tags": {"a", "b"},
+		"display_name": {"Alice"}, "is_admin": {"false"},
+	}
 	if !reflect.DeepEqual(d.Attributes, want) {
 		t.Fatalf("Attributes = %v, want %v", d.Attributes, want)
 	}
@@ -289,4 +292,65 @@ func TestEvaluateEnforcesBindings(t *testing.T) {
 		t.Fatalf("allowed binding must pass: %v", err)
 	}
 	_ = svc
+}
+
+func TestEvaluatePhpIPAMCompatAttributes(t *testing.T) {
+	ctx := context.Background()
+	t.Run("it member gets display_name and is_admin true", func(t *testing.T) {
+		svc, sps, _ := testService()
+		it, err := New(Deps{SPs: sps, Groups: &fakeGroups{names: []string{"users", "it"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = svc
+		d, err := it.Evaluate(ctx, testUser(), testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if got := d.Attributes["display_name"]; len(got) != 1 || got[0] != "Alice" {
+			t.Fatalf("display_name = %v, want [Alice]", got)
+		}
+		if got := d.Attributes["is_admin"]; len(got) != 1 || got[0] != "true" {
+			t.Fatalf("is_admin = %v, want [true]", got)
+		}
+	})
+	t.Run("non-it member gets is_admin false", func(t *testing.T) {
+		svc, _, _ := testService()
+		d, err := svc.Evaluate(ctx, testUser(), testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if got := d.Attributes["is_admin"]; len(got) != 1 || got[0] != "false" {
+			t.Fatalf("is_admin = %v, want [false]", got)
+		}
+	})
+	t.Run("explicit custom attributes win over computed defaults", func(t *testing.T) {
+		svc, sps, groups := testService()
+		u := testUser()
+		attrs := &fakeAttrs{
+			defs: []domain.UserAttrDef{
+				{Key: "display_name", Type: domain.UserAttrString},
+				{Key: "is_admin", Type: domain.UserAttrString},
+			},
+			values: map[uuid.UUID]map[string][]string{
+				u.ID: {"display_name": {"Custom Name"}, "is_admin": {"false"}},
+			},
+		}
+		_ = svc
+		svc2, err := New(Deps{SPs: sps, Groups: &fakeGroups{names: []string{"it"}}, Attrs: attrs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = groups
+		d, err := svc2.Evaluate(ctx, u, testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if got := d.Attributes["display_name"]; len(got) != 1 || got[0] != "Custom Name" {
+			t.Fatalf("display_name = %v, want [Custom Name]", got)
+		}
+		if got := d.Attributes["is_admin"]; len(got) != 1 || got[0] != "false" {
+			t.Fatalf("is_admin = %v, want [false]", got)
+		}
+	})
 }

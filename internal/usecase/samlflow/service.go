@@ -91,6 +91,27 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAM
 	if err != nil {
 		return domain.SAMLDecision{}, err
 	}
+	// phpIPAM compatibility attributes. phpIPAM's SAML JIT requires
+	// display_name (underscore) and derives the Administrator role from
+	// is_admin, mirroring the Authentik mapping (it-membership).
+	// Explicit per-user custom attributes take precedence over these
+	// computed defaults.
+	if custom == nil {
+		custom = map[string][]string{}
+	}
+	if _, ok := custom["display_name"]; !ok {
+		custom["display_name"] = []string{user.DisplayName}
+	}
+	if _, ok := custom["is_admin"]; !ok {
+		admin := "false"
+		for _, g := range names {
+			if g == "it" {
+				admin = "true"
+				break
+			}
+		}
+		custom["is_admin"] = []string{admin}
+	}
 	return domain.SAMLDecision{
 		NameID:      user.Username,
 		Email:       user.Email,
