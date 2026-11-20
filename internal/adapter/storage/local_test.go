@@ -45,6 +45,23 @@ func TestLocalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLocalAcceptsAllAssetTypes(t *testing.T) {
+	l, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, typ := range []string{"avatar", "app_logo", "saas_logo", "login_background"} {
+		key := typ + "/123e4567-e89b-12d3-a456-426614174000.webp"
+		if err := l.Put(ctx, key, strings.NewReader("x"), 1, "image/webp"); err != nil {
+			t.Fatalf("Put(%q) must succeed: %v", key, err)
+		}
+		if err := l.Delete(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestLocalRejectsBadKeys(t *testing.T) {
 	root := t.TempDir()
 	l, err := NewLocal(root)

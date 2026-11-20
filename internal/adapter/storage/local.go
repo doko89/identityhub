@@ -118,7 +118,7 @@ func splitKey(key string) (keyParts, error) {
 	}
 	typ, file := parts[0], parts[1]
 	switch typ {
-	case "avatar", "app_logo", "saas_logo":
+	case "avatar", "app_logo", "saas_logo", "login_background":
 	default:
 		return keyParts{}, fmt.Errorf("storage: invalid key type %q", typ)
 	}
