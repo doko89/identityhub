@@ -175,7 +175,6 @@ export function AccountPasswordPage() {
                       name="totp_code"
                       autoComplete="one-time-code"
                       inputMode="numeric"
-                      placeholder="123456"
                       value={form.totp}
                       onChange={(e) => set("totp", e.target.value)}
                     />

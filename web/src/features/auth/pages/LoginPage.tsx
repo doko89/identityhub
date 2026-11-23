@@ -83,13 +83,7 @@ export function LoginPage() {
               )}
               <Field>
                 <FieldLabel htmlFor="login-username">Username or email</FieldLabel>
-                <Input
-                  id="login-username"
-                  name="username"
-                  autoComplete="username"
-                  placeholder="e.g. alice or alice@example.com"
-                  required
-                />
+                <Input id="login-username" name="username" autoComplete="username" required />
               </Field>
               <Field>
                 <FieldLabel htmlFor="login-password">Password</FieldLabel>

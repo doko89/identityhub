@@ -315,7 +315,6 @@ function CodeInput({
       autoComplete="one-time-code"
       inputMode="numeric"
       maxLength={6}
-      placeholder="123456"
       required
     />
   );

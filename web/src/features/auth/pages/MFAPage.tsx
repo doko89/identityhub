@@ -117,8 +117,8 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
                 onChange={(e) => setCode(e.target.value)}
                 autoComplete="one-time-code"
                 inputMode="text"
-                placeholder="XXXX-XXXX-XXXX-XXXX"
                 required
+                autoFocus
               />
             ) : (
               <Input
@@ -129,8 +129,8 @@ function VerifyForm({ next, stepup, onSetup }: { next: string; stepup: boolean; 
                 autoComplete="one-time-code"
                 inputMode="numeric"
                 maxLength={6}
-                placeholder="123456"
                 required
+                autoFocus
               />
             )}
           </Field>
@@ -271,8 +271,8 @@ function EnrollFlow({ next }: { next: string }) {
                     autoComplete="one-time-code"
                     inputMode="numeric"
                     maxLength={6}
-                    placeholder="123456"
                     required
+                    autoFocus
                   />
                 </Field>
                 <Button type="submit" className="w-full active:scale-[0.98]" disabled={busy}>

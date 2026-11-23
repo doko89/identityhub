@@ -202,7 +202,6 @@ export function AccountAPIKeysPage() {
                         name="totp_code"
                         autoComplete="one-time-code"
                         inputMode="numeric"
-                        placeholder="123456"
                         value={totp}
                         onChange={(e) => setTotp(e.target.value)}
                       />

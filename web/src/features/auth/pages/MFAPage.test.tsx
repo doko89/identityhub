@@ -36,6 +36,8 @@ describe("MFAPage verify", () => {
     // One plain field (not segmented slots) so password managers can fill it.
     expect(input.tagName).toBe("INPUT");
     expect(input.getAttribute("autocomplete")).toBe("one-time-code");
+    // Focus lands in the code field immediately so the user can type.
+    expect(document.activeElement).toBe(input);
     fireEvent.change(input, { target: { value: "123456" } });
     fireEvent.click(getByRole("button", { name: "Verify" }));
     await waitFor(() => expect(body).toEqual({ code: "123456" }));
@@ -67,6 +69,7 @@ describe("MFAPage setup", () => {
     const input = getByLabelText("6-digit code") as HTMLInputElement;
     expect(input.tagName).toBe("INPUT");
     expect(input.getAttribute("autocomplete")).toBe("one-time-code");
+    expect(document.activeElement).toBe(input);
     fireEvent.change(input, { target: { value: "654321" } });
     fireEvent.click(getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(confirmBody).toEqual({ code: "654321" }));
