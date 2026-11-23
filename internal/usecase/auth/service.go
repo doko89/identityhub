@@ -107,7 +107,8 @@ func New(d Deps) (*Service, error) {
 	}, nil
 }
 
-// LoginInput is one password-login attempt.
+// LoginInput is one password-login attempt. Username accepts a username
+// or an email address (exact match, username wins on conflict).
 type LoginInput struct {
 	Username string
 	Password string
@@ -148,12 +149,12 @@ type credentialCheck struct {
 	infra  bool
 }
 
-// Login verifies username/password against the local hash (local users)
-// or the directory (LDAP users, including just-in-time provisioning on
-// first login after the account exists upstream). It returns
-// domain.ErrUnauthorized for unknown users and bad passwords without
-// distinguishing them, and a distinct explicit error when the directory
-// itself is unreachable (PRD §5.1).
+// Login verifies username-or-email/password against the local hash
+// (local users) or the directory (LDAP users, including just-in-time
+// provisioning on first login after the account exists upstream). It
+// returns domain.ErrUnauthorized for unknown users and bad passwords
+// without distinguishing them, and a distinct explicit error when the
+// directory itself is unreachable (PRD §5.1).
 func (s *Service) Login(ctx context.Context, in LoginInput) (domain.User, error) {
 	chk := s.checkCredentials(ctx, in.Username, in.Password)
 	if chk.infra {
@@ -265,15 +266,20 @@ func (s *Service) ConfirmCachedBind(ctx context.Context, userID uuid.UUID, metho
 	return u, nil
 }
 
-// checkCredentials verifies username/password without auditing: local
-// hash for local users, directory bind for LDAP users, with
-// just-in-time provisioning when the account exists only upstream.
+// checkCredentials verifies username-or-email/password without auditing:
+// local hash for local users, directory bind for LDAP users, with
+// just-in-time provisioning when the account exists only upstream. The
+// lookup tries an exact username match first, then an exact email match
+// (same precedence as ForgotPassword).
 func (s *Service) checkCredentials(ctx context.Context, username, password string) credentialCheck {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return credentialCheck{backend: domain.MethodPassword, reason: "missing credentials", err: domain.ErrUnauthorized}
 	}
 	u, err := s.users.ByUsername(ctx, username)
+	if errors.Is(err, domain.ErrNotFound) {
+		u, err = s.users.ByEmail(ctx, username)
+	}
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return credentialCheck{infra: true, err: fmt.Errorf("auth: user lookup: %w", err)}
 	}

@@ -652,6 +652,61 @@ func TestLoginLocalSuccess(t *testing.T) {
 	}
 }
 
+func TestLoginAcceptsEmail(t *testing.T) {
+	u := localUser("ara", "correct-horse-12")
+	h := newHarness(t, u)
+	got, err := h.svc.Login(context.Background(), LoginInput{Username: "ara@example.com", Password: "correct-horse-12", IP: "10.0.0.1"})
+	if err != nil {
+		t.Fatalf("Login(email) = %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("Login(email) user = %v, want %v", got.ID, u.ID)
+	}
+	if a := lastAudit(h); a.Method != domain.MethodPassword || a.Result != domain.ResultSuccess {
+		t.Errorf("audit = %+v, want password/success", a)
+	}
+
+	if _, err := h.svc.Login(context.Background(), LoginInput{Username: "ara@example.com", Password: "nope-nope-nope"}); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("bad password via email = %v, want ErrUnauthorized", err)
+	}
+	if a := lastAudit(h); a.Result != domain.ResultFailure {
+		t.Errorf("audit result = %q, want failure", a.Result)
+	}
+
+	if _, err := h.svc.Login(context.Background(), LoginInput{Username: "ghost@example.com", Password: "whatever-pass"}); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("unknown email = %v, want ErrUnauthorized", err)
+	}
+}
+
+// TestLoginEmailLDAPUser binds with the stored username when the login
+// identifier is an email address.
+func TestLoginEmailLDAPUser(t *testing.T) {
+	u := ldapUser("dirara", true)
+	h := newHarness(t, u)
+	h.dir.passwords["dirara"] = "dir-secret-pw"
+	got, err := h.svc.Login(context.Background(), LoginInput{Username: "dirara@dir.example.com", Password: "dir-secret-pw"})
+	if err != nil || got.ID != u.ID {
+		t.Fatalf("Login(email) = %v, %+v", err, got)
+	}
+	if a := lastAudit(h); a.Method != domain.MethodLDAP || a.Result != domain.ResultSuccess {
+		t.Errorf("audit = %+v, want ldap/success", a)
+	}
+}
+
+// TestLoginUsernameWinsOverEmail keeps the ForgotPassword precedence:
+// an exact username match wins even when another account holds it as
+// its email address.
+func TestLoginUsernameWinsOverEmail(t *testing.T) {
+	owner := localUser("owner", "owner-pass-1234")
+	squatter := localUser("squatter", "squatter-pass-1")
+	squatter.Email = "owner"
+	h := newHarness(t, owner, squatter)
+	got, err := h.svc.Login(context.Background(), LoginInput{Username: "owner", Password: "owner-pass-1234"})
+	if err != nil || got.ID != owner.ID {
+		t.Fatalf("Login = %v, %+v, want the username owner", err, got)
+	}
+}
+
 func TestLoginRehashesLegacyHash(t *testing.T) {
 	u := localUser("ara", "correct-horse-12")
 	u.PasswordHash = []byte("django:correct-horse-12")

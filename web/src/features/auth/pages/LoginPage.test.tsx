@@ -69,7 +69,7 @@ describe("LoginPage", () => {
     // The panel and the mobile header each render the mark (CSS shows one).
     expect(getAllByRole("img", { name: "IdentityHub logo" })).toHaveLength(2);
     expect(getByText(/single front door/)).toBeDefined();
-    fireEvent.change(getByLabelText("Username"), { target: { value: "alice" } });
+    fireEvent.change(getByLabelText("Username or email"), { target: { value: "alice" } });
     fireEvent.change(getByLabelText("Password"), { target: { value: "secret" } });
     fireEvent.click(getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(getByText("Wrong password. Try again.")).toBeDefined());

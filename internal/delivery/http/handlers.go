@@ -177,7 +177,7 @@ func groupNames(groups []domain.Group) []string {
 // ---------- session API ----------
 
 type loginRequest struct {
-	Username string `json:"username"`
+	Username string `json:"username"` // username or email
 	Password string `json:"password"`
 }
 
