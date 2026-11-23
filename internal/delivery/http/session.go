@@ -39,6 +39,10 @@ type SessionConfig struct {
 
 // NewSessionManager builds the scs manager on the pgx session store with
 // TECH_SPEC §8 cookie rules: HttpOnly + Secure (production) + SameSite=Lax.
+//
+// The cookie persists (Expires/Max-Age set, refreshed on every request
+// to min(deadline, now+idle)): a browser-close must not log the user
+// out while the server-side session is still within idle/lifetime.
 func NewSessionManager(pool *pgxpool.Pool, cfg SessionConfig) *scs.SessionManager {
 	sm := scs.New()
 	sm.Store = pgxstore.New(pool)
@@ -48,7 +52,7 @@ func NewSessionManager(pool *pgxpool.Pool, cfg SessionConfig) *scs.SessionManage
 	sm.Cookie.HttpOnly = true
 	sm.Cookie.Secure = cfg.Secure
 	sm.Cookie.SameSite = http.SameSiteLaxMode
-	sm.Cookie.Persist = false
+	sm.Cookie.Persist = true
 	sm.Cookie.Path = "/"
 	return sm
 }
