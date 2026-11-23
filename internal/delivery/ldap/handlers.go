@@ -141,6 +141,7 @@ func (s *Server) handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message
 	base := strings.TrimSpace(string(r.BaseObject()))
 	scope := int(r.Scope())
 	if !s.isBound(m.Client) && !isRootDSEProbe(base, scope) {
+		s.log.Warn("ldap search from unbound connection", "base", base, "ip", peerIP(m))
 		done(ldapserver.LDAPResultInsufficientAccessRights)
 		return
 	}
@@ -222,8 +223,9 @@ func (s *Server) handleStartTLS(w ldapserver.ResponseWriter, m *ldapserver.Messa
 		s.log.Warn("ldap starttls handshake failed", "ip", peerIP(m), "error", err)
 		return
 	}
-	m.Client.SetConn(tlsConn)
-	s.clearBound(m.Client)
+	// Re-wrap so the upgraded channel carries bind state; it starts
+	// unbound and the client re-binds over the encrypted channel.
+	m.Client.SetConn(&trackedConn{Conn: tlsConn})
 	s.log.Info("ldap starttls established", "ip", peerIP(m))
 }
 
@@ -680,40 +682,36 @@ func (t DNTree) groupEntry(g domain.Group, members []string) *entry {
 
 // ---------- bound-state tracking ----------
 
-// markBound records a successful bind for the connection, sliding the
-// lifetime and sweeping expired entries.
+// trackedOf returns the tracked wrapper behind a library client. An
+// untracked connection (never served through Serve, e.g. a test
+// double) fails closed: it can never authenticate a search.
+func trackedOf(client any) (*trackedConn, bool) {
+	type getConn interface{ GetConn() net.Conn }
+	g, ok := client.(getConn)
+	if !ok {
+		return nil, false
+	}
+	tc, ok := g.GetConn().(*trackedConn)
+	return tc, ok
+}
+
+// markBound records a successful bind on the connection itself, so it
+// authorizes searches until the connection closes, re-binds or
+// unbinds — with no timer in between.
 func (s *Server) markBound(client any, username string) {
-	s.bindsMutex.Lock()
-	defer s.bindsMutex.Unlock()
-	now := time.Now()
-	for c, b := range s.binds {
-		if now.After(b.expires) {
-			delete(s.binds, c)
-		}
+	tc, ok := trackedOf(client)
+	if !ok {
+		s.log.Error("ldap bind succeeded on an untracked connection; searches will be rejected",
+			"username", username)
+		return
 	}
-	s.binds[client] = boundConn{username: username, expires: now.Add(bindLifetime)}
+	tc.markBound()
 }
 
-// isBound reports whether the connection holds a live bind, sliding
-// its lifetime on success.
+// isBound reports whether the connection holds a live bind.
 func (s *Server) isBound(client any) bool {
-	s.bindsMutex.Lock()
-	defer s.bindsMutex.Unlock()
-	b, ok := s.binds[client]
-	if !ok || time.Now().After(b.expires) {
-		delete(s.binds, client)
-		return false
-	}
-	b.expires = time.Now().Add(bindLifetime)
-	s.binds[client] = b
-	return true
-}
-
-// clearBound drops any bind for the connection (StartTLS upgrade).
-func (s *Server) clearBound(client any) {
-	s.bindsMutex.Lock()
-	defer s.bindsMutex.Unlock()
-	delete(s.binds, client)
+	tc, ok := trackedOf(client)
+	return ok && tc.isBound()
 }
 
 // peerIP returns the peer IP without the port for audit and logs.

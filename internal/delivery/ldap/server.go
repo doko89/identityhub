@@ -65,20 +65,18 @@ type Deps struct {
 // Server is one in-process LDAP listener. It is single-use: call Serve
 // once, then Stop.
 type Server struct {
-	mode       string
-	addr       string
-	dn         DNTree
-	srv        *ldapserver.Server
-	auth       *usecaseauth.Service
-	users      domain.UserStore
-	groups     domain.GroupStore
-	attrs      domain.UserAttrStore
-	log        *slog.Logger
-	tlsConfig  *tls.Config
-	ready      chan struct{}
-	stopOnce   sync.Once
-	binds      map[any]boundConn
-	bindsMutex sync.Mutex
+	mode      string
+	addr      string
+	dn        DNTree
+	srv       *ldapserver.Server
+	auth      *usecaseauth.Service
+	users     domain.UserStore
+	groups    domain.GroupStore
+	attrs     domain.UserAttrStore
+	log       *slog.Logger
+	tlsConfig *tls.Config
+	ready     chan struct{}
+	stopOnce  sync.Once
 	// rawListener is the TCP listener under the (optional) TLS
 	// wrapper; Stop sets a past deadline on it to unblock Accept.
 	rawListener net.Listener
@@ -90,18 +88,45 @@ type Server struct {
 	bindCache *bindCache
 }
 
-// boundConn remembers one connection's successful bind. The map key is
-// the library's per-connection client pointer (held, so its address can
-// never be reused while the entry lives); entries expire so abandoned
-// connections do not accumulate.
-type boundConn struct {
-	username string
-	expires  time.Time
+// trackedConn wraps one accepted connection so the bind state lives
+// exactly as long as the connection itself (RFC 4511: a bind
+// authorizes the connection until unbind, re-bind or close — never a
+// timer). Pooling clients such as Stalwart only bind when they open a
+// connection; expiring that bind mid-connection makes the pool fail
+// every operation without ever reconnecting, until the client
+// restarts. Short-lived binders (Harbor, Sonar) never notice because
+// they bind per operation. When the connection closes the wrapper is
+// garbage-collected with it, so no sweeper or expiry map is needed.
+type trackedConn struct {
+	net.Conn
+	mu    sync.Mutex
+	bound bool
 }
 
-// bindLifetime bounds how long one bind authorizes searches on its
-// connection (sliding on every authenticated operation).
-const bindLifetime = 30 * time.Minute
+func (c *trackedConn) markBound() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.bound = true
+}
+
+func (c *trackedConn) isBound() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bound
+}
+
+// trackingListener wraps every accepted connection in a trackedConn.
+type trackingListener struct {
+	net.Listener
+}
+
+func (l *trackingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &trackedConn{Conn: c}, nil
+}
 
 // New validates cfg, loads TLS material for the TLS modes, and builds
 // the routed server. It quiets the library's stdout logger process-wide
@@ -137,7 +162,6 @@ func New(cfg Config, d Deps) (*Server, error) {
 		mode: cfg.Mode, addr: cfg.Addr, dn: tree,
 		auth: d.Auth, users: d.Users, groups: d.Groups, attrs: d.Attrs, log: log,
 		ready:   make(chan struct{}),
-		binds:   map[any]boundConn{},
 		version: d.Version,
 	}
 	s.tree = newTreeCache(d.Version, cfg.CacheTTL, log)
@@ -202,6 +226,9 @@ func (s *Server) Serve() error {
 		if s.mode == ModeLDAPS {
 			srv.Listener = tls.NewListener(srv.Listener, tlsCfg)
 		}
+		// Track after the TLS wrap so GetConn returns the wrapper in
+		// every mode (starttls re-wraps on upgrade in handleStartTLS).
+		srv.Listener = &trackingListener{srv.Listener}
 		close(s.ready)
 	}}
 	return s.srv.ListenAndServe(s.addr, opts...)

@@ -2,12 +2,101 @@ package ldap
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
 )
+
+// fakeClient exposes a chosen conn behind the library's GetConn
+// accessor so bind-state tests need no network server.
+type fakeClient struct{ conn net.Conn }
+
+func (f *fakeClient) GetConn() net.Conn { return f.conn }
+
+func trackedPair(t *testing.T) (*trackedConn, *fakeClient) {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	tc := &trackedConn{Conn: a}
+	return tc, &fakeClient{conn: tc}
+}
+
+// TestBoundConnectionNeverExpires is the Stalwart-pool regression
+// test: a bind authorizes its connection for the connection's whole
+// life, with no timer in between. The old 30-minute sliding expiry
+// silently unbound idle pool connections, and Stalwart only binds
+// when it opens a connection — so every operation failed until a
+// manual restart, while per-operation binders (Harbor, Sonar) never
+// noticed.
+func TestBoundConnectionNeverExpires(t *testing.T) {
+	s := leafTestServer()
+	s.log = testLogger()
+	_, fc := trackedPair(t)
+	if s.isBound(fc) {
+		t.Fatal("fresh connection is bound, want unbound")
+	}
+	s.markBound(fc, "svc.internal")
+	for i := 0; i < 100; i++ {
+		if !s.isBound(fc) {
+			t.Fatalf("bound connection lost its bind on check %d", i)
+		}
+	}
+}
+
+func TestBindStateIsPerConnection(t *testing.T) {
+	s := leafTestServer()
+	s.log = testLogger()
+	_, a := trackedPair(t)
+	_, b := trackedPair(t)
+	s.markBound(a, "svc.internal")
+	if !s.isBound(a) {
+		t.Error("bound connection reads unbound")
+	}
+	if s.isBound(b) {
+		t.Error("second connection reads bound, want per-connection isolation")
+	}
+}
+
+func TestUntrackedClientFailsClosed(t *testing.T) {
+	s := leafTestServer()
+	s.log = testLogger()
+	a, b := net.Pipe()
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	plain := &fakeClient{conn: a} // never wrapped by Serve
+	s.markBound(plain, "svc.internal")
+	if s.isBound(plain) {
+		t.Error("untracked connection reads bound, want fail-closed")
+	}
+	if s.isBound("not a client") {
+		t.Error("non-client value reads bound, want fail-closed")
+	}
+}
+
+func TestTrackingListenerWrapsAccepted(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	tracked := &trackingListener{ln}
+	go func() {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err == nil {
+			_ = c.Close()
+		}
+	}()
+	c, err := tracked.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, ok := c.(*trackedConn); !ok {
+		t.Errorf("accepted conn type = %T, want *trackedConn", c)
+	}
+}
 
 // Fake stores backing collectEntries leaf-scope tests. They embed the
 // shared stubs so only the leafEntry path (ByUsername, ByID,
