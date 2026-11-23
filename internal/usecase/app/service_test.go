@@ -386,6 +386,102 @@ func TestPolicyBinding(t *testing.T) {
 	}
 }
 
+func TestDenyBindingBeatsAllow(t *testing.T) {
+	svc, _, _, _, groups, u, g := newTestService()
+	ctx := context.Background()
+	a, _ := svc.CreateApp(ctx, mkapp("wiki"))
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingGroup, GroupID: &g.ID,
+		Effect: domain.EffectAllow,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingUser, UserID: &u.ID,
+		Effect: domain.EffectDeny,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	groups.members["engineering"] = map[uuid.UUID]bool{u.ID: true}
+	if ok, _ := svc.CanAccess(ctx, u, a.ID); ok {
+		t.Fatal("deny must win over a matching allow")
+	}
+	// A teammate without the deny keeps access.
+	mate := domain.User{ID: uuid.New(), Username: "mate", IsActive: true}
+	groups.members["engineering"][mate.ID] = true
+	if ok, _ := svc.CanAccess(ctx, mate, a.ID); !ok {
+		t.Fatal("non-excluded member must keep access")
+	}
+}
+
+func TestDenyGroupExcludesMembers(t *testing.T) {
+	svc, _, _, _, groups, u, g := newTestService()
+	ctx := context.Background()
+	a, _ := svc.CreateApp(ctx, mkapp("internal"))
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingGroup, GroupID: &g.ID,
+		Effect: domain.EffectDeny,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	groups.members["engineering"] = map[uuid.UUID]bool{u.ID: true}
+	if ok, _ := svc.CanAccess(ctx, u, a.ID); ok {
+		t.Fatal("excluded group member must not have access")
+	}
+	// Deny-only app: everyone else is allowed.
+	stranger := domain.User{ID: uuid.New(), Username: "mallory", IsActive: true}
+	if ok, _ := svc.CanAccess(ctx, stranger, a.ID); !ok {
+		t.Fatal("deny-only app must allow non-excluded users")
+	}
+	if _, err := svc.Launch(ctx, u.ID, "internal"); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("excluded launch must be forbidden, got %v", err)
+	}
+}
+
+func TestDenyWinsUnderRequireAll(t *testing.T) {
+	svc, _, _, _, groups, u, g := newTestService()
+	ctx := context.Background()
+	a, _ := svc.CreateApp(ctx, mkapp("ci"))
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingGroup, GroupID: &g.ID,
+		EvalMode: domain.EvalAll, Effect: domain.EffectAllow,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingPolicy,
+		PolicyExpr: "email_domain:example.com",
+		EvalMode:   domain.EvalAll, Effect: domain.EffectDeny,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	groups.members["engineering"] = map[uuid.UUID]bool{u.ID: true}
+	if ok, _ := svc.CanAccess(ctx, u, a.ID); ok {
+		t.Fatal("deny must win even when every allow matches")
+	}
+}
+
+func TestBindingEffectValidation(t *testing.T) {
+	svc, _, _, _, _, u, _ := newTestService()
+	ctx := context.Background()
+	a, _ := svc.CreateApp(ctx, mkapp("wiki"))
+	if _, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingUser, UserID: &u.ID,
+		Effect: "block",
+	}); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("bad effect must fail validation, got %v", err)
+	}
+	created, err := svc.CreateBinding(ctx, domain.AppBinding{
+		ApplicationID: a.ID, BindingType: domain.BindingUser, UserID: &u.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Effect != domain.EffectAllow {
+		t.Fatalf("empty effect must default to allow, got %q", created.Effect)
+	}
+}
+
 func TestMyAppsFiltersInvisibleAndDenied(t *testing.T) {
 	svc, _, _, users, _, u, _ := newTestService()
 	ctx := context.Background()

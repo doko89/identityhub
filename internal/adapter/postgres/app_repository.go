@@ -138,13 +138,14 @@ func NewBindingRepository(db *DB) *BindingRepository { return &BindingRepository
 
 func scanBinding(row pgx.Row) (domain.AppBinding, error) {
 	var b domain.AppBinding
-	var bindingType, evalMode string
-	err := row.Scan(&b.ID, &b.ApplicationID, &bindingType, &b.UserID, &b.GroupID, &b.PolicyExpr, &evalMode)
+	var bindingType, evalMode, effect string
+	err := row.Scan(&b.ID, &b.ApplicationID, &bindingType, &b.UserID, &b.GroupID, &b.PolicyExpr, &evalMode, &effect)
 	if err != nil {
 		return domain.AppBinding{}, err
 	}
 	b.BindingType = domain.BindingType(bindingType)
 	b.EvalMode = domain.EvalMode(evalMode)
+	b.Effect = domain.BindingEffect(effect)
 	return b, nil
 }
 
@@ -157,11 +158,14 @@ func (r *BindingRepository) Create(ctx context.Context, b domain.AppBinding) (do
 	if b.EvalMode == "" {
 		b.EvalMode = domain.EvalAny
 	}
-	const q = `INSERT INTO app_bindings (id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		RETURNING id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode`
+	if b.Effect == "" {
+		b.Effect = domain.EffectAllow
+	}
+	const q = `INSERT INTO app_bindings (id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode, effect)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode, effect`
 	created, err := scanBinding(r.db.Pool.QueryRow(ctx, q, b.ID, b.ApplicationID,
-		string(b.BindingType), b.UserID, b.GroupID, b.PolicyExpr, string(b.EvalMode)))
+		string(b.BindingType), b.UserID, b.GroupID, b.PolicyExpr, string(b.EvalMode), string(b.Effect)))
 	if err != nil {
 		return domain.AppBinding{}, mapWriteError(err)
 	}
@@ -170,8 +174,8 @@ func (r *BindingRepository) Create(ctx context.Context, b domain.AppBinding) (do
 
 // ForApplication lists every binding of one application.
 func (r *BindingRepository) ForApplication(ctx context.Context, appID uuid.UUID) ([]domain.AppBinding, error) {
-	const q = `SELECT id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode
-		FROM app_bindings WHERE application_id = $1 ORDER BY binding_type, policy_expr`
+	const q = `SELECT id, application_id, binding_type, user_id, group_id, policy_expr, eval_mode, effect
+		FROM app_bindings WHERE application_id = $1 ORDER BY effect, binding_type, policy_expr`
 	rows, err := r.db.Pool.Query(ctx, q, appID)
 	if err != nil {
 		return nil, err

@@ -173,7 +173,8 @@ export function AdminAppsPage() {
             <SheetTitle>Bindings of {bindingsFor?.slug}</SheetTitle>
             <SheetDescription>
               Who sees this app. Eval mode &quot;any&quot; grants on the first match, &quot;all&quot;
-              requires every binding to match.
+              requires every allow rule to match. One matching exclude rule hides the app
+              no matter what.
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -474,6 +475,7 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState("user");
   const [evalMode, setEvalMode] = useState("any");
+  const [effect, setEffect] = useState("allow");
 
   const load = useCallback(async () => {
     try {
@@ -498,7 +500,7 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
     try {
       const form = new FormData(formEl);
       const target = String(form.get("target") ?? "").trim();
-      const b: NewBinding = { binding_type: kind, eval_mode: evalMode };
+      const b: NewBinding = { binding_type: kind, eval_mode: evalMode, effect };
       if (kind === "user") {
         b.user_id = await resolveUserId(target);
       } else if (kind === "group") {
@@ -510,6 +512,7 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
       formEl.reset();
       setKind("user");
       setEvalMode("any");
+      setEffect("allow");
       await load();
     } catch (err) {
       onError(toNotice(err));
@@ -565,6 +568,15 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
             <SelectItem value="all">all</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={effect} onValueChange={setEffect}>
+          <SelectTrigger aria-label="Effect" className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="allow">allow</SelectItem>
+            <SelectItem value="deny">deny</SelectItem>
+          </SelectContent>
+        </Select>
         <Button type="submit" variant="outline" disabled={busy}>
           Add
         </Button>
@@ -572,33 +584,94 @@ function BindingsPanel({ app, onError }: { app: AdminApp; onError: (n: AdminNoti
       <Separator className="mb-2" />
       {bindings === null && <p className="text-sm text-muted-foreground">Loading bindings…</p>}
       {bindings !== null && bindings.length === 0 && (
-        <p className="text-sm text-muted-foreground">No bindings: nobody sees this app yet.</p>
+        <p className="text-sm text-muted-foreground">
+          No bindings: every active user sees this app.
+        </p>
       )}
       {bindings !== null && bindings.length > 0 && (
-        <ul className="m-0 list-none p-0 text-sm">
-          {bindings.map((b) => (
-            <li
-              key={b.id}
-              className="flex items-center justify-between gap-2 border-b py-1.5 last:border-b-0"
-            >
-              <span>
-                <code>{b.binding_type}</code> · {bindingTarget(b)} · {b.eval_mode}
-              </span>
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="h-auto shrink-0 p-1"
-                disabled={busy}
-                onClick={() => void remove(b.id)}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <BindingGroups bindings={bindings} busy={busy} onRemove={(id) => void remove(id)} />
       )}
     </div>
+  );
+}
+
+// BindingGroups splits rows into the allow list and the exclude (deny)
+// list: one matching deny excludes the user even when an allow matches.
+function BindingGroups({
+  bindings,
+  busy,
+  onRemove,
+}: {
+  bindings: AppBinding[];
+  busy: boolean;
+  onRemove: (id: string) => void;
+}) {
+  // Tolerate rows predating the effect column as allows.
+  const allows = bindings.filter((b) => b.effect !== "deny");
+  const denies = bindings.filter((b) => b.effect === "deny");
+  return (
+    <div className="flex flex-col gap-4">
+      <section aria-label="Allow bindings">
+        <h3 className="mb-1 text-sm font-semibold">Allow</h3>
+        {allows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No allow rules: everyone except the excluded list sees this app.
+          </p>
+        ) : (
+          <BindingList bindings={allows} busy={busy} onRemove={onRemove} />
+        )}
+      </section>
+      <section aria-label="Exclude bindings">
+        <h3 className="mb-1 text-sm font-semibold">Exclude</h3>
+        {denies.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nobody is excluded.</p>
+        ) : (
+          <BindingList bindings={denies} busy={busy} onRemove={onRemove} />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function BindingList({
+  bindings,
+  busy,
+  onRemove,
+}: {
+  bindings: AppBinding[];
+  busy: boolean;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <ul className="m-0 list-none p-0 text-sm">
+      {bindings.map((b) => (
+        <li
+          key={b.id}
+          className="flex items-center justify-between gap-2 border-b py-1.5 last:border-b-0"
+        >
+          <span>
+            <code>{b.binding_type}</code> · {bindingTarget(b)} · {b.eval_mode}
+          </span>
+          <span className="flex shrink-0 items-center gap-1">
+            {b.effect === "deny" ? (
+              <Badge variant="destructive">deny</Badge>
+            ) : (
+              <Badge variant="secondary">allow</Badge>
+            )}
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-1"
+              disabled={busy}
+              onClick={() => onRemove(b.id)}
+            >
+              Remove
+            </Button>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

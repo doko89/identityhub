@@ -148,29 +148,46 @@ func (s *Service) RecordLaunch(ctx context.Context, userID, appID uuid.UUID) err
 	return s.usage.RecordLaunch(ctx, userID, appID)
 }
 
-// CanAccess evaluates an app's bindings for a user (PRD §6.7): no
-// bindings means every active user is allowed; with bindings, the
-// evaluation mode decides — any binding match (EvalAny) or every binding
-// match (EvalAll). The mode is strictest-wins across the app's rows: one
-// EvalAll binding makes the whole app require-all, so a mixed config
-// fails closed instead of silently widening access.
+// CanAccess evaluates an app's bindings for a user (PRD §6.7): deny
+// first — one matching deny-binding (EffectDeny) excludes the user no
+// matter what else matches; then the allow-bindings decide. No
+// allow-bindings means every active user is allowed (so a deny-only app
+// reads as "everyone except…"); with allow-bindings, the evaluation
+// mode decides — any binding match (EvalAny) or every binding match
+// (EvalAll). The mode is strictest-wins across the app's allow rows:
+// one EvalAll binding makes the whole app require-all, so a mixed
+// config fails closed instead of silently widening access.
 func (s *Service) CanAccess(ctx context.Context, user domain.User, appID uuid.UUID) (bool, error) {
 	bindings, err := s.bindings.ForApplication(ctx, appID)
 	if err != nil {
 		return false, err
 	}
-	if len(bindings) == 0 {
+	var allows []domain.AppBinding
+	for _, b := range bindings {
+		if b.Effect == domain.EffectDeny {
+			ok, err := s.match(ctx, user, b)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				return false, nil
+			}
+			continue
+		}
+		allows = append(allows, b)
+	}
+	if len(allows) == 0 {
 		return true, nil
 	}
 	requireAll := false
-	for _, b := range bindings {
+	for _, b := range allows {
 		if b.EvalMode == domain.EvalAll {
 			requireAll = true
 			break
 		}
 	}
 	if requireAll {
-		for _, b := range bindings {
+		for _, b := range allows {
 			ok, err := s.match(ctx, user, b)
 			if err != nil || !ok {
 				return false, err
@@ -178,7 +195,7 @@ func (s *Service) CanAccess(ctx context.Context, user domain.User, appID uuid.UU
 		}
 		return true, nil
 	}
-	for _, b := range bindings {
+	for _, b := range allows {
 		ok, err := s.match(ctx, user, b)
 		if err != nil {
 			return false, err
@@ -378,6 +395,12 @@ func (s *Service) CreateBinding(ctx context.Context, b domain.AppBinding) (domai
 	}
 	if b.EvalMode != domain.EvalAny && b.EvalMode != domain.EvalAll {
 		return domain.AppBinding{}, fmt.Errorf("%w: eval_mode must be any or all", domain.ErrValidation)
+	}
+	if b.Effect == "" {
+		b.Effect = domain.EffectAllow
+	}
+	if b.Effect != domain.EffectAllow && b.Effect != domain.EffectDeny {
+		return domain.AppBinding{}, fmt.Errorf("%w: effect must be allow or deny", domain.ErrValidation)
 	}
 	return s.bindings.Create(ctx, b)
 }

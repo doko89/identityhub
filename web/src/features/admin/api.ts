@@ -55,6 +55,7 @@ export interface AppBinding {
   group_id?: string;
   policy_expr?: string;
   eval_mode: string;
+  effect: string;
 }
 
 export interface OIDCClient {
@@ -330,6 +331,7 @@ export interface NewBinding {
   group_id?: string;
   policy_expr?: string;
   eval_mode?: string;
+  effect?: string;
 }
 
 export function createBinding(appId: string, b: NewBinding): Promise<{ binding: AppBinding }> {

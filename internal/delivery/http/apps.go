@@ -270,6 +270,7 @@ func bindingJSON(b domain.AppBinding) map[string]any {
 	out := map[string]any{
 		"id": b.ID.String(), "application_id": b.ApplicationID.String(),
 		"binding_type": string(b.BindingType), "eval_mode": string(b.EvalMode),
+		"effect": string(b.Effect),
 	}
 	if b.UserID != nil {
 		out["user_id"] = b.UserID.String()
@@ -289,6 +290,7 @@ type adminBindingRequest struct {
 	GroupID     string `json:"group_id"`
 	PolicyExpr  string `json:"policy_expr"`
 	EvalMode    string `json:"eval_mode"`
+	Effect      string `json:"effect"`
 }
 
 // handleAdminListBindings returns every binding of one application.
@@ -324,6 +326,7 @@ func (h *Handlers) handleAdminCreateBinding(w http.ResponseWriter, req *http.Req
 	b := domain.AppBinding{
 		ApplicationID: appID, BindingType: domain.BindingType(in.BindingType),
 		PolicyExpr: in.PolicyExpr, EvalMode: domain.EvalMode(in.EvalMode),
+		Effect: domain.BindingEffect(in.Effect),
 	}
 	if in.UserID != "" {
 		id, err := uuid.Parse(in.UserID)

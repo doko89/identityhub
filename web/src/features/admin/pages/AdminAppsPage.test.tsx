@@ -240,4 +240,110 @@ describe("AdminAppsPage", () => {
       expect(calls[calls.length - 1]).not.toContain("group=");
     });
   });
+
+  it("splits bindings into allow and exclude groups", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.startsWith("/api/admin/apps?")) {
+          return Response.json({ apps: [wiki], total: 1 });
+        }
+        if (u === `/api/admin/apps/${wiki.id}/bindings`) {
+          return Response.json({
+            bindings: [
+              {
+                id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                application_id: wiki.id,
+                binding_type: "group",
+                group_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                eval_mode: "any",
+                effect: "allow",
+              },
+              {
+                id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                application_id: wiki.id,
+                binding_type: "group",
+                group_id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+                eval_mode: "any",
+                effect: "deny",
+              },
+            ],
+          });
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    const { findByRole, getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Bindings" }));
+    const allow = await findByRole("region", { name: "Allow bindings" });
+    const exclude = getByRole("region", { name: "Exclude bindings" });
+    expect(within(allow).getByText(/dddddddd-dddd/)).toBeDefined();
+    expect(within(exclude).getByText(/eeeeeeee-eeee/)).toBeDefined();
+    expect(within(allow).queryByText(/eeeeeeee-eeee/)).toBeNull();
+    expect(within(exclude).getByText("deny")).toBeDefined();
+  });
+
+  it("posts the default allow effect when adding a binding", async () => {
+    let posted: unknown = null;
+    const userId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const binding = {
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      application_id: wiki.id,
+      binding_type: "user",
+      user_id: userId,
+      eval_mode: "any",
+      effect: "allow",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        if (u.startsWith("/api/admin/apps?")) {
+          return Response.json({ apps: [wiki], total: 1 });
+        }
+        if (u === `/api/admin/apps/${wiki.id}/bindings` && init?.method === "POST") {
+          posted = JSON.parse(String(init.body)) as unknown;
+          return Response.json({ binding }, { status: 201 });
+        }
+        if (u === `/api/admin/apps/${wiki.id}/bindings`) {
+          return Response.json({ bindings: posted === null ? [] : [binding] });
+        }
+        if (u.startsWith("/api/admin/users?")) {
+          return Response.json({
+            users: [{ id: userId, username: "ara", email: "ara@example.com" }],
+            total: 1,
+          });
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    const { getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.click(getByRole("button", { name: "Bindings" }));
+    await waitFor(() => expect(getByText(/every active user sees/)).toBeDefined());
+    const sheet = getByRole("dialog", { name: `Bindings of ${wiki.slug}` });
+    // The effect picker ships with the form (Radix Select popovers do
+    // not open in jsdom, so the deny option itself is covered by the
+    // split-groups test above rendering server rows).
+    expect(within(sheet).getByLabelText("Effect")).toBeDefined();
+    fireEvent.change(within(sheet).getByLabelText("Binding target"), { target: { value: "ara" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(posted).toEqual({
+      binding_type: "user",
+      user_id: userId,
+      eval_mode: "any",
+      effect: "allow",
+    }));
+    await waitFor(() => expect(getByText(/dddddddd-dddd/)).toBeDefined());
+  });
 });

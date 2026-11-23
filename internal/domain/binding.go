@@ -25,6 +25,18 @@ const (
 	EvalAll EvalMode = "all"
 )
 
+// BindingEffect selects whether a matching binding grants or denies
+// access (PRD §6.7). Deny wins: one matching deny-binding excludes the
+// user even when an allow-binding also matches.
+type BindingEffect string
+
+const (
+	// EffectAllow grants access on match (the default).
+	EffectAllow BindingEffect = "allow"
+	// EffectDeny excludes the user on match.
+	EffectDeny BindingEffect = "deny"
+)
+
 // AppBinding is one row of app_bindings. Exactly one of UserID/GroupID/
 // PolicyExpr is set, matching BindingType.
 type AppBinding struct {
@@ -35,6 +47,7 @@ type AppBinding struct {
 	GroupID       *uuid.UUID
 	PolicyExpr    string
 	EvalMode      EvalMode
+	Effect        BindingEffect
 }
 
 // BindingStore persists visibility bindings.
