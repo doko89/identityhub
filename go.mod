@@ -125,4 +125,4 @@ require (
 
 // Fork harden-p1: per-connection panic recovery + OnPanic hook.
 // Upstream v1.0.1 lets one malformed packet crash the whole process.
-replace github.com/vjeantet/ldapserver => github.com/doko89/ldapserver v1.0.2
+replace github.com/vjeantet/ldapserver => github.com/doko89/ldapserver v1.0.3

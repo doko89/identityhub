@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,12 +188,21 @@ func TestUnescapeDNValue(t *testing.T) {
 // the server keeps answering everyone else (proven by an anonymous
 // root DSE search on a fresh connection — no DB needed).
 func TestMalformedFirstByteDropsOnlyItsConnection(t *testing.T) {
+	prev := ldapserver.OnPanic
+	t.Cleanup(func() { ldapserver.OnPanic = prev })
 	s, err := New(Config{
 		Mode: ModePlain, Addr: "127.0.0.1:0",
 		AllowedCIDRs: []*net.IPNet{mustCIDR(t, "127.0.0.0/8")},
 	}, testDeps())
 	if err != nil {
 		t.Fatalf("New = %v", err)
+	}
+	reported := make(chan string, 1)
+	ldapserver.OnPanic = func(addr string, _ interface{}, _ []byte) {
+		select {
+		case reported <- addr:
+		default:
+		}
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- s.Serve() }()
@@ -218,6 +228,17 @@ func TestMalformedFirstByteDropsOnlyItsConnection(t *testing.T) {
 		t.Error("offending connection stayed open and answered, want dropped")
 	}
 	_ = bad.Close()
+
+	// The drop is reported with the offender's address (the incident
+	// panic carried no client IP at all).
+	select {
+	case peer := <-reported:
+		if !strings.HasPrefix(peer, "127.0.0.1:") {
+			t.Errorf("OnPanic addr = %q, want 127.0.0.1 client", peer)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("OnPanic hook never fired for the offending connection")
+	}
 
 	// Everyone else is unaffected: root DSE on a fresh connection.
 	var lastErr error
