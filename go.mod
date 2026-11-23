@@ -122,3 +122,7 @@ require (
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Fork harden-p1: per-connection panic recovery + OnPanic hook.
+// Upstream v1.0.1 lets one malformed packet crash the whole process.
+replace github.com/vjeantet/ldapserver => github.com/doko89/ldapserver v1.0.2

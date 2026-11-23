@@ -181,6 +181,12 @@ func New(cfg Config, d Deps) (*Server, error) {
 		s.tlsConfig = tlsCfg
 	}
 	ldapserver.Logger = ldapserver.DiscardingLogger
+	// Per-connection panics (malformed packets) close only the
+	// offending connection; report them with the peer IP instead
+	// of failing silently.
+	ldapserver.OnPanic = func(addr string, recovered any, _ []byte) {
+		log.Warn("ldap recovered client panic", "ip", addr, "panic", recovered)
+	}
 	srv := ldapserver.NewServer()
 	srv.OnNewConnection = allowConn(cfg.AllowedCIDRs, log)
 	routes := ldapserver.NewRouteMux()

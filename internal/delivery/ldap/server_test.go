@@ -1,6 +1,7 @@
 package ldap
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log/slog"
@@ -8,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	goldap "github.com/go-ldap/ldap/v3"
 	"github.com/google/uuid"
+	ldapserver "github.com/vjeantet/ldapserver"
 
 	"github.com/identityhub/identityhub/internal/domain"
 	usecaseauth "github.com/identityhub/identityhub/internal/usecase/auth"
@@ -174,6 +177,99 @@ func TestUnescapeDNValue(t *testing.T) {
 	}
 	if got := unescapeDNValue(`trailing\`); got != `trailing\` {
 		t.Errorf("unescape trailing = %q", got)
+	}
+}
+
+// TestMalformedFirstByteDropsOnlyItsConnection replays the 21 Nov
+// 2026 incident byte-for-byte: a client sent 0x0a where the BER
+// sequence tag 0x30 belongs, and upstream v1.0.1 panicked the whole
+// process. The hardened library must drop only that connection while
+// the server keeps answering everyone else (proven by an anonymous
+// root DSE search on a fresh connection — no DB needed).
+func TestMalformedFirstByteDropsOnlyItsConnection(t *testing.T) {
+	s, err := New(Config{
+		Mode: ModePlain, Addr: "127.0.0.1:0",
+		AllowedCIDRs: []*net.IPNet{mustCIDR(t, "127.0.0.0/8")},
+	}, testDeps())
+	if err != nil {
+		t.Fatalf("New = %v", err)
+	}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- s.Serve() }()
+	t.Cleanup(s.Stop)
+	select {
+	case <-s.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never became ready")
+	}
+	addr := s.Addr().String()
+
+	// The offending connection: one LF, then it must be dropped.
+	bad, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial offender = %v", err)
+	}
+	if _, err := bad.Write([]byte("\n")); err != nil {
+		t.Fatalf("write garbage = %v", err)
+	}
+	_ = bad.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var one [1]byte
+	if _, err := bad.Read(one[:]); err == nil {
+		t.Error("offending connection stayed open and answered, want dropped")
+	}
+	_ = bad.Close()
+
+	// Everyone else is unaffected: root DSE on a fresh connection.
+	var lastErr error
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		lastErr = nil
+		func() {
+			c, err := goldap.DialURL("ldap://" + addr)
+			if err != nil {
+				lastErr = err
+				return
+			}
+			defer c.Close()
+			res, err := c.Search(goldap.NewSearchRequest("", goldap.ScopeBaseObject,
+				goldap.NeverDerefAliases, 0, 0, false, "(objectClass=*)", nil, nil))
+			if err != nil {
+				lastErr = err
+				return
+			}
+			if len(res.Entries) != 1 {
+				lastErr = errors.New("root DSE returned no entry")
+			}
+		}()
+		if lastErr == nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("server stopped answering after malformed input: %v", lastErr)
+}
+
+// TestOnPanicHookLogsPeerIP proves New wires the fork's per-connection
+// panic hook to slog with the offender's address (the incident panic
+// carried no client IP at all).
+func TestOnPanicHookLogsPeerIP(t *testing.T) {
+	prev := ldapserver.OnPanic
+	t.Cleanup(func() { ldapserver.OnPanic = prev })
+	var buf bytes.Buffer
+	deps := testDeps()
+	deps.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	if _, err := New(Config{
+		Mode: ModePlain, Addr: "127.0.0.1:0",
+		AllowedCIDRs: []*net.IPNet{mustCIDR(t, "127.0.0.0/8")},
+	}, deps); err != nil {
+		t.Fatalf("New = %v", err)
+	}
+	if ldapserver.OnPanic == nil {
+		t.Fatal("OnPanic hook not installed by New")
+	}
+	ldapserver.OnPanic("10.9.9.9:1234", "boom", nil)
+	out := buf.String()
+	if !bytes.Contains([]byte(out), []byte("10.9.9.9:1234")) || !bytes.Contains([]byte(out), []byte("boom")) {
+		t.Errorf("hook log = %q, want peer IP and value", out)
 	}
 }
 
