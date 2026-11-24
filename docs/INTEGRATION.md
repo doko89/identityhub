@@ -225,7 +225,10 @@ curl -b "$JAR" -X DELETE \
   fields to these.
 - Signatures: responses AND assertions are signed. Unsigned AuthnRequests
   are accepted; signed ones are verified against the imported SP
-  certificate. `ForceAuthn` forces a fresh password login.
+  certificate — except SPs with no registered key (e.g. SendGrid),
+  whose signatures are skipped, Authentik parity (watch for the
+  `signature skipped` warning in logs). `ForceAuthn` forces a fresh
+  password login.
 
 ### 3.3 Troubleshooting
 

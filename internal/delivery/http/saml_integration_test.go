@@ -20,6 +20,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"encoding/xml"
 	"html"
 	"io"
@@ -800,4 +801,131 @@ func TestSAMLForceAuthn(t *testing.T) {
 	if _, err := fx.sp.ParseXMLResponse(mustResponse(t, html), []string{req.ID}, fx.sp.AcsURL); err != nil {
 		t.Fatalf("SP rejected post-ForceAuthn Response: %v", err)
 	}
+}
+
+// seedRawSP registers an SP row directly (bypassing metadata import) so
+// tests control the stored signing key: empty for keyless SPs like
+// SendGrid, or a chosen PEM. The returned client signs with signKey.
+func (fx *samlFixture) seedRawSP(t *testing.T, tag string, signKey *rsa.PrivateKey, certPEM string) *csaml.ServiceProvider {
+	t.Helper()
+	ctx := context.Background()
+	entityID := "https://sp.raw.example.com/" + tag + "/metadata"
+	acsURL, _ := url.Parse("https://sp.raw.example.com/" + tag + "/acs")
+	metaURL, _ := url.Parse(entityID)
+	appID := uuid.New()
+	if _, err := fx.pool.Exec(ctx, `INSERT INTO applications (id, slug, name, provider_type)
+		VALUES ($1,$2,$3,'saml')`, appID, "it-raw-"+tag, "IT Raw "+tag); err != nil {
+		t.Fatalf("seed raw application: %v", err)
+	}
+	clientCert := selfSignedTestCert(t, signKey, "raw client "+tag)
+	if _, err := fx.pool.Exec(ctx, `INSERT INTO saml_sps
+		(application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem, name_id)
+		VALUES ($1,$2,$3,'','', $4,'username')`,
+		appID, entityID, acsURL.String(), certPEM); err != nil {
+		t.Fatalf("seed raw SP: %v", err)
+	}
+	return &csaml.ServiceProvider{
+		EntityID:        entityID,
+		Key:             signKey,
+		Certificate:     clientCert,
+		MetadataURL:     *metaURL,
+		AcsURL:          *acsURL,
+		SignatureMethod: "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+		IDPMetadata:     fx.sp.IDPMetadata,
+	}
+}
+
+func signedPOSTForm(t *testing.T, sp *csaml.ServiceProvider, ssoURL, relayState string) (*csaml.AuthnRequest, url.Values) {
+	t.Helper()
+	req, err := sp.MakeAuthenticationRequest(ssoURL, csaml.HTTPPostBinding, csaml.HTTPPostBinding)
+	if err != nil {
+		t.Fatalf("MakeAuthenticationRequest: %v", err)
+	}
+	if err := sp.SignAuthnRequest(req); err != nil {
+		t.Fatalf("SignAuthnRequest: %v", err)
+	}
+	doc := etree.NewDocument()
+	doc.SetRoot(req.Element())
+	raw, err := doc.WriteToBytes()
+	if err != nil {
+		t.Fatalf("serialize AuthnRequest: %v", err)
+	}
+	if !strings.Contains(string(raw), "Signature") {
+		t.Fatal("signed request carries no Signature element")
+	}
+	return req, url.Values{
+		"SAMLRequest": {base64.StdEncoding.EncodeToString(raw)},
+		"RelayState":  {relayState},
+	}
+}
+
+func TestSAMLSignedRequestKeylessSP(t *testing.T) {
+	fx := setupSAMLFixture(t)
+	tag := uuid.NewString()[:8]
+	signKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate SP key: %v", err)
+	}
+	sp := fx.seedRawSP(t, tag, signKey, "") // no registered key: SendGrid shape
+	t.Run("signed POST accepted", func(t *testing.T) {
+		req, form := signedPOSTForm(t, sp, fx.issuer+"/saml/sso", "relay-keyless-post")
+		resp, err := fx.browser.PostForm(fx.srv.URL+"/saml/sso", form)
+		if err != nil {
+			t.Fatalf("POST SSO: %v", err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST SSO status = %d, want 200:\n%s", resp.StatusCode, raw)
+		}
+		responseXML, relay := responseFromForm(t, string(raw))
+		if relay != "relay-keyless-post" {
+			t.Fatalf("RelayState = %q", relay)
+		}
+		assertion, err := sp.ParseXMLResponse(responseXML, []string{req.ID}, sp.AcsURL)
+		if err != nil {
+			t.Fatalf("SP rejected the Response: %v", err)
+		}
+		if assertion.Subject.NameID.Value != fx.alice.Username {
+			t.Fatalf("NameID = %q", assertion.Subject.NameID.Value)
+		}
+	})
+	t.Run("signed Redirect accepted", func(t *testing.T) {
+		req, err := sp.MakeAuthenticationRequest(fx.issuer+"/saml/sso", csaml.HTTPRedirectBinding, csaml.HTTPPostBinding)
+		if err != nil {
+			t.Fatalf("MakeAuthenticationRequest: %v", err)
+		}
+		u, err := req.Redirect("relay-keyless-redir", sp)
+		if err != nil {
+			t.Fatalf("Redirect: %v", err)
+		}
+		if !strings.Contains(u.RawQuery, "Signature=") {
+			t.Fatalf("signed request has no Signature param: %q", u.RawQuery)
+		}
+		status, _, html := getBody(t, fx.browser, fx.srv.URL+"/saml/sso?"+u.RawQuery)
+		if status != http.StatusOK {
+			t.Fatalf("signed SSO status = %d:\n%s", status, html)
+		}
+		if _, err := sp.ParseXMLResponse(mustResponse(t, html), []string{req.ID}, sp.AcsURL); err != nil {
+			t.Fatalf("SP rejected signed-flow Response: %v", err)
+		}
+	})
+	t.Run("wrong registered key still fails closed", func(t *testing.T) {
+		otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatalf("generate other key: %v", err)
+		}
+		otherCert := selfSignedTestCert(t, otherKey, "wrong key")
+		pemBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: otherCert.Raw})
+		keyed := fx.seedRawSP(t, uuid.NewString()[:8], signKey, string(pemBlock))
+		_, form := signedPOSTForm(t, keyed, fx.issuer+"/saml/sso", "relay-wrongkey")
+		resp, err := fx.browser.PostForm(fx.srv.URL+"/saml/sso", form)
+		if err != nil {
+			t.Fatalf("POST SSO: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("wrong-key status = %d, want 400", resp.StatusCode)
+		}
+	})
 }

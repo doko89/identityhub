@@ -97,8 +97,9 @@ func isPostBinding(binding string) bool {
 }
 
 // signingCertPEM extracts the first signing (or use-unspecified) X.509
-// certificate as PEM. Empty means the SP advertises no key: unsigned
-// requests are still accepted, signed ones fail closed in validation.
+// certificate as PEM. Empty means the SP advertises no key: its requests
+// skip signature verification (Authentik parity) while every other check
+// still applies.
 func signingCertPEM(keys []csaml.KeyDescriptor) (string, error) {
 	for _, kd := range keys {
 		if kd.Use != "" && kd.Use != "signing" {

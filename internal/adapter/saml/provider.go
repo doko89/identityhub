@@ -1,9 +1,12 @@
 package saml
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,9 +21,12 @@ import (
 )
 
 // Config wires the provider. Issuer is the public origin (APP_BASE_URL);
-// the IdP entity ID is Issuer + "/saml/metadata".
+// the IdP entity ID is Issuer + "/saml/metadata". Logger receives a
+// warning whenever an SP without a registered signing key skips
+// request-signature verification; nil means slog.Default().
 type Config struct {
 	Issuer string
+	Logger *slog.Logger
 }
 
 // Provider implements domain.SAMLProvider with crewjam/saml. Request
@@ -30,12 +36,17 @@ type Config struct {
 type Provider struct {
 	idp    *csaml.IdentityProvider
 	replay *replayCache
+	sps    domain.SAMLSPStore
+	log    *slog.Logger
 }
 
 // New builds the IdP: persistent signing identity from saml_keys, endpoint
 // URLs under Issuer, and the Postgres SP registry as the metadata source.
 // Unsigned AuthnRequests are accepted; signed ones are verified against
 // the registered SP certificate and answered at most once (replay cache).
+// SPs without a registered key (e.g. SendGrid, which publishes none) skip
+// signature verification — Authentik parity — while every other check
+// (issuer, ACS, freshness, replay) still applies.
 func New(ctx context.Context, q Querier, sps domain.SAMLSPStore, cfg Config) (*Provider, error) {
 	issuer := strings.TrimRight(cfg.Issuer, "/")
 	if issuer == "" {
@@ -59,9 +70,15 @@ func New(ctx context.Context, q Querier, sps domain.SAMLSPStore, cfg Config) (*P
 		LogoutURL:               *logoutURL,
 		ServiceProviderProvider: &registry{store: sps},
 	}
+	log := cfg.Logger
+	if log == nil {
+		log = slog.Default()
+	}
 	return &Provider{
 		idp:    idp,
 		replay: newReplayCache(10000),
+		sps:    sps,
+		log:    log,
 	}, nil
 }
 
@@ -94,8 +111,8 @@ func (p *Provider) HandleMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 // ParseAuthnRequest implements domain.SAMLProvider.
-func (p *Provider) ParseAuthnRequest(_ context.Context, r *http.Request) (domain.SAMLAuthnRequest, error) {
-	creq, err := p.validatedAuthnRequest(r)
+func (p *Provider) ParseAuthnRequest(ctx context.Context, r *http.Request) (domain.SAMLAuthnRequest, error) {
+	creq, err := p.validatedAuthnRequest(ctx, r)
 	if err != nil {
 		return domain.SAMLAuthnRequest{}, err
 	}
@@ -105,8 +122,8 @@ func (p *Provider) ParseAuthnRequest(_ context.Context, r *http.Request) (domain
 // FinishAuthnRequest implements domain.SAMLProvider: it re-parses and
 // re-validates (fresh crewjam checks on every issuance), consumes the
 // request ID against replay, and answers with a doubly-signed Response.
-func (p *Provider) FinishAuthnRequest(_ context.Context, w http.ResponseWriter, r *http.Request, d domain.SAMLDecision) error {
-	creq, err := p.validatedAuthnRequest(r)
+func (p *Provider) FinishAuthnRequest(ctx context.Context, w http.ResponseWriter, r *http.Request, d domain.SAMLDecision) error {
+	creq, err := p.validatedAuthnRequest(ctx, r)
 	if err != nil {
 		return err
 	}
@@ -124,8 +141,8 @@ func (p *Provider) FinishAuthnRequest(_ context.Context, w http.ResponseWriter, 
 // to the SP's ACS (e.g. Responder/NoPassive for IsPassive without a
 // session). Unparseable requests cannot be answered this way — the caller
 // falls back to HTTP 400.
-func (p *Provider) WriteAuthnError(_ context.Context, w http.ResponseWriter, r *http.Request, topLevel, secondLevel, message string) {
-	creq, err := p.validatedAuthnRequest(r)
+func (p *Provider) WriteAuthnError(ctx context.Context, w http.ResponseWriter, r *http.Request, topLevel, secondLevel, message string) {
+	creq, err := p.validatedAuthnRequest(ctx, r)
 	if err != nil {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
@@ -197,15 +214,88 @@ func (p *Provider) FinishLogoutRequest(_ context.Context, w http.ResponseWriter,
 // metadata, and a valid signature when the request is signed. The registry
 // advertises a single POST ACS per SP, so the selected endpoint is always
 // POST-sendable.
-func (p *Provider) validatedAuthnRequest(r *http.Request) (*csaml.IdpAuthnRequest, error) {
+//
+// When validation fails for an SP without a registered signing key, the
+// request is retried with its signature inputs removed: such SPs cannot
+// be verified against anything, so they are treated as unsigned
+// (Authentik parity). The retry re-runs the full validation, so only
+// the signature check is excused — any other failure still rejects with
+// the original error.
+func (p *Provider) validatedAuthnRequest(ctx context.Context, r *http.Request) (*csaml.IdpAuthnRequest, error) {
+	raw := p.bufferBody(r)
 	creq, err := csaml.NewIdpAuthnRequest(p.idp, r)
 	if err != nil {
 		return nil, err
 	}
-	if err := creq.Validate(); err != nil {
-		return nil, err
+	if verr := creq.Validate(); verr == nil {
+		return creq, nil
+	} else {
+		err = verr
 	}
-	return creq, nil
+	if retry, ok := p.unsignedRetry(ctx, r, raw, creq); ok {
+		return retry, nil
+	}
+	return nil, err
+}
+
+// bufferBody preserves POST bytes for a signature-stripped retry: the
+// first parse drains the body, so without a copy there is nothing to
+// rebuild from. GET requests carry everything in the URL.
+func (p *Provider) bufferBody(r *http.Request) []byte {
+	if r.Method != http.MethodPost || r.Body == nil {
+		return nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAuthnBodyBytes+1))
+	_ = r.Body.Close()
+	if err != nil || len(raw) > maxAuthnBodyBytes {
+		return nil
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	return raw
+}
+
+// unsignedRetry re-validates a rejected request with its signature
+// inputs removed. It applies only to SPs without a registered signing
+// key; SPs with a key fail closed on the original error, as do requests
+// with nothing to strip.
+func (p *Provider) unsignedRetry(ctx context.Context, r *http.Request, raw []byte, creq *csaml.IdpAuthnRequest) (*csaml.IdpAuthnRequest, bool) {
+	if creq.Request.Issuer == nil || creq.Request.Issuer.Value == "" {
+		return nil, false
+	}
+	sp, err := p.sps.GetByEntityID(ctx, creq.Request.Issuer.Value)
+	if err != nil || sp.CertPEM != "" {
+		return nil, false
+	}
+	var stripped *http.Request
+	var ok bool
+	if r.Method == http.MethodPost {
+		body := raw
+		if len(body) == 0 && len(r.PostForm) > 0 {
+			// Issuance re-validates the same request: the body is
+			// drained but the parsed form survives, and its values
+			// are exactly what the first parse saw.
+			body = []byte(r.PostForm.Encode())
+		}
+		if len(body) == 0 {
+			return nil, false
+		}
+		stripped, ok = stripPOSTSignature(body, r)
+	} else {
+		stripped, ok = stripRedirectSignature(r)
+	}
+	if !ok {
+		return nil, false
+	}
+	retry, err := csaml.NewIdpAuthnRequest(p.idp, stripped)
+	if err != nil {
+		return nil, false
+	}
+	if err := retry.Validate(); err != nil {
+		return nil, false
+	}
+	p.log.Warn("saml authn signature skipped, SP has no registered signing key",
+		"entity_id", sp.EntityID)
+	return retry, true
 }
 
 func mapAuthnRequest(creq *csaml.IdpAuthnRequest) domain.SAMLAuthnRequest {
