@@ -595,7 +595,7 @@ func parseCIDRList(raw string) ([]*net.IPNet, error) {
 
 var (
 	attrNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*$`)
-	attrKeyPattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	attrKeyPattern  = regexp.MustCompile(`^[a-z][a-z0-9-_]*$`)
 )
 
 // parseAttrMap parses "upstream:key,upstream2:key2" into an

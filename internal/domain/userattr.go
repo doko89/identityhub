@@ -13,8 +13,9 @@ import (
 // Custom user attributes: the admin defines the schema (key, type,
 // multi-valued) and every protocol serves the values — LDAP search
 // attributes, OIDC claims and SAML assertion attributes. Keys double as
-// the wire names on all three, so they must be lowercase LDAP-safe and
-// must not collide with the built-in names below.
+// the wire names on all three, so they must be lowercase LDAP-tolerant
+// (letters, digits, '-' and '_' for downstream claim names such as
+// ldap_entry_uuid) and must not collide with the built-in names below.
 type UserAttrType string
 
 const (
@@ -41,7 +42,7 @@ type UserAttrDef struct {
 	Multi bool
 }
 
-var attrKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var attrKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9-_]*$`)
 
 // reservedAttrKeys are the built-in wire names no def may take: LDAP
 // entry attributes, OIDC claims and SAML assertion attributes.
@@ -62,7 +63,7 @@ func ReservedAttrKey(key string) bool { return reservedAttrKeys[strings.ToLower(
 // reserved names and a known type.
 func (d UserAttrDef) Validate() error {
 	if len(d.Key) == 0 || len(d.Key) > 64 || !attrKeyPattern.MatchString(d.Key) {
-		return wrapValidation("attribute key must be 1-64 chars: a-z, 0-9, '-', starting with a letter")
+		return wrapValidation("attribute key must be 1-64 chars: a-z, 0-9, '-' or '_', starting with a letter")
 	}
 	if ReservedAttrKey(d.Key) {
 		return wrapValidation(fmt.Sprintf("attribute key %q is reserved", d.Key))

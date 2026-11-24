@@ -67,6 +67,11 @@ var knownScopes = map[string]bool{
 // slashes) so DELETE /api/admin/oidc/clients/{clientID} routes cleanly.
 var clientIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,128}$`)
 
+// customScopePattern admits namespaced client scopes (e.g. hris_identity)
+// beyond the known OIDC set. Bare single words stay rejected so typos of
+// standard scopes fail loudly instead of registering dead scopes.
+var customScopePattern = regexp.MustCompile(`^[a-z][a-z0-9-_.]*[-_.][a-z0-9-_.]*$`)
+
 // RegisterOIDCClientInput carries one client registration. ClientID is
 // generated when empty; Scopes default to openid/profile/email.
 type RegisterOIDCClientInput struct {
@@ -185,8 +190,9 @@ func cleanRedirectURIs(raw []string) ([]string, error) {
 	return uris, nil
 }
 
-// cleanScopes defaults an empty set and requires every scope to be known
-// with openid present (fosite's OIDC flows need it).
+// cleanScopes defaults an empty set and requires openid present (fosite's
+// OIDC flows need it). Scopes must be known or well-formed custom names;
+// bare unknown words are rejected as probable typos.
 func cleanScopes(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return append([]string{}, DefaultOIDCScopes...), nil
@@ -198,7 +204,7 @@ func cleanScopes(raw []string) ([]string, error) {
 		if sc == "" || seen[sc] {
 			continue
 		}
-		if !knownScopes[sc] {
+		if !knownScopes[sc] && !customScopePattern.MatchString(sc) {
 			return nil, fmt.Errorf("%w: unknown scope %q", domain.ErrValidation, sc)
 		}
 		seen[sc] = true

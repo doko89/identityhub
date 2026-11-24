@@ -263,6 +263,8 @@ func TestRegisterOIDCClientValidation(t *testing.T) {
 		{"fragment", func(in *RegisterOIDCClientInput) { in.RedirectURIs = []string{"https://a.example.com/cb#x"} }},
 		{"custom scheme", func(in *RegisterOIDCClientInput) { in.RedirectURIs = []string{"myapp://cb"} }},
 		{"bad scope", func(in *RegisterOIDCClientInput) { in.Scopes = []string{"openid", "admin"} }},
+		{"malformed scope", func(in *RegisterOIDCClientInput) { in.Scopes = []string{"openid", "Has Space"} }},
+		{"slashed scope", func(in *RegisterOIDCClientInput) { in.Scopes = []string{"openid", "a/b"} }},
 		{"missing openid", func(in *RegisterOIDCClientInput) { in.Scopes = []string{"profile"} }},
 	}
 	for _, tc := range cases {
@@ -281,6 +283,28 @@ func TestRegisterOIDCClientValidation(t *testing.T) {
 		if _, _, err := svc.RegisterOIDCClient(ctx, in); err != nil {
 			t.Fatalf("Register(%s) = %v, want success", uri, err)
 		}
+	}
+}
+
+func TestRegisterOIDCClientCustomScope(t *testing.T) {
+	svc, _, oidc, _, _, appID := providerFixture()
+	created, _, err := svc.RegisterOIDCClient(context.Background(), RegisterOIDCClientInput{
+		ApplicationID: appID, ClientID: "hris.test",
+		RedirectURIs: []string{"https://hris.example.com/cb"},
+		Scopes:       []string{"openid", "profile", "email", "hris_identity"},
+	})
+	if err != nil {
+		t.Fatalf("Register custom scope = %v", err)
+	}
+	stored := oidc.byID[created.ClientID]
+	found := false
+	for _, sc := range stored.Scopes {
+		if sc == "hris_identity" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("stored scopes = %v, want hris_identity", stored.Scopes)
 	}
 }
 
