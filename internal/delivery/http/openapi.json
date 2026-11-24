@@ -1,0 +1,1297 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "IdentityHub Admin API",
+    "version": "1.0.0",
+    "description": "Admin API. Every call needs an ih_admin member: a cookie session from POST /api/auth/login (MFA-verified) or a Bearer personal API key whose owner is an admin and whose key was created from an MFA-verified session. Mutating calls (POST/PUT/PATCH/DELETE) must also send header X-Requested-With: XMLHttpRequest."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "cookieAuth": [] }, { "bearerAuth": [] }],
+  "tags": [
+    { "name": "auth", "description": "Login, logout, session" },
+    { "name": "users", "description": "User management" },
+    { "name": "groups", "description": "Group management" },
+    { "name": "attrs", "description": "Custom user attributes" },
+    { "name": "apps", "description": "Application catalog and access bindings" },
+    { "name": "oidc", "description": "OIDC clients" },
+    { "name": "saml", "description": "SAML service providers" },
+    { "name": "radius", "description": "RADIUS NAS clients" },
+    { "name": "apikeys", "description": "Personal API keys (self-service)" },
+    { "name": "audit", "description": "Audit log" },
+    { "name": "mfa", "description": "Second factor (self-service + admin reset)" },
+    { "name": "system", "description": "LDAP test, branding" }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Password login (first step)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string", "description": "Username or email" },
+                  "password": { "type": "string", "format": "password" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK, or parked at MFA (mfa_required) / setup (setup_required)",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Destroy the session",
+        "security": [],
+        "responses": { "200": { "description": "Logged out" } }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Current session user",
+        "responses": {
+          "200": {
+            "description": "User",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/auth/password/forgot": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Request a reset link (always answers generically; rate-limited per login and IP)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["login"],
+                "properties": { "login": { "type": "string", "description": "Username or email" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Generic message (never leaks account existence)" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/auth/password/reset": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Redeem a forgot-password token (rate-limited per IP)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "new_password", "new_password_confirm"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "new_password": { "type": "string", "format": "password" },
+                  "new_password_confirm": { "type": "string", "format": "password" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Password reset" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": ["users"],
+        "summary": "Search and page users",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "source", "in": "query", "schema": { "type": "string" } },
+          { "name": "active", "in": "query", "schema": { "type": "string", "enum": ["true", "1", "false", "0"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "User page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "users": { "type": "array", "items": { "$ref": "#/components/schemas/User" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["users"],
+        "summary": "Create a local user or pre-provision an LDAP one",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "email"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "email": { "type": "string" },
+                  "display_name": { "type": "string" },
+                  "password": { "type": "string", "format": "password" },
+                  "source": { "type": "string" },
+                  "external_dn": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/users/{id}": {
+      "get": {
+        "tags": ["users"],
+        "summary": "Get one user",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "200": {
+            "description": "User",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["users"],
+        "summary": "Patch profile fields and/or the active flag (deactivation revokes sessions)",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "display_name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "avatar_url": { "type": "string" },
+                  "is_active": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/password": {
+      "post": {
+        "tags": ["users"],
+        "summary": "Set a local user's password (LDAP targets rejected)",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["new_password"],
+                "properties": { "new_password": { "type": "string", "format": "password" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Password set" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/invite": {
+      "post": {
+        "tags": ["users"],
+        "summary": "Email a password-setup link to a provisioned local user",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "200": { "description": "Invitation sent" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/mfa/reset": {
+      "post": {
+        "tags": ["mfa"],
+        "summary": "Reset a user's MFA enrollment",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "200": { "description": "MFA reset" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/groups": {
+      "get": {
+        "tags": ["groups"],
+        "summary": "List groups",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Group page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "groups": { "type": "array", "items": { "$ref": "#/components/schemas/Group" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["groups"],
+        "summary": "Create a group (ih_admin is reserved)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created group",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Group" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/groups/{id}": {
+      "get": {
+        "tags": ["groups"],
+        "summary": "Get one group",
+        "parameters": [{ "$ref": "#/components/parameters/GroupId" }],
+        "responses": {
+          "200": {
+            "description": "Group",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Group" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["groups"],
+        "summary": "Delete a group",
+        "parameters": [{ "$ref": "#/components/parameters/GroupId" }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/groups/{id}/members": {
+      "post": {
+        "tags": ["groups"],
+        "summary": "Add a user to a group (idempotent)",
+        "parameters": [{ "$ref": "#/components/parameters/GroupId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_id"],
+                "properties": { "user_id": { "type": "string", "format": "uuid" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Added" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/groups/{id}/members/{userID}": {
+      "delete": {
+        "tags": ["groups"],
+        "summary": "Remove a user from a group (self/last-member removal from ih_admin refused)",
+        "parameters": [
+          { "$ref": "#/components/parameters/GroupId" },
+          { "name": "userID", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "204": { "description": "Removed" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/user-attrs": {
+      "get": {
+        "tags": ["attrs"],
+        "summary": "List custom attribute definitions ordered by key",
+        "responses": {
+          "200": {
+            "description": "Definitions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "defs": { "type": "array", "items": { "$ref": "#/components/schemas/AttrDef" } } }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["attrs"],
+        "summary": "Register a custom attribute (key doubles as the LDAP/OIDC/SAML wire name)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["key", "type"],
+                "properties": {
+                  "key": { "type": "string", "description": "1-64 chars, lowercase letter start, a-z 0-9 - _" },
+                  "type": { "type": "string", "enum": ["string", "number", "boolean"] },
+                  "multi": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "def": { "$ref": "#/components/schemas/AttrDef" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/user-attrs/{key}": {
+      "delete": {
+        "tags": ["attrs"],
+        "summary": "Drop a definition (values cascade across users)",
+        "parameters": [{ "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/attrs": {
+      "get": {
+        "tags": ["attrs"],
+        "summary": "Get one user's custom attributes as typed values",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "200": {
+            "description": "Attributes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "attrs": { "type": "object", "additionalProperties": true } }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "tags": ["attrs"],
+        "summary": "Replace the given keys (scalar or array per key, null clears; unknown keys fail the whole write)",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Full typed map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "attrs": { "type": "object", "additionalProperties": true } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/apps": {
+      "get": {
+        "tags": ["apps"],
+        "summary": "List applications (supports ?q= text and ?group= filters)",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "group", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "App page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "apps": { "type": "array", "items": { "$ref": "#/components/schemas/App" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["apps"],
+        "summary": "Create an application",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["slug", "name"],
+                "properties": {
+                  "slug": { "type": "string" },
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "icon_url": { "type": "string" },
+                  "launch_url": { "type": "string" },
+                  "group_label": { "type": "string" },
+                  "provider_type": { "type": "string", "enum": ["oidc", "saml", "radius", "shortcut"] },
+                  "is_visible": { "type": "boolean" },
+                  "sort_order": { "type": "integer" },
+                  "mfa_required": { "type": "boolean" },
+                  "open_in_new_tab": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created app",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/App" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/apps/{id}": {
+      "get": {
+        "tags": ["apps"],
+        "summary": "Get one application",
+        "parameters": [{ "$ref": "#/components/parameters/AppId" }],
+        "responses": {
+          "200": {
+            "description": "App",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/App" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["apps"],
+        "summary": "Update an application (only keys present are overlaid)",
+        "parameters": [{ "$ref": "#/components/parameters/AppId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": { "type": "string" },
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "icon_url": { "type": "string" },
+                  "launch_url": { "type": "string" },
+                  "group_label": { "type": "string" },
+                  "provider_type": { "type": "string" },
+                  "is_visible": { "type": "boolean" },
+                  "sort_order": { "type": "integer" },
+                  "mfa_required": { "type": "boolean" },
+                  "open_in_new_tab": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated app",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/App" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["apps"],
+        "summary": "Delete an application",
+        "parameters": [{ "$ref": "#/components/parameters/AppId" }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/apps/{id}/bindings": {
+      "get": {
+        "tags": ["apps"],
+        "summary": "List every binding of one application",
+        "parameters": [{ "$ref": "#/components/parameters/AppId" }],
+        "responses": {
+          "200": {
+            "description": "Bindings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bindings": { "type": "array", "items": { "$ref": "#/components/schemas/Binding" } } }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "tags": ["apps"],
+        "summary": "Create an access binding (user, group, or policy expression)",
+        "parameters": [{ "$ref": "#/components/parameters/AppId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "binding_type": { "type": "string" },
+                  "user_id": { "type": "string", "format": "uuid" },
+                  "group_id": { "type": "string", "format": "uuid" },
+                  "policy_expr": { "type": "string" },
+                  "eval_mode": { "type": "string" },
+                  "effect": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created binding",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Binding" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/apps/{id}/bindings/{bindingID}": {
+      "delete": {
+        "tags": ["apps"],
+        "summary": "Delete a binding",
+        "parameters": [
+          { "$ref": "#/components/parameters/AppId" },
+          { "name": "bindingID", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/oidc/clients": {
+      "get": {
+        "tags": ["oidc"],
+        "summary": "Page registered clients (hashes stripped)",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "clients": { "type": "array", "items": { "$ref": "#/components/schemas/OIDCClient" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["oidc"],
+        "summary": "Register a client (plaintext secret returned once for confidential clients)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["application_id", "redirect_uris"],
+                "properties": {
+                  "application_id": { "type": "string", "format": "uuid" },
+                  "client_id": { "type": "string", "description": "Generated when empty; 3-128 chars A-Za-z0-9._-" },
+                  "redirect_uris": { "type": "array", "items": { "type": "string" } },
+                  "scopes": { "type": "array", "items": { "type": "string" }, "description": "Defaults to openid/profile/email; custom namespaced scopes allowed" },
+                  "public": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Client plus one-time secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client": { "$ref": "#/components/schemas/OIDCClient" },
+                    "client_secret": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/oidc/clients/{clientID}": {
+      "delete": {
+        "tags": ["oidc"],
+        "summary": "Remove a client by its public client_id",
+        "parameters": [{ "name": "clientID", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/saml/sps": {
+      "get": {
+        "tags": ["saml"],
+        "summary": "Page registered service providers",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" }
+        ],
+        "responses": {
+          "200": {
+            "description": "SP page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sps": { "type": "array", "items": { "$ref": "#/components/schemas/SAMLSP" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["saml"],
+        "summary": "Import an SP from metadata XML (body cap 2 MB)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["application_id", "metadata_xml"],
+                "properties": {
+                  "application_id": { "type": "string", "format": "uuid" },
+                  "metadata_xml": { "type": "string" },
+                  "name_id": { "type": "string", "description": "username (default) or email" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Imported SP",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SAMLSP" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "delete": {
+        "tags": ["saml"],
+        "summary": "Remove a service provider",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "application_id": { "type": "string", "format": "uuid" },
+                  "entity_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/radius/clients": {
+      "get": {
+        "tags": ["radius"],
+        "summary": "Page registered NAS devices",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "clients": { "type": "array", "items": { "$ref": "#/components/schemas/RADIUSClient" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["radius"],
+        "summary": "Register a NAS device (plaintext secret returned once)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["application_id", "nas_identifier"],
+                "properties": {
+                  "application_id": { "type": "string", "format": "uuid" },
+                  "nas_identifier": { "type": "string" },
+                  "shared_secret": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Client plus one-time secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client": { "$ref": "#/components/schemas/RADIUSClient" },
+                    "shared_secret": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/radius/clients/{nas}": {
+      "delete": {
+        "tags": ["radius"],
+        "summary": "Remove a NAS device",
+        "parameters": [{ "name": "nas", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/account/api-keys": {
+      "get": {
+        "tags": ["apikeys"],
+        "summary": "List my personal API keys",
+        "responses": {
+          "200": {
+            "description": "Keys (hashes stripped)",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "tags": ["apikeys"],
+        "summary": "Create a personal API key (value returned once; TOTP required)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "totp_code"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "expires_in_days": { "type": "integer" },
+                  "totp_code": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Key plus one-time value",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/account/api-keys/{id}": {
+      "delete": {
+        "tags": ["apikeys"],
+        "summary": "Revoke my personal API key",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "204": { "description": "Revoked" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/audit": {
+      "get": {
+        "tags": ["audit"],
+        "summary": "Page the audit log",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" },
+          { "name": "actor", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "app", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "method", "in": "query", "schema": { "type": "string" } },
+          { "name": "result", "in": "query", "schema": { "type": "string" } },
+          { "name": "since", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "until", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit page",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/audit/export": {
+      "get": {
+        "tags": ["audit"],
+        "summary": "Export the audit log (same filters as list)",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Offset" },
+          { "name": "actor", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "app", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "method", "in": "query", "schema": { "type": "string" } },
+          { "name": "result", "in": "query", "schema": { "type": "string" } },
+          { "name": "since", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "until", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "Export file" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/ldap/test": {
+      "post": {
+        "tags": ["system"],
+        "summary": "Check the upstream directory connection",
+        "responses": {
+          "200": { "description": "Connection result" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/branding": {
+      "patch": {
+        "tags": ["system"],
+        "summary": "Rewrite the branding singleton (only keys present)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "org_name": { "type": "string" },
+                  "tagline": { "type": "string" },
+                  "logo_url": { "type": "string" },
+                  "favicon_url": { "type": "string" },
+                  "primary_color": { "type": "string" },
+                  "theme": { "type": "string" },
+                  "login_background_url": { "type": "string" },
+                  "custom_css": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated branding" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/auth/mfa/totp": {
+      "post": {
+        "tags": ["mfa"],
+        "summary": "Verify the second step (or a recovery code) after password login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": { "type": "string" },
+                  "recovery_code": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Full session" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/admin/docs": {
+      "get": {
+        "tags": ["system"],
+        "summary": "This documentation UI (admin only)",
+        "responses": {
+          "200": { "description": "HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/docs/openapi.json": {
+      "get": {
+        "tags": ["system"],
+        "summary": "This OpenAPI document (admin only)",
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": { "type": "apiKey", "in": "cookie", "name": "ih_session", "description": "MFA-verified admin session cookie from POST /api/auth/login (+ MFA step)" },
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Personal API key owned by an ih_admin member, created from an MFA-verified session" }
+    },
+    "parameters": {
+      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+      "Offset": { "name": "offset", "in": "query", "schema": { "type": "integer" } },
+      "UserId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "GroupId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "AppId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid input",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Unauthorized": {
+        "description": "Missing or invalid auth",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Forbidden": {
+        "description": "Not an admin, or MFA step-up required (mfa_required)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NotFound": {
+        "description": "No such object",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "RateLimited": {
+        "description": "Too many attempts",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "username": { "type": "string" },
+          "email": { "type": "string" },
+          "display_name": { "type": "string" },
+          "avatar_url": { "type": "string" },
+          "is_active": { "type": "boolean" },
+          "is_admin": { "type": "boolean" },
+          "source": { "type": "string" },
+          "groups": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "AttrDef": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "type": { "type": "string", "enum": ["string", "number", "boolean"] },
+          "multi": { "type": "boolean" }
+        }
+      },
+      "App": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "launch_url": { "type": "string" },
+          "group_label": { "type": "string" },
+          "provider_type": { "type": "string" },
+          "is_visible": { "type": "boolean" }
+        }
+      },
+      "Binding": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "binding_type": { "type": "string" },
+          "user_id": { "type": "string" },
+          "group_id": { "type": "string" },
+          "effect": { "type": "string" }
+        }
+      },
+      "OIDCClient": {
+        "type": "object",
+        "properties": {
+          "application_id": { "type": "string", "format": "uuid" },
+          "client_id": { "type": "string" },
+          "redirect_uris": { "type": "array", "items": { "type": "string" } },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "public": { "type": "boolean" }
+        }
+      },
+      "SAMLSP": {
+        "type": "object",
+        "properties": {
+          "application_id": { "type": "string", "format": "uuid" },
+          "entity_id": { "type": "string" },
+          "acs_url": { "type": "string" },
+          "slo_url": { "type": "string" },
+          "name_id": { "type": "string" }
+        }
+      },
+      "RADIUSClient": {
+        "type": "object",
+        "properties": {
+          "application_id": { "type": "string", "format": "uuid" },
+          "nas_identifier": { "type": "string" }
+        }
+      }
+    }
+  }
+}

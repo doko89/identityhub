@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
+  BookOpen,
   FlaskConical,
   KeyRound,
   LayoutGrid,
@@ -162,6 +163,17 @@ export function AdminLayout() {
             </BreadcrumbList>
           </Breadcrumb>
           <div className="ml-auto flex items-center gap-1">
+            <Button variant="ghost" size="icon" asChild>
+              <a
+                href="/api/admin/docs"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="API documentation"
+                title="API documentation"
+              >
+                <BookOpen className="size-5" />
+              </a>
+            </Button>
             <ThemeToggle />
             {me !== null && (
               <Button variant="ghost" size="icon" className="rounded-full" asChild>

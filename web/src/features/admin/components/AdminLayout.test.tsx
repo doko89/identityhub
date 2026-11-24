@@ -46,6 +46,15 @@ describe("AdminLayout", () => {
     expect(getByRole("link", { name: "Back to dashboard" })).toBeDefined();
   });
 
+  it("links the topbar to the API docs in a new tab", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: admin })));
+    const { getByRole } = renderAt("/admin/users");
+    await waitFor(() => expect(getByRole("link", { name: "API documentation" })).toBeDefined());
+    const link = getByRole("link", { name: "API documentation" });
+    expect(link.getAttribute("href")).toBe("/api/admin/docs");
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
   it("shows the forbidden page for non-admins", async () => {
     vi.stubGlobal(
       "fetch",

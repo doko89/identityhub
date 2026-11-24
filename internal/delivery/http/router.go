@@ -80,6 +80,8 @@ func (h *Handlers) mount(r *chi.Mux) {
 
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(h.requireAdmin)
+		r.Get("/docs", h.handleAdminAPIDocs)
+		r.Get("/docs/openapi.json", h.handleAdminAPIDocsSpec)
 		r.Get("/users", h.handleAdminListUsers)
 		r.Post("/users", h.handleAdminCreateUser)
 		r.Get("/users/{id}", h.handleAdminGetUser)
