@@ -130,9 +130,9 @@ func samlList(ctx context.Context, c *Client, out *output, args []string) error 
 	var rows [][]string
 	for _, e := range objList(resp, "sps") {
 		sp := asObj(e)
-		rows = append(rows, []string{cell(sp["entity_id"]), cell(sp["application_id"]), cell(sp["acs_url"]), cell(sp["slo_url"])})
+		rows = append(rows, []string{cell(sp["entity_id"]), cell(sp["application_id"]), cell(sp["acs_url"]), cell(sp["slo_url"]), cell(sp["name_id"])})
 	}
-	out.table([]string{"ENTITY_ID", "APP_ID", "ACS_URL", "SLO_URL"}, rows)
+	out.table([]string{"ENTITY_ID", "APP_ID", "ACS_URL", "SLO_URL", "NAME_ID"}, rows)
 	out.line("total: %s", cell(asObj(resp)["total"]))
 	return nil
 }
@@ -142,6 +142,7 @@ func samlImport(ctx context.Context, c *Client, out *output, args []string) erro
 	appID := fs.String("app", "", "application id (required)")
 	file := fs.String("metadata-file", "", "path to SP metadata XML")
 	inline := fs.String("metadata-xml", "", "SP metadata XML")
+	nameID := fs.String("name-id", "", "NameID source: username (default) or email")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func samlImport(ctx context.Context, c *Client, out *output, args []string) erro
 		xml = string(raw)
 	}
 	resp, err := c.do(ctx, "POST", "/api/admin/saml/sps", nil,
-		map[string]any{"application_id": *appID, "metadata_xml": xml})
+		map[string]any{"application_id": *appID, "metadata_xml": xml, "name_id": *nameID})
 	if err != nil {
 		return err
 	}
@@ -165,8 +166,8 @@ func samlImport(ctx context.Context, c *Client, out *output, args []string) erro
 		return out.printJSON(resp)
 	}
 	sp := obj(resp, "sp")
-	out.table([]string{"ENTITY_ID", "APP_ID", "ACS_URL", "SLO_URL"},
-		[][]string{{cell(sp["entity_id"]), cell(sp["application_id"]), cell(sp["acs_url"]), cell(sp["slo_url"])}})
+	out.table([]string{"ENTITY_ID", "APP_ID", "ACS_URL", "SLO_URL", "NAME_ID"},
+		[][]string{{cell(sp["entity_id"]), cell(sp["application_id"]), cell(sp["acs_url"]), cell(sp["slo_url"]), cell(sp["name_id"])}})
 	return nil
 }
 

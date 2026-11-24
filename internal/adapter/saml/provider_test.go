@@ -27,3 +27,16 @@ func TestMapSessionCustomAttributes(t *testing.T) {
 		t.Errorf("built-ins moved: %+v", s.CustomAttributes[0])
 	}
 }
+
+func TestMapSessionNameIDFormat(t *testing.T) {
+	s := mapSession(domain.SAMLDecision{
+		NameID: "alice@example.com", NameIDFormat: domain.SAMLNameIDFormatEmail,
+	})
+	if s.NameID != "alice@example.com" || s.NameIDFormat != domain.SAMLNameIDFormatEmail {
+		t.Fatalf("got %q/%q, want email/emailAddress", s.NameID, s.NameIDFormat)
+	}
+	s = mapSession(domain.SAMLDecision{NameID: "alice"})
+	if s.NameIDFormat != domain.SAMLNameIDFormatUnspecified {
+		t.Fatalf("empty format = %q, want unspecified", s.NameIDFormat)
+	}
+}

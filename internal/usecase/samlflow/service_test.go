@@ -204,6 +204,7 @@ func TestEvaluateCarriesCustomAttributes(t *testing.T) {
 	want := map[string][]string{
 		"dept": {"eng"}, "tags": {"a", "b"},
 		"display_name": {"Alice"}, "is_admin": {"false"},
+		"FirstName": {"Alice"}, "LastName": {"Alice"},
 	}
 	if !reflect.DeepEqual(d.Attributes, want) {
 		t.Fatalf("Attributes = %v, want %v", d.Attributes, want)
@@ -292,6 +293,108 @@ func TestEvaluateEnforcesBindings(t *testing.T) {
 		t.Fatalf("allowed binding must pass: %v", err)
 	}
 	_ = svc
+}
+
+func TestEvaluateNameIDModes(t *testing.T) {
+	ctx := context.Background()
+	t.Run("default SP gets username with unspecified format", func(t *testing.T) {
+		svc, _, _ := testService()
+		d, err := svc.Evaluate(ctx, testUser(), testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if d.NameID != "alice" {
+			t.Fatalf("NameID = %q, want alice", d.NameID)
+		}
+		if d.NameIDFormat != domain.SAMLNameIDFormatUnspecified {
+			t.Fatalf("NameIDFormat = %q, want unspecified", d.NameIDFormat)
+		}
+	})
+	t.Run("email SP gets email with emailAddress format", func(t *testing.T) {
+		svc, sps, groups := testService()
+		sp := sps.byEntity["https://sp.example.com/metadata"]
+		sp.NameID = domain.SAMLNameIDEmail
+		sps.byEntity["https://sp.example.com/metadata"] = sp
+		_ = svc
+		email, err := New(Deps{SPs: sps, Groups: groups})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := email.Evaluate(ctx, testUser(), testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if d.NameID != "alice@example.com" {
+			t.Fatalf("NameID = %q, want alice@example.com", d.NameID)
+		}
+		if d.NameIDFormat != domain.SAMLNameIDFormatEmail {
+			t.Fatalf("NameIDFormat = %q, want emailAddress", d.NameIDFormat)
+		}
+	})
+}
+
+func TestEvaluateSendGridNameAttributes(t *testing.T) {
+	ctx := context.Background()
+	name := func(svc *Service, u domain.User) (string, string) {
+		d, err := svc.Evaluate(ctx, u, testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		return d.Attributes["FirstName"][0], d.Attributes["LastName"][0]
+	}
+	t.Run("multi-word display name splits first and rest", func(t *testing.T) {
+		svc, _, _ := testService()
+		u := testUser()
+		u.DisplayName = "Muhamad Sagia Angga"
+		first, last := name(svc, u)
+		if first != "Muhamad" || last != "Sagia Angga" {
+			t.Fatalf("got %q/%q, want Muhamad/Sagia Angga", first, last)
+		}
+	})
+	t.Run("single word repeats as last name", func(t *testing.T) {
+		svc, _, _ := testService()
+		first, last := name(svc, testUser())
+		if first != "Alice" || last != "Alice" {
+			t.Fatalf("got %q/%q, want Alice/Alice", first, last)
+		}
+	})
+	t.Run("blank display name falls back to username", func(t *testing.T) {
+		svc, _, _ := testService()
+		u := testUser()
+		u.DisplayName = "  "
+		first, last := name(svc, u)
+		if first != "alice" || last != "alice" {
+			t.Fatalf("got %q/%q, want alice/alice", first, last)
+		}
+	})
+	t.Run("explicit custom names win over computed defaults", func(t *testing.T) {
+		svc, sps, groups := testService()
+		u := testUser()
+		u.DisplayName = "Muhamad Sagia Angga"
+		attrs := &fakeAttrs{
+			defs: []domain.UserAttrDef{
+				{Key: "FirstName", Type: domain.UserAttrString},
+			},
+			values: map[uuid.UUID]map[string][]string{
+				u.ID: {"FirstName": {"Custom"}},
+			},
+		}
+		_ = svc
+		svc2, err := New(Deps{SPs: sps, Groups: groups, Attrs: attrs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := svc2.Evaluate(ctx, u, testRequest())
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if got := d.Attributes["FirstName"]; len(got) != 1 || got[0] != "Custom" {
+			t.Fatalf("FirstName = %v, want [Custom]", got)
+		}
+		if got := d.Attributes["LastName"]; len(got) != 1 || got[0] != "Sagia Angga" {
+			t.Fatalf("LastName = %v, want [Sagia Angga]", got)
+		}
+	})
 }
 
 func TestEvaluatePhpIPAMCompatAttributes(t *testing.T) {

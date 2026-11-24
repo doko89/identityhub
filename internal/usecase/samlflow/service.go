@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -55,7 +56,8 @@ func New(d Deps) (*Service, error) {
 // must be active, the SP must still be registered (an SP deleted after
 // the login round trip started fails closed here), the app's bindings
 // must admit the user, and the assertion content is built from the user +
-// group memberships: NameID = username, attributes email/displayName/groups.
+// group memberships: NameID = username (or email for SPs that key users
+// by it), attributes email/displayName/groups.
 func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAMLAuthnRequest) (domain.SAMLDecision, error) {
 	if !user.IsActive {
 		return domain.SAMLDecision{}, fmt.Errorf("%w: account disabled", domain.ErrForbidden)
@@ -112,13 +114,46 @@ func (s *Service) Evaluate(ctx context.Context, user domain.User, req domain.SAM
 		}
 		custom["is_admin"] = []string{admin}
 	}
+	// SendGrid JIT compatibility attributes. SendGrid reads FirstName and
+	// LastName for just-in-time provisioning; the split mirrors the
+	// Authentik mapping (first word / remainder, single word repeats).
+	first, last := splitDisplayName(user.DisplayName, user.Username)
+	if _, ok := custom["FirstName"]; !ok {
+		custom["FirstName"] = []string{first}
+	}
+	if _, ok := custom["LastName"]; !ok {
+		custom["LastName"] = []string{last}
+	}
+	nameID, nameIDFormat := user.Username, domain.SAMLNameIDFormatUnspecified
+	if sp.NameID == domain.SAMLNameIDEmail {
+		nameID, nameIDFormat = user.Email, domain.SAMLNameIDFormatEmail
+	}
 	return domain.SAMLDecision{
-		NameID:      user.Username,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		Groups:      names,
-		Attributes:  custom,
+		NameID:       nameID,
+		NameIDFormat: nameIDFormat,
+		Email:        user.Email,
+		DisplayName:  user.DisplayName,
+		Groups:       names,
+		Attributes:   custom,
 	}, nil
+}
+
+// splitDisplayName splits a display name into first/last words for SPs
+// that want them separately. A blank display name falls back to the
+// username; a single word repeats as the last name (Authentik parity).
+func splitDisplayName(displayName, username string) (first, last string) {
+	base := strings.TrimSpace(displayName)
+	if base == "" {
+		base = username
+	}
+	parts := strings.Fields(base)
+	if len(parts) == 0 {
+		return username, username
+	}
+	if len(parts) == 1 {
+		return parts[0], parts[0]
+	}
+	return parts[0], strings.Join(parts[1:], " ")
 }
 
 // customAttributes loads the user's custom attributes for the

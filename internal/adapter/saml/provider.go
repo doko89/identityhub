@@ -232,7 +232,8 @@ func mapAuthnRequest(creq *csaml.IdpAuthnRequest) domain.SAMLAuthnRequest {
 }
 
 // mapSession builds the crewjam session from the login decision
-// (TECH_SPEC §6.3): NameID = username; email, displayName and groups as
+// (TECH_SPEC §6.3): NameID + format from the decision (username/
+// unspecified by default); email, displayName and groups as
 // attributes. CustomAttributes guarantee the contract names regardless of
 // what the SP's AttributeConsumingService requests. Custom attributes
 // append after the built-ins, sorted by key for stable assertions.
@@ -276,12 +277,16 @@ func mapSession(d domain.SAMLDecision) *csaml.Session {
 			Values:     vals,
 		})
 	}
+	nameIDFormat := d.NameIDFormat
+	if nameIDFormat == "" {
+		nameIDFormat = domain.SAMLNameIDFormatUnspecified
+	}
 	index := uuid.NewString()
 	return &csaml.Session{
 		ID:               index,
 		Index:            index,
 		NameID:           d.NameID,
-		NameIDFormat:     "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified",
+		NameIDFormat:     nameIDFormat,
 		UserName:         d.NameID,
 		UserEmail:        d.Email,
 		UserCommonName:   d.DisplayName,

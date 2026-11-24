@@ -330,14 +330,20 @@ func TestListOIDCClientsStripsHashes(t *testing.T) {
 
 func TestImportSAMLSP(t *testing.T) {
 	svc, _, _, sps, _, appID := providerFixture()
-	sp, err := svc.ImportSAMLSP(context.Background(), appID, "<xml/>")
+	sp, err := svc.ImportSAMLSP(context.Background(), ImportSAMLSPInput{
+		ApplicationID: appID, MetadataXML: "<xml/>",
+	})
 	if err != nil {
 		t.Fatalf("Import = %v", err)
 	}
 	if sp.EntityID != "https://sp.example.com" || sp.ApplicationID != appID {
 		t.Fatalf("imported = %+v", sp)
 	}
-	if _, err := svc.ImportSAMLSP(context.Background(), appID, "<xml/>"); !errors.Is(err, domain.ErrConflict) {
+	if sp.NameID != domain.SAMLNameIDUsername {
+		t.Fatalf("default NameID = %q, want username", sp.NameID)
+	}
+	in := ImportSAMLSPInput{ApplicationID: appID, MetadataXML: "<xml/>"}
+	if _, err := svc.ImportSAMLSP(context.Background(), in); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("duplicate import = %v, want conflict", err)
 	}
 	if _, ok := sps.byEntity["https://sp.example.com"]; !ok {
@@ -350,13 +356,34 @@ func TestImportSAMLSP(t *testing.T) {
 
 func TestImportSAMLSPUnknownAppAndParseError(t *testing.T) {
 	svc, _, _, _, _, _ := providerFixture()
-	if _, err := svc.ImportSAMLSP(context.Background(), uuid.New(), "<xml/>"); !errors.Is(err, domain.ErrNotFound) {
+	in := ImportSAMLSPInput{ApplicationID: uuid.New(), MetadataXML: "<xml/>"}
+	if _, err := svc.ImportSAMLSP(context.Background(), in); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("unknown app import = %v, want not found", err)
 	}
 	bad, _, _, _, _, appID := providerFixture()
 	bad.parser = fakeParser{err: errors.New("bad xml")}
-	if _, err := bad.ImportSAMLSP(context.Background(), appID, "nope"); err == nil {
+	if _, err := bad.ImportSAMLSP(context.Background(), ImportSAMLSPInput{
+		ApplicationID: appID, MetadataXML: "nope",
+	}); err == nil {
 		t.Fatal("parse error must propagate")
+	}
+}
+
+func TestImportSAMLSPNameID(t *testing.T) {
+	svc, _, _, _, _, appID := providerFixture()
+	ctx := context.Background()
+	sp, err := svc.ImportSAMLSP(ctx, ImportSAMLSPInput{
+		ApplicationID: appID, MetadataXML: "<xml/>", NameID: "email",
+	})
+	if err != nil {
+		t.Fatalf("email Import = %v", err)
+	}
+	if sp.NameID != domain.SAMLNameIDEmail {
+		t.Fatalf("NameID = %q, want email", sp.NameID)
+	}
+	in := ImportSAMLSPInput{ApplicationID: appID, MetadataXML: "<xml/>", NameID: "transient"}
+	if _, err := svc.ImportSAMLSP(ctx, in); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("bogus name_id = %v, want validation", err)
 	}
 }
 

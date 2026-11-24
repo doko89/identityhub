@@ -90,7 +90,7 @@ func (h *Handlers) handleAdminDeleteOIDCClient(w http.ResponseWriter, req *http.
 func samlSPJSON(sp domain.SAMLServiceProvider) map[string]any {
 	return map[string]any{
 		"application_id": sp.ApplicationID.String(), "entity_id": sp.EntityID,
-		"acs_url": sp.ACSURL, "slo_url": sp.SLOURL,
+		"acs_url": sp.ACSURL, "slo_url": sp.SLOURL, "name_id": sp.NameID,
 	}
 }
 
@@ -112,6 +112,7 @@ func (h *Handlers) handleAdminListSAMLSPs(w http.ResponseWriter, req *http.Reque
 type adminSAMLSPRequest struct {
 	ApplicationID string `json:"application_id"`
 	MetadataXML   string `json:"metadata_xml"`
+	NameID        string `json:"name_id"`
 }
 
 // maxSPMetadataBody caps the SP-import request body: the metadata ceiling
@@ -139,7 +140,9 @@ func (h *Handlers) handleAdminImportSAMLSP(w http.ResponseWriter, req *http.Requ
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid application id"})
 		return
 	}
-	sp, err := h.providers.ImportSAMLSP(req.Context(), appID, in.MetadataXML)
+	sp, err := h.providers.ImportSAMLSP(req.Context(), usecaseapp.ImportSAMLSPInput{
+		ApplicationID: appID, MetadataXML: in.MetadataXML, NameID: in.NameID,
+	})
 	if err != nil {
 		h.writeError(w, req, err)
 		return

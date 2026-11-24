@@ -217,9 +217,12 @@ curl -b "$JAR" -X DELETE \
 - IdP metadata / entity ID / SSO URL / certificate: all inside
   `$IDP/saml/metadata` — paste that URL into the app when it accepts
   "IdP metadata URL", else import the downloaded file.
-- NameID: `username` (transient/persistent formats are not offered).
+- NameID: `username` (transient/persistent formats are not offered),
+  or `email` for SPs registered with `name_id=email` (e.g. SendGrid).
 - Attributes: `email`, `displayName`, `groups` (multi-valued group
-  names). Map the app's email/name/role fields to these.
+  names), plus compat defaults `display_name`/`is_admin` (phpIPAM) and
+  `FirstName`/`LastName` (SendGrid JIT). Map the app's email/name/role
+  fields to these.
 - Signatures: responses AND assertions are signed. Unsigned AuthnRequests
   are accepted; signed ones are verified against the imported SP
   certificate. `ForceAuthn` forces a fresh password login.

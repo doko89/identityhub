@@ -191,7 +191,7 @@ SPA routes (React): `/login`, `/mfa`, `/forgot-password`, `/reset-password`, `/`
 - `GET /saml/metadata` — IdP metadata.
 - `POST /saml/sso` — accept AuthnRequest, authenticate the user, send a signed Response to the ACS.
 - `GET|POST /saml/slo` — basic logout.
-- NameID = username; attributes: email, displayName, groups, plus custom attributes as `xs:string` values (sorted by key).
+- NameID = username (unspecified), or email (emailAddress) for SPs registered with `name_id=email`; attributes: email, displayName, groups, plus custom attributes as `xs:string` values (sorted by key).
 
 ### 6.4 LDAP provider (via vjeantet/ldapserver)
 

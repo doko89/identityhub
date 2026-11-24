@@ -210,18 +210,35 @@ func cleanScopes(raw []string) ([]string, error) {
 	return out, nil
 }
 
+// ImportSAMLSPInput carries one SP registration. NameID selects which
+// user field becomes the assertion NameID (username default, email for
+// SPs like SendGrid that key users by it); blank means username.
+type ImportSAMLSPInput struct {
+	ApplicationID uuid.UUID
+	MetadataXML   string
+	NameID        string
+}
+
 // ImportSAMLSP registers an SP by importing its metadata XML (PRD §6.4).
 // The adapter picks the default POST ACS, the preferred SLO endpoint
 // and the signing certificate; the raw XML is kept for audit.
-func (s *ProviderService) ImportSAMLSP(ctx context.Context, applicationID uuid.UUID, metadataXML string) (domain.SAMLServiceProvider, error) {
-	if _, err := s.apps.ByID(ctx, applicationID); err != nil {
+func (s *ProviderService) ImportSAMLSP(ctx context.Context, in ImportSAMLSPInput) (domain.SAMLServiceProvider, error) {
+	if _, err := s.apps.ByID(ctx, in.ApplicationID); err != nil {
 		return domain.SAMLServiceProvider{}, err
 	}
-	sp, err := s.parser.ParseSPMetadata(metadataXML)
+	nameID := strings.TrimSpace(in.NameID)
+	if nameID == "" {
+		nameID = domain.SAMLNameIDUsername
+	}
+	if nameID != domain.SAMLNameIDUsername && nameID != domain.SAMLNameIDEmail {
+		return domain.SAMLServiceProvider{}, fmt.Errorf("%w: name_id must be username or email", domain.ErrValidation)
+	}
+	sp, err := s.parser.ParseSPMetadata(in.MetadataXML)
 	if err != nil {
 		return domain.SAMLServiceProvider{}, err
 	}
-	sp.ApplicationID = applicationID
+	sp.ApplicationID = in.ApplicationID
+	sp.NameID = nameID
 	return s.sps.Create(ctx, sp)
 }
 

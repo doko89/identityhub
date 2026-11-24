@@ -28,14 +28,21 @@ type SAMLAuthnRequest struct {
 	IsPassive  bool
 }
 
+// SAML NameID formats emitted in assertions (TECH_SPEC §6.3).
+const (
+	SAMLNameIDFormatUnspecified = "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified"
+	SAMLNameIDFormatEmail       = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+)
+
 // SAMLDecision is the authenticated user's assertion content: identity plus
 // the attributes every SP receives. The adapter turns it into a signed
 // assertion; it never sees passwords.
 type SAMLDecision struct {
-	NameID      string // username (TECH_SPEC §6.3)
-	Email       string
-	DisplayName string
-	Groups      []string
+	NameID       string // username or email, per the SP's NameID mode
+	NameIDFormat string // SAMLNameIDFormat*; empty means unspecified
+	Email        string
+	DisplayName  string
+	Groups       []string
 	// Attributes carries custom attributes (all strings on the wire).
 	Attributes map[string][]string
 }

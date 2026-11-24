@@ -68,6 +68,14 @@ type OIDCClient struct {
 	Scopes           []string
 }
 
+// SAMLServiceProvider NameID modes: which user field becomes the
+// assertion NameID. Most SPs take the username; SendGrid keys users by
+// email (TECH_SPEC §6.3).
+const (
+	SAMLNameIDUsername = "username"
+	SAMLNameIDEmail    = "email"
+)
+
 // SAMLServiceProvider is one row of saml_sps.
 type SAMLServiceProvider struct {
 	ID            uuid.UUID
@@ -77,6 +85,7 @@ type SAMLServiceProvider struct {
 	SLOURL        string
 	MetadataXML   string
 	CertPEM       string
+	NameID        string // SAMLNameIDUsername (default) or SAMLNameIDEmail
 }
 
 // LDAPProviderConfig is one row of ldap_provider_config.

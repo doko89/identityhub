@@ -20,12 +20,12 @@ func NewSAMLSPRepository(db *DB) *SAMLSPRepository {
 	return &SAMLSPRepository{db: db}
 }
 
-const samlSPColumns = `id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem`
+const samlSPColumns = `id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem, name_id`
 
 func scanSAMLSP(row pgx.Row) (domain.SAMLServiceProvider, error) {
 	var sp domain.SAMLServiceProvider
 	err := row.Scan(&sp.ID, &sp.ApplicationID, &sp.EntityID,
-		&sp.ACSURL, &sp.SLOURL, &sp.MetadataXML, &sp.CertPEM)
+		&sp.ACSURL, &sp.SLOURL, &sp.MetadataXML, &sp.CertPEM, &sp.NameID)
 	if err != nil {
 		return domain.SAMLServiceProvider{}, err
 	}
@@ -51,11 +51,14 @@ func (r *SAMLSPRepository) Create(ctx context.Context, sp domain.SAMLServiceProv
 	if sp.ID == uuid.Nil {
 		sp.ID = uuid.New()
 	}
-	const q = `INSERT INTO saml_sps (id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		RETURNING id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem`
+	if sp.NameID == "" {
+		sp.NameID = domain.SAMLNameIDUsername
+	}
+	const q = `INSERT INTO saml_sps (id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem, name_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING id, application_id, entity_id, acs_url, slo_url, metadata_xml, cert_pem, name_id`
 	created, err := scanSAMLSP(r.db.Pool.QueryRow(ctx, q, sp.ID, sp.ApplicationID,
-		sp.EntityID, sp.ACSURL, sp.SLOURL, sp.MetadataXML, sp.CertPEM))
+		sp.EntityID, sp.ACSURL, sp.SLOURL, sp.MetadataXML, sp.CertPEM, sp.NameID))
 	if err != nil {
 		return domain.SAMLServiceProvider{}, mapWriteError(err)
 	}
