@@ -241,6 +241,36 @@ describe("AdminAppsPage", () => {
     });
   });
 
+  it("searches the list by slug, name, and description", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        urls.push(String(url));
+        return Response.json({ apps: [wiki], total: 1 });
+      }),
+    );
+    const { getByLabelText, getByRole, getByText } = render(
+      <MemoryRouter>
+        <AdminAppsPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getByText("Wiki")).toBeDefined());
+    fireEvent.change(getByLabelText("Search applications"), { target: { value: "wiki" } });
+    fireEvent.change(getByLabelText("Filter by dashboard group"), { target: { value: "Tools" } });
+    fireEvent.click(getByRole("button", { name: "Search" }));
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("q=wiki") && u.includes("group=Tools"))).toBe(true),
+    );
+    fireEvent.click(getByRole("button", { name: "Reset" }));
+    await waitFor(() => {
+      const calls = urls.filter((u) => u.includes("/api/admin/apps?"));
+      const last = calls[calls.length - 1];
+      expect(last).not.toContain("q=");
+      expect(last).not.toContain("group=");
+    });
+  });
+
   it("splits bindings into allow and exclude groups", async () => {
     vi.stubGlobal(
       "fetch",

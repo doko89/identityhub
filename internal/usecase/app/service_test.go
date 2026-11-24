@@ -50,6 +50,12 @@ func (f *fakeApps) List(_ context.Context, flt domain.AppFilter) ([]domain.Appli
 		if flt.Group != "" && !strings.Contains(strings.ToLower(a.GroupLabel), strings.ToLower(flt.Group)) {
 			continue
 		}
+		if flt.Query != "" {
+			hay := strings.ToLower(a.Slug + "\x00" + a.Name + "\x00" + a.Description)
+			if !strings.Contains(hay, strings.ToLower(flt.Query)) {
+				continue
+			}
+		}
 		all = append(all, a)
 	}
 	if flt.Offset >= len(all) {

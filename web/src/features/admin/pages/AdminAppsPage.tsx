@@ -62,6 +62,7 @@ export function AdminAppsPage() {
   const [apps, setApps] = useState<AdminApp[] | null>(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -70,10 +71,10 @@ export function AdminAppsPage() {
   const [confirmDelete, setConfirmDelete] = useState<AdminApp | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const load = useCallback(async (nextOffset: number, groupValue: string) => {
+  const load = useCallback(async (nextOffset: number, qValue: string, groupValue: string) => {
     setNotice(null);
     try {
-      const res = await listApps({ group: groupValue, limit: ADMIN_PAGE_SIZE, offset: nextOffset });
+      const res = await listApps({ q: qValue, group: groupValue, limit: ADMIN_PAGE_SIZE, offset: nextOffset });
       setApps(res.apps);
       setTotal(res.total);
       setOffset(nextOffset);
@@ -83,7 +84,7 @@ export function AdminAppsPage() {
   }, []);
 
   useEffect(() => {
-    void load(0, "");
+    void load(0, "", "");
   }, [load]);
 
   async function runDelete(a: AdminApp) {
@@ -212,10 +213,17 @@ export function AdminAppsPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void load(0, group);
+          void load(0, q, group);
         }}
         className="mb-3 flex flex-wrap items-center gap-2"
       >
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search slug, name, description…"
+          aria-label="Search applications"
+          className="w-64"
+        />
         <Input
           value={group}
           onChange={(e) => setGroup(e.target.value)}
@@ -226,14 +234,15 @@ export function AdminAppsPage() {
         <Button type="submit" variant="outline">
           Search
         </Button>
-        {group !== "" && (
+        {(q !== "" || group !== "") && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => {
+              setQ("");
               setGroup("");
-              void load(0, "");
+              void load(0, "", "");
             }}
           >
             Reset
@@ -285,7 +294,7 @@ export function AdminAppsPage() {
               </TableBody>
             </Table>
           </div>
-          <Pager offset={offset} total={total} onPage={(o) => void load(o, group)} />
+          <Pager offset={offset} total={total} onPage={(o) => void load(o, q, group)} />
         </>
       )}
     </div>

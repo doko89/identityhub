@@ -6,7 +6,7 @@ import (
 )
 
 const appsUsage = `usage:
-  apps list [--group LABEL] [--limit N] [--offset N]
+  apps list [--q QUERY] [--group LABEL] [--limit N] [--offset N]
   apps get <id>
   apps create --slug SLUG --name NAME [--description TEXT] [--icon-url URL] [--launch-url URL]
       [--group-label LABEL] [--provider-type oidc|saml|ldap|radius] [--visible true|false]
@@ -92,12 +92,16 @@ func under(s string) string {
 
 func appsList(ctx context.Context, c *Client, out *output, args []string) error {
 	fs := flag.NewFlagSet("apps list", flag.ContinueOnError)
+	q := fs.String("q", "", "search query")
 	group := fs.String("group", "", "dashboard group filter")
 	page := pageFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	query := page()
+	if *q != "" {
+		query.Set("q", *q)
+	}
 	if *group != "" {
 		query.Set("group", *group)
 	}

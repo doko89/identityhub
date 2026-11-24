@@ -125,9 +125,10 @@ type SecretSealer interface {
 	Open(sealed []byte) ([]byte, error)
 }
 
-// AppFilter pages the app catalog; Group matches group_label,
-// empty = no filter.
+// AppFilter pages the app catalog; Group matches group_label and Query
+// matches slug/name/description, empty = no filter.
 type AppFilter struct {
+	Query  string
 	Group  string
 	Limit  int
 	Offset int

@@ -277,6 +277,7 @@ export async function resolveGroupId(name: string): Promise<string> {
 // ---------- apps + bindings ----------
 
 export interface AppListParams {
+  q?: string;
   group?: string;
   limit?: number;
   offset?: number;
@@ -287,6 +288,7 @@ export function listApps(p: AppListParams = {}): Promise<{ apps: AdminApp[]; tot
     limit: String(p.limit ?? ADMIN_PAGE_SIZE),
     offset: String(p.offset ?? 0),
   });
+  if (p.q !== undefined && p.q !== "") q.set("q", p.q);
   if (p.group !== undefined && p.group !== "") q.set("group", p.group);
   return getJSON(`/api/admin/apps?${q.toString()}`);
 }
