@@ -26,7 +26,8 @@ const scopeLabels: Record<string, string> = {
 // Consent page (PRD §6.3): shown before IdentityHub shares attributes
 // with an app. Allow/Deny posts the decision; the API answers the client
 // redirect target, which may be cross-origin, so the page navigates the
-// whole browser there.
+// whole browser there — or a form_post page, which the page swaps into
+// the document so the browser posts it onward to the client.
 // REDIRECT_BEAT_MS holds the "Redirecting…" state briefly so the
 // decision visibly lands before the browser leaves for the client app.
 const REDIRECT_BEAT_MS = 700;
@@ -75,13 +76,26 @@ export function ConsentPage() {
       });
       const data = (await res.json().catch(() => null)) as {
         redirect_to?: string;
+        form_post?: string;
         error?: string;
       } | null;
-      if (!res.ok || !data?.redirect_to) {
+      if (!res.ok || (!data?.redirect_to && !data?.form_post)) {
         setError(data?.error ?? "Authorization failed. Restart sign-in from the app.");
         return;
       }
-      const target = data.redirect_to;
+      if (data.form_post) {
+        // form_post response mode (.NET clients): swap the server-rendered
+        // auto-submit form into the document so the browser posts onward.
+        const html = data.form_post;
+        setRedirectTo(hostOf(info?.redirect_uri ?? "the app"));
+        window.setTimeout(() => {
+          document.open();
+          document.write(html);
+          document.close();
+        }, REDIRECT_BEAT_MS);
+        return;
+      }
+      const target = data.redirect_to as string;
       setRedirectTo(hostOf(target));
       window.setTimeout(() => {
         window.location.href = target;

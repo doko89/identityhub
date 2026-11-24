@@ -228,6 +228,18 @@ type oidcClient struct {
 // GetName reports the application display name for the consent page.
 func (c *oidcClient) GetName() string { return c.name }
 
+// GetResponseModes implements fosite.ResponseModeClient: without it
+// fosite rejects every explicit response_mode (including form_post,
+// which .NET-based clients like Technitium send by default) with
+// invalid_request. Flow-level validity stays enforced by fosite.
+func (c *oidcClient) GetResponseModes() []fosite.ResponseModeType {
+	return []fosite.ResponseModeType{
+		fosite.ResponseModeQuery,
+		fosite.ResponseModeFragment,
+		fosite.ResponseModeFormPost,
+	}
+}
+
 // GetClient implements fosite.ClientManager. Only the authorization-code
 // (+refresh) grant with response_type=code is served; secrets stay
 // bcrypt-hashed in the database and are compared inside fosite.

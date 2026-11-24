@@ -204,7 +204,10 @@ func (h *Handlers) handleConsentPost(w http.ResponseWriter, req *http.Request) {
 }
 
 // captureRedirect runs the authorize completion (grant or deny) against a
-// recorder and returns the Location as JSON for the SPA to follow.
+// recorder and returns the outcome as JSON for the SPA. Redirect modes
+// answer the Location to navigate to; form_post renders an auto-submit
+// HTML page instead (no Location), which the SPA swaps into the
+// document so the browser posts it onward to the client.
 func (h *Handlers) captureRedirect(w http.ResponseWriter, req *http.Request, r2 *http.Request, d *domain.OIDCDecision) {
 	rec := httptest.NewRecorder()
 	if d == nil {
@@ -212,14 +215,17 @@ func (h *Handlers) captureRedirect(w http.ResponseWriter, req *http.Request, r2 
 	} else {
 		_ = h.oidc.FinishAuthorizeRequest(req.Context(), rec, r2, *d)
 	}
-	loc := rec.Header().Get("Location")
-	if loc == "" {
-		h.log.Error("oidc completion produced no redirect",
-			"client", r2.URL.Query().Get("client_id"), "status", rec.Code)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "authorization failed, restart login from the app"})
+	if loc := rec.Header().Get("Location"); loc != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"redirect_to": loc})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"redirect_to": loc})
+	if rec.Code == http.StatusOK && rec.Body.Len() > 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"form_post": rec.Body.String()})
+		return
+	}
+	h.log.Error("oidc completion produced no redirect",
+		"client", r2.URL.Query().Get("client_id"), "status", rec.Code)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "authorization failed, restart login from the app"})
 }
 
 // loadChallenge fetches a live challenge and checks session ownership.

@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -279,6 +280,18 @@ func (fx *oidcFixture) authorizeConsent(state string, seed clientSeed, pkce bool
 // grant completes the consent API round trip and returns redirect_to.
 func (fx *oidcFixture) grant(consentLoc string, seed clientSeed, grant bool) string {
 	fx.t.Helper()
+	done := fx.grantJSON(consentLoc, seed, grant)
+	if done["redirect_to"] == "" {
+		fx.t.Fatalf("consent post has no redirect_to: %v", done)
+	}
+	return done["redirect_to"]
+}
+
+// grantJSON completes the consent API round trip and returns the decoded
+// POST body (redirect_to for redirect modes, form_post HTML for
+// response_mode=form_post).
+func (fx *oidcFixture) grantJSON(consentLoc string, seed clientSeed, grant bool) map[string]string {
+	fx.t.Helper()
 	u, err := url.Parse(consentLoc)
 	if err != nil {
 		fx.t.Fatalf("parse consent location: %v", err)
@@ -317,13 +330,11 @@ func (fx *oidcFixture) grant(consentLoc string, seed clientSeed, grant bool) str
 	if resp.StatusCode != http.StatusOK {
 		fx.t.Fatalf("consent post status = %d (%s)", resp.StatusCode, raw)
 	}
-	var done struct {
-		RedirectTo string `json:"redirect_to"`
-	}
+	var done map[string]string
 	if err := json.Unmarshal(raw, &done); err != nil {
 		fx.t.Fatalf("consent post decode: %v", err)
 	}
-	return done.RedirectTo
+	return done
 }
 
 func (fx *oidcFixture) codeFromRedirect(loc, state string) string {
@@ -692,3 +703,77 @@ func TestOIDCConsentDeny(t *testing.T) {
 		t.Fatalf("deny redirect state = %q, want round-tripped state", redirectTo)
 	}
 }
+
+func TestOIDCAuthorizeFormPost(t *testing.T) {
+	fx := setupOIDCFixture(t)
+	// .NET-based clients (Technitium) send response_mode=form_post with
+	// PKCE: parse must accept it, and the consent completion must answer
+	// the auto-submit form (fosite renders 200 HTML, no Location).
+	authURL := fx.authorizeURL(fx.conf, "state-formpost-01", true) +
+		"&response_mode=form_post&nonce=formpost-nonce-01"
+	resp, err := fx.browser.Get(authURL)
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("authorize status = %d, want 302 consent", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/consent?challenge=") {
+		t.Fatalf("Location = %q, want consent page", loc)
+	}
+	done := fx.grantJSON(loc, fx.conf, true)
+	form, ok := done["form_post"]
+	if !ok || form == "" {
+		t.Fatalf("consent post = %v, want form_post HTML", done)
+	}
+	if !strings.Contains(form, `action="`+fx.conf.redirectURI+`"`) ||
+		!strings.Contains(form, `name="code"`) ||
+		!strings.Contains(form, `name="state"`) {
+		t.Fatalf("form_post HTML missing action/code/state: %.300s", form)
+	}
+	code := formPostParam(t, form, "code")
+	if formPostParam(t, form, "state") != "state-formpost-01" {
+		t.Fatalf("form state mismatch: %.200s", form)
+	}
+	status, tok, raw := fx.token(fx.conf, url.Values{
+		"grant_type": {"authorization_code"}, "code": {code},
+		"redirect_uri": {fx.conf.redirectURI}, "code_verifier": {pkceVerifier},
+	}, fx.conf.secret)
+	if status != http.StatusOK {
+		t.Fatalf("form_post code exchange status = %d (%s)", status, raw)
+	}
+	if tok.AccessToken == "" || tok.IDToken == "" {
+		t.Fatalf("token response missing fields: %+v", tok)
+	}
+
+	// Remembered consent: authorize answers the form directly (200 HTML).
+	resp, err = fx.browser.Get(fx.authorizeURL(fx.conf, "state-formpost-02", true) +
+		"&response_mode=form_post&nonce=formpost-nonce-02")
+	if err != nil {
+		t.Fatalf("second authorize: %v", err)
+	}
+	rawBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second authorize status = %d, want 200 form (%s)", resp.StatusCode, rawBody)
+	}
+	if !strings.Contains(string(rawBody), `name="code"`) {
+		t.Fatalf("second authorize body has no form: %.300s", rawBody)
+	}
+}
+
+// formPostParam extracts one hidden input value from a form_post page.
+func formPostParam(t *testing.T, form, name string) string {
+	t.Helper()
+	for _, mm := range formPostInput.FindAllStringSubmatch(form, -1) {
+		if mm[1] == name {
+			return mm[2]
+		}
+	}
+	t.Fatalf("form_post has no input %q: %.300s", name, form)
+	return ""
+}
+
+var formPostInput = regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)"`)
