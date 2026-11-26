@@ -29,6 +29,7 @@ const (
 	ActionUserInvite         = "user_invite"
 	ActionUserDeactivate     = "user_deactivate"
 	ActionUserReactivate     = "user_reactivate"
+	ActionUserDelete         = "user_delete"
 	ActionMFAEnroll          = "mfa_enroll"
 	ActionMFADisable         = "mfa_disable"
 	ActionMFARecoveryRegen   = "mfa_recovery_regenerate"

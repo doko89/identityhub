@@ -186,6 +186,16 @@ func (f *fakeUsers) SetPasswordHash(_ context.Context, id uuid.UUID, hash []byte
 	return nil
 }
 
+func (f *fakeUsers) Delete(_ context.Context, id uuid.UUID) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.byID, id)
+	delete(f.byUsername, u.Username)
+	return nil
+}
+
 type fakeGroups struct {
 	byID         map[uuid.UUID]domain.Group
 	byName       map[string]domain.Group
@@ -769,6 +779,56 @@ func TestSetActiveGuardErrors(t *testing.T) {
 	h6.users.byIDErr[mate.ID] = errors.New("row gone")
 	if err := h6.svc.SetActive(ctx, uuid.New(), u.ID, false); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("SetActive = %v, want ErrForbidden", err)
+	}
+}
+
+func TestDeleteUser(t *testing.T) {
+	u := localUser("ara")
+	h := newHarness(t, u)
+	ctx := context.Background()
+	actor := uuid.New()
+	if err := h.svc.DeleteUser(ctx, actor, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.users.ByID(ctx, u.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("ByID after delete = %v, want ErrNotFound", err)
+	}
+	if len(h.sessions.revokedAll) != 1 {
+		t.Errorf("revoked = %v, want one RevokeAll", h.sessions.revokedAll)
+	}
+	if h.audits.entries[0].Detail["action"] != audit.ActionUserDelete {
+		t.Errorf("audit = %+v", h.audits.entries)
+	}
+	if err := h.svc.DeleteUser(ctx, actor, uuid.New()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteUserGuards(t *testing.T) {
+	ctx := context.Background()
+	root := localUser("root")
+	other := localUser("other")
+	h := newHarness(t, root, other)
+	_ = h.groups.AddMember(ctx, root.ID, h.admin.ID)
+	_ = h.groups.AddMember(ctx, other.ID, h.admin.ID)
+
+	// Self-delete is refused.
+	if err := h.svc.DeleteUser(ctx, root.ID, root.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("self delete = %v, want ErrForbidden", err)
+	}
+	// Fellow admin present: deleting root is allowed.
+	if err := h.svc.DeleteUser(ctx, other.ID, root.ID); err != nil {
+		t.Fatalf("delete with fellow admin = %v", err)
+	}
+	// Now other is the last active admin: refused.
+	if err := h.svc.DeleteUser(ctx, uuid.New(), other.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("last admin delete = %v, want ErrForbidden", err)
+	}
+	// Directory-synced users are refused.
+	dir := ldapUser("diruser")
+	h2 := newHarness(t, dir)
+	if err := h2.svc.DeleteUser(ctx, uuid.New(), dir.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("ldap delete = %v, want ErrForbidden", err)
 	}
 }
 

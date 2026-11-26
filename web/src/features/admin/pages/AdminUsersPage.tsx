@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { KeyRound, Pencil, Plus, RotateCcw, ShieldCheck } from "lucide-react";
+import { KeyRound, Pencil, Plus, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { ApiError } from "@/shared/api/client";
 import { ImageDropzone } from "@/features/uploads/components/ImageDropzone";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
@@ -44,6 +44,7 @@ import {
   ADMIN_PAGE_SIZE,
   attrsToDrafts,
   createUser,
+  deleteUser,
   draftsToBody,
   getUser,
   getUserAttrs,
@@ -237,6 +238,14 @@ export function AdminUsersPage() {
                           </RowButton>
                           <PasswordButton user={u} onError={setNotice} />
                           <MFAResetButton user={u} onError={setNotice} />
+                          <DeleteUserButton
+                            user={u}
+                            onError={setNotice}
+                            onDeleted={() => {
+                              setUsers((prev) => (prev === null ? prev : prev.filter((x) => x.id !== u.id)));
+                              setTotal((t) => Math.max(0, t - 1));
+                            }}
+                          />
                         </span>
                       </TableCell>
                     </TableRow>
@@ -700,6 +709,57 @@ function MFAResetButton({ user, onError }: { user: AdminUser; onError: (n: Admin
           </Button>
           <Button type="button" variant="destructive" disabled={busy} onClick={() => void run()}>
             {busy ? "Resetting…" : "Reset factors"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteUserButton({
+  user,
+  onError,
+  onDeleted,
+}: {
+  user: AdminUser;
+  onError: (n: AdminNotice) => void;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    setBusy(true);
+    try {
+      await deleteUser(user.id);
+      setOpen(false);
+      onDeleted();
+    } catch (err) {
+      onError(toNotice(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <RowButton label={`Delete ${user.username}`} title="Delete" onClick={() => setOpen(true)}>
+        <Trash2 className="size-4" />
+      </RowButton>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete {user.username}</DialogTitle>
+          <DialogDescription>
+            This permanently removes the account, its sessions, group memberships, and API keys.
+            Own account, the last administrator, and LDAP-synced accounts cannot be deleted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" variant="destructive" disabled={busy} onClick={() => void run()}>
+            {busy ? "Deleting…" : "Delete user"}
           </Button>
         </DialogFooter>
       </DialogContent>

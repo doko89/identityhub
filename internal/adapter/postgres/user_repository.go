@@ -185,6 +185,19 @@ func (r *UserRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, hash
 	return nil
 }
 
+// Delete hard-removes a user row; dependents cascade per schema.
+func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	_ = BumpDirectoryVersion(ctx, r.db)
+	return nil
+}
+
 func mapReadError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrNotFound
