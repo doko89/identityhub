@@ -168,6 +168,21 @@ func (h *Handlers) handleAdminUpdateUser(w http.ResponseWriter, req *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"user": userJSON(u, groupNames(groups), isAdmin)})
 }
 
+// handleAdminDeleteUser hard-deletes a local user. Self-delete, the last
+// active administrator, and directory-synced users are refused (usecase).
+func (h *Handlers) handleAdminDeleteUser(w http.ResponseWriter, req *http.Request) {
+	id, err := uuid.Parse(req.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+	if err := h.users.DeleteUser(req.Context(), mustUser(req.Context()).ID, id); err != nil {
+		h.writeError(w, req, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---------- admin: groups ----------
 
 func groupJSON(g domain.Group, members []string) map[string]any {

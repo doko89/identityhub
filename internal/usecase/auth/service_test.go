@@ -159,6 +159,17 @@ func (f *fakeUsers) SetPasswordHash(_ context.Context, id uuid.UUID, hash []byte
 	return nil
 }
 
+func (f *fakeUsers) Delete(_ context.Context, id uuid.UUID) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.byID, id)
+	delete(f.byUsername, u.Username)
+	delete(f.byEmail, u.Email)
+	return nil
+}
+
 type fakeGroups struct {
 	members map[uuid.UUID]map[string]bool // user -> group names
 	err     error

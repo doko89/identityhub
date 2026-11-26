@@ -129,7 +129,7 @@ func (s *Service) SetActive(ctx context.Context, actorID, id uuid.UUID, active b
 		return err
 	}
 	if !active {
-		if err := s.guardLastAdmin(ctx, id); err != nil {
+		if err := s.guardLastAdmin(ctx, id, "deactivate"); err != nil {
 			return err
 		}
 	}
@@ -152,8 +152,8 @@ func (s *Service) SetActive(ctx context.Context, actorID, id uuid.UUID, active b
 	return nil
 }
 
-// guardLastAdmin refuses to disable the last active ih_admin member.
-func (s *Service) guardLastAdmin(ctx context.Context, id uuid.UUID) error {
+// guardLastAdmin refuses to deactivate/delete the last active ih_admin member.
+func (s *Service) guardLastAdmin(ctx context.Context, id uuid.UUID, action string) error {
 	member, err := s.groups.IsMember(ctx, id, domain.AdminGroup)
 	if err != nil {
 		return err
@@ -183,8 +183,39 @@ func (s *Service) guardLastAdmin(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 	if active == 0 {
-		return fmt.Errorf("%w: cannot deactivate the last active administrator", domain.ErrForbidden)
+		return fmt.Errorf("%w: cannot %s the last active administrator", domain.ErrForbidden, action)
 	}
+	return nil
+}
+
+// DeleteUser hard-removes a local user after revoking sessions.
+// Refused: self-delete, the last active administrator, and
+// directory-synced users (remove them from the directory instead —
+// the next sync would recreate a deleted LDAP row).
+func (s *Service) DeleteUser(ctx context.Context, actorID, id uuid.UUID) error {
+	if actorID == id {
+		return fmt.Errorf("%w: cannot delete your own account", domain.ErrForbidden)
+	}
+	u, err := s.users.ByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.Source == domain.SourceLDAP {
+		return fmt.Errorf("%w: cannot delete directory-synced user %q", domain.ErrForbidden, u.Username)
+	}
+	if err := s.guardLastAdmin(ctx, id, "delete"); err != nil {
+		return err
+	}
+	if _, err := s.sessions.RevokeAll(ctx, id); err != nil {
+		return fmt.Errorf("user: revoke sessions: %w", err)
+	}
+	if err := s.users.Delete(ctx, id); err != nil {
+		return err
+	}
+	_ = s.audit.Record(ctx, domain.AuditEntry{
+		ActorUserID: &actorID, Method: domain.MethodPassword, Result: domain.ResultSuccess,
+		Detail: map[string]any{"action": audit.ActionUserDelete, "target_user_id": u.ID.String(), "target_username": u.Username},
+	})
 	return nil
 }
 

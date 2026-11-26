@@ -192,6 +192,10 @@ export function resetUserMFA(id: string): Promise<void> {
   return sendVoid(`/api/admin/users/${encodeURIComponent(id)}/mfa/reset`, "POST");
 }
 
+export function deleteUser(id: string): Promise<void> {
+  return sendVoid(`/api/admin/users/${encodeURIComponent(id)}`, "DELETE");
+}
+
 // setAdmin grants/revokes membership in the reserved ih_admin group
 // (there is no admin flag on the user row itself).
 export async function setAdmin(userId: string, makeAdmin: boolean): Promise<void> {

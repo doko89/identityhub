@@ -152,6 +152,16 @@ func (f *fakeUsers) SetPasswordHash(_ context.Context, id uuid.UUID, hash []byte
 	return nil
 }
 
+func (f *fakeUsers) Delete(_ context.Context, id uuid.UUID) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(f.byID, id)
+	delete(f.byUsername, u.Username)
+	return nil
+}
+
 type fakeGroups struct {
 	byID    map[uuid.UUID]domain.Group
 	byName  map[string]domain.Group
@@ -1026,6 +1036,18 @@ func TestAdminUsers(t *testing.T) {
 	code, out = h.do(http.MethodPatch, "/api/admin/users/"+rootID, map[string]bool{"is_active": false})
 	if code != http.StatusForbidden {
 		t.Fatalf("deactivate last admin = %d, %v, want 403", code, out)
+	}
+	code, _ = h.do(http.MethodDelete, "/api/admin/users/"+id, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("delete = %d, want 204", code)
+	}
+	code, _ = h.do(http.MethodGet, "/api/admin/users/"+id, nil)
+	if code != http.StatusNotFound {
+		t.Errorf("get after delete = %d, want 404", code)
+	}
+	code, _ = h.do(http.MethodDelete, "/api/admin/users/"+rootID, nil)
+	if code != http.StatusForbidden {
+		t.Errorf("delete last admin = %d, want 403", code)
 	}
 	code, _ = h.do(http.MethodGet, "/api/admin/users/not-a-uuid", nil)
 	if code != http.StatusBadRequest {

@@ -12,6 +12,7 @@ const usersUsage = `usage:
   users create --username NAME --email EMAIL [--password PASS] [--display-name NAME] [--source local|ldap] [--external-dn DN]
       (omit --password to leave the account invite-pending, then users invite <id>)
   users update <id> [--display-name NAME] [--email EMAIL] [--avatar-url URL] [--active true|false]
+  users delete <id>
   users set-password <id> [--password PASS]
   users invite <id>
   users mfa-reset <id>`
@@ -29,6 +30,8 @@ func usersCmd(ctx context.Context, c *Client, out *output, args []string) error 
 		return usersCreate(ctx, c, out, args[1:])
 	case "update":
 		return usersUpdate(ctx, c, out, args[1:])
+	case "delete":
+		return usersDelete(ctx, c, out, args[1:])
 	case "set-password":
 		return usersSetPassword(ctx, c, out, args[1:])
 	case "invite":
@@ -172,6 +175,17 @@ func usersUpdate(ctx context.Context, c *Client, out *output, args []string) err
 		return out.printJSON(resp)
 	}
 	out.table(userHeader, [][]string{userRow(obj(resp, "user"))})
+	return nil
+}
+
+func usersDelete(ctx context.Context, c *Client, out *output, args []string) error {
+	if len(args) != 1 {
+		return usagef("users delete <id>")
+	}
+	if _, err := c.do(ctx, "DELETE", "/api/admin/users/"+args[0], nil, nil); err != nil {
+		return err
+	}
+	out.line("deleted user %s", args[0])
 	return nil
 }
 

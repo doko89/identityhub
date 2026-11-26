@@ -80,4 +80,7 @@ type UserStore interface {
 	Update(ctx context.Context, u User) (User, error)
 	SetActive(ctx context.Context, id uuid.UUID, active bool) error
 	SetPasswordHash(ctx context.Context, id uuid.UUID, hash []byte) error
+	// Delete hard-removes a user. Dependent rows cascade (sessions,
+	// memberships, attrs, api keys); audit keeps rows with NULL actor.
+	Delete(ctx context.Context, id uuid.UUID) error
 }

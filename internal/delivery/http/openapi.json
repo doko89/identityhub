@@ -232,6 +232,18 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
+      },
+      "delete": {
+        "tags": ["users"],
+        "summary": "Hard-delete a local user (self, last admin, and directory-synced users refused)",
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/api/admin/users/{id}/password": {
