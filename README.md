@@ -75,7 +75,10 @@ curl -b jar -X PUT localhost:8080/api/admin/users/<id>/attrs \
 ```
 
 Every login — success, failure, or rate-limited — lands in `audit_log`
-(fail-closed: a failed audit write fails the login).
+(fail-closed: a failed audit write fails the login). The only exception
+is the operator-configured success ignore list (`AUDIT_IGNORE_CIDRS` /
+`AUDIT_IGNORE_APPS`): success rows from those IPs/apps are dropped,
+failures are always kept.
 
 `password_hash` accepts argon2id (native), bcrypt, and Django
 `pbkdf2_sha256$` (verified as-is; the first successful login re-hashes

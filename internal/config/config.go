@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Defaults for the M0 foundation server.
@@ -80,6 +82,8 @@ const (
 	envLDAPBindCacheTTL = "LDAP_BIND_CACHE_TTL"
 	envLDAPServeBaseDN  = "LDAP_SERVE_BASE_DN"
 	envAuditRetention   = "AUDIT_RETENTION"
+	envAuditIgnoreCIDRs = "AUDIT_IGNORE_CIDRS"
+	envAuditIgnoreApps  = "AUDIT_IGNORE_APPS"
 	// RADIUS provider (server) settings (TECH_SPEC §6.5).
 	envRADIUSEnabled = "RADIUS_ENABLED"
 	envRADIUSPort    = "RADIUS_PORT"
@@ -124,6 +128,12 @@ type Config struct {
 	// AuditRetention bounds audit_log rows (AUDIT_RETENTION); the worker
 	// deletes older rows. 0 (default) keeps rows forever.
 	AuditRetention time.Duration
+	// AuditIgnoreCIDRs drops success audit rows from these networks
+	// (AUDIT_IGNORE_CIDRS); failures are always kept. Empty records all.
+	AuditIgnoreCIDRs []*net.IPNet
+	// AuditIgnoreApps drops success audit rows for these application IDs
+	// (AUDIT_IGNORE_APPS); failures are always kept. Empty records all.
+	AuditIgnoreApps []uuid.UUID
 	// BaseURL is the public origin used to build links emailed to users
 	// (password reset). No trailing slash.
 	BaseURL string
@@ -399,6 +409,20 @@ func Load() (Config, error) {
 			*item.dst = d
 		}
 	}
+	if raw := strings.TrimSpace(os.Getenv(envAuditIgnoreCIDRs)); raw != "" {
+		nets, err := parseCIDRList(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s: %w", envAuditIgnoreCIDRs, err)
+		}
+		cfg.AuditIgnoreCIDRs = nets
+	}
+	if raw := strings.TrimSpace(os.Getenv(envAuditIgnoreApps)); raw != "" {
+		ids, err := parseUUIDList(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s: %w", envAuditIgnoreApps, err)
+		}
+		cfg.AuditIgnoreApps = ids
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -589,6 +613,25 @@ func parseCIDRList(raw string) ([]*net.IPNet, error) {
 			continue
 		}
 		return nil, fmt.Errorf("%q is not a CIDR or IP address", item)
+	}
+	return out, nil
+}
+
+// parseUUIDList parses a comma-separated list of UUIDs (application IDs
+// for AUDIT_IGNORE_APPS). Blank items are skipped so a trailing comma is
+// harmless.
+func parseUUIDList(raw string) ([]uuid.UUID, error) {
+	var out []uuid.UUID
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		id, err := uuid.Parse(item)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a UUID", item)
+		}
+		out = append(out, id)
 	}
 	return out, nil
 }

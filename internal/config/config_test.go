@@ -5,6 +5,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func testEncKey(t *testing.T) string {
@@ -414,6 +416,73 @@ func TestLoadStorageFailures(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, k := range []string{"DATABASE_URL", "ENC_KEY", "STORAGE_BACKEND", "STORAGE_DIR", "STORAGE_S3_ENDPOINT", "STORAGE_S3_BUCKET", "STORAGE_S3_ACCESS_KEY", "STORAGE_S3_SECRET_KEY", "STORAGE_S3_USE_SSL"} {
+				t.Setenv(k, "")
+			}
+			t.Setenv("DATABASE_URL", validURL)
+			t.Setenv("ENC_KEY", validKey)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() = nil error, want failure")
+			}
+		})
+	}
+}
+
+func TestLoadAuditIgnore(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "AUDIT_IGNORE_CIDRS", "192.0.2.59/32, 192.168.0.0/16")
+	setEnv(t, "AUDIT_IGNORE_APPS", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.AuditIgnoreCIDRs) != 2 {
+		t.Fatalf("AuditIgnoreCIDRs = %d nets, want 2", len(cfg.AuditIgnoreCIDRs))
+	}
+	if !cfg.AuditIgnoreCIDRs[0].Contains(net.ParseIP("192.0.2.59")) {
+		t.Error("192.0.2.59 must be inside 192.0.2.59/32")
+	}
+	if cfg.AuditIgnoreCIDRs[0].Contains(net.ParseIP("192.0.2.60")) {
+		t.Error("192.0.2.60 must be outside 192.0.2.59/32")
+	}
+	if len(cfg.AuditIgnoreApps) != 1 || cfg.AuditIgnoreApps[0] != uuid.MustParse("3fa85f64-5717-4562-b3fc-2c963f66afa6") {
+		t.Fatalf("AuditIgnoreApps = %v, want the one configured UUID", cfg.AuditIgnoreApps)
+	}
+}
+
+func TestLoadAuditIgnoreDefaultsEmpty(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://localhost:5432/identityhub")
+	setEnv(t, "ENC_KEY", testEncKey(t))
+	setEnv(t, "AUDIT_IGNORE_CIDRS", "")
+	setEnv(t, "AUDIT_IGNORE_APPS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.AuditIgnoreCIDRs) != 0 || len(cfg.AuditIgnoreApps) != 0 {
+		t.Fatalf("ignore lists = %v/%v, want both empty", cfg.AuditIgnoreCIDRs, cfg.AuditIgnoreApps)
+	}
+}
+
+func TestLoadAuditIgnoreFailures(t *testing.T) {
+	validURL := "postgres://localhost:5432/identityhub"
+	validKey := testEncKey(t)
+
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"bad AUDIT_IGNORE_CIDRS", map[string]string{"AUDIT_IGNORE_CIDRS": "192.0.2.999/32"}},
+		{"bad AUDIT_IGNORE_APPS", map[string]string{"AUDIT_IGNORE_APPS": "not-a-uuid"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"DATABASE_URL", "ENC_KEY", "AUDIT_IGNORE_CIDRS", "AUDIT_IGNORE_APPS"} {
 				t.Setenv(k, "")
 			}
 			t.Setenv("DATABASE_URL", validURL)

@@ -12,8 +12,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/identityhub/identityhub/internal/domain"
 )
@@ -44,8 +48,21 @@ const (
 
 // Service validates and persists audit entries.
 type Service struct {
-	store domain.AuditStore
-	clock domain.Clock
+	store  domain.AuditStore
+	clock  domain.Clock
+	ignore IgnoreConfig
+}
+
+// IgnoreConfig drops success entries from noisy but trusted sources
+// (service accounts that bind every minute). Failures are always kept
+// no matter what is listed here, so the list can never hide an attack.
+// The zero value records everything.
+type IgnoreConfig struct {
+	// CIDRs matches the entry IP (LDAP binds carry a client IP).
+	CIDRs []*net.IPNet
+	// AppIDs matches the entry application (OIDC/SAML/RADIUS logins;
+	// LDAP binds carry no application).
+	AppIDs []uuid.UUID
 }
 
 // New builds a Service. Clock may be nil (takes domain.SystemClock) so
@@ -57,15 +74,28 @@ func New(store domain.AuditStore, clock domain.Clock) *Service {
 	return &Service{store: store, clock: clock}
 }
 
+// WithIgnore installs the success-only ignore list and returns the
+// service for one-liner wiring. Sites that never call it record
+// everything, as before.
+func (s *Service) WithIgnore(cfg IgnoreConfig) *Service {
+	s.ignore = cfg
+	return s
+}
+
 // Record validates entry and appends it. At is stamped when zero; Detail
 // defaults to an empty object. Callers fail the login when Record fails
 // so the log stays complete (PRD §10: 100% of logins recorded).
+// Success entries matching the ignore list are dropped (return nil);
+// validation still runs first so bad entries are never dropped silently.
 func (s *Service) Record(ctx context.Context, e domain.AuditEntry) error {
 	if e.Method == "" {
 		return fmt.Errorf("%w: audit method is required", domain.ErrValidation)
 	}
 	if e.Result != domain.ResultSuccess && e.Result != domain.ResultFailure {
 		return fmt.Errorf("%w: audit result must be success or failure", domain.ErrValidation)
+	}
+	if e.Result == domain.ResultSuccess && s.ignored(e) {
+		return nil
 	}
 	if e.At.IsZero() {
 		e.At = s.clock.Now()
@@ -74,6 +104,28 @@ func (s *Service) Record(ctx context.Context, e domain.AuditEntry) error {
 		e.Detail = map[string]any{}
 	}
 	return s.store.Append(ctx, e)
+}
+
+// ignored reports whether a success entry matches the ignore list. An
+// empty or unparseable IP never matches (fail-closed: kept).
+func (s *Service) ignored(e domain.AuditEntry) bool {
+	if e.ApplicationID != nil {
+		for _, id := range s.ignore.AppIDs {
+			if *e.ApplicationID == id {
+				return true
+			}
+		}
+	}
+	if e.IP != "" {
+		if ip := net.ParseIP(strings.TrimSpace(e.IP)); ip != nil {
+			for _, n := range s.ignore.CIDRs {
+				if n != nil && n.Contains(ip) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // List returns a page of entries, newest first, plus the total count.
