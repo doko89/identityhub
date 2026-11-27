@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +192,74 @@ func TestExportCSVShapeAndQuoting(t *testing.T) {
 	}
 	if recs[2][2] != "" || recs[2][3] != "" || recs[2][7] != "{}" {
 		t.Fatalf("empty row 2 = %v, want blank ids and {} detail", recs[2])
+	}
+}
+
+func TestRecordIgnoreCIDR(t *testing.T) {
+	_, ignored, err := net.ParseCIDR("192.0.2.59/32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{}
+	svc := New(store, fixedClock{now: time.Now()}).WithIgnore(IgnoreConfig{CIDRs: []*net.IPNet{ignored}})
+	ctx := context.Background()
+	// Success from the ignored network is dropped.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodLDAP, Result: domain.ResultSuccess, IP: "192.0.2.59"}); err != nil {
+		t.Fatalf("Record ignored success = %v, want nil", err)
+	}
+	// Failures are always kept: the ignore list must never hide attacks.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodLDAP, Result: domain.ResultFailure, IP: "192.0.2.59"}); err != nil {
+		t.Fatal(err)
+	}
+	// Success from anywhere else is kept.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodLDAP, Result: domain.ResultSuccess, IP: "192.0.2.60"}); err != nil {
+		t.Fatal(err)
+	}
+	// Garbage IPs never match the ignore list (fail-closed).
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodLDAP, Result: domain.ResultSuccess, IP: "not-an-ip"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.entries) != 3 {
+		t.Fatalf("entries = %d, want 3 (failure + other IP + garbage IP)", len(store.entries))
+	}
+}
+
+func TestRecordIgnoreApp(t *testing.T) {
+	noisy, quiet := uuid.New(), uuid.New()
+	store := &fakeStore{}
+	svc := New(store, fixedClock{now: time.Now()}).WithIgnore(IgnoreConfig{AppIDs: []uuid.UUID{noisy}})
+	ctx := context.Background()
+	// Success for the ignored app is dropped.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodOIDC, Result: domain.ResultSuccess, ApplicationID: &noisy}); err != nil {
+		t.Fatalf("Record ignored app = %v, want nil", err)
+	}
+	// Its failures are still kept.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodOIDC, Result: domain.ResultFailure, ApplicationID: &noisy}); err != nil {
+		t.Fatal(err)
+	}
+	// Other apps are unaffected.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodOIDC, Result: domain.ResultSuccess, ApplicationID: &quiet}); err != nil {
+		t.Fatal(err)
+	}
+	// Entries without an app (LDAP binds, account actions) are unaffected.
+	if err := svc.Record(ctx, domain.AuditEntry{Method: domain.MethodLDAP, Result: domain.ResultSuccess}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.entries) != 3 {
+		t.Fatalf("entries = %d, want 3", len(store.entries))
+	}
+}
+
+func TestRecordIgnoreKeepsValidation(t *testing.T) {
+	// Invalid entries are rejected even when they match the ignore list:
+	// the ignore check runs after validation, never instead of it.
+	_, all, err := net.ParseCIDR("0.0.0.0/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(&fakeStore{}, fixedClock{now: time.Now()}).WithIgnore(IgnoreConfig{CIDRs: []*net.IPNet{all}})
+	if err := svc.Record(context.Background(), domain.AuditEntry{Result: domain.ResultSuccess, IP: "10.0.0.1"}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("Record(no method) = %v, want ErrValidation", err)
 	}
 }
 

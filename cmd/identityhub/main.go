@@ -131,7 +131,9 @@ func wireServices(ctx context.Context, db *postgres.DB, cfg config.Config, log *
 	oidcClients := postgres.NewOIDCClientRepository(db)
 	consents := postgres.NewOIDCConsentRepository(db)
 	challenges := postgres.NewOIDCChallengeRepository(db)
-	audits := usecaseaudit.New(auditRepo, nil)
+	audits := usecaseaudit.New(auditRepo, nil).WithIgnore(usecaseaudit.IgnoreConfig{
+		CIDRs: cfg.AuditIgnoreCIDRs, AppIDs: cfg.AuditIgnoreApps,
+	})
 
 	var m domain.Mailer
 	if cfg.SMTP.Enabled() {
